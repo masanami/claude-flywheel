@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
+*.local
+
+# Editor
+.vscode/
+.idea/
+
+# Dependencies / build (言語追加時に拡張)
+node_modules/
+dist/
+build/
+__pycache__/
+.venv/
+venv/
+
+# Claude Code local settings (共有しない個人設定)
+.claude/settings.local.json
