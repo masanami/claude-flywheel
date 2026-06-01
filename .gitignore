@@ -21,5 +21,10 @@ __pycache__/
 .venv/
 venv/
 
-# Claude Code local settings (共有しない個人設定)
+# Claude Code
+# .claude はグローバル設定で無視されるため、本リポジトリでは skills を再包含して管理する
+!.claude/
+.claude/*
+!.claude/skills/
+# 個人設定は共有しない
 .claude/settings.local.json
