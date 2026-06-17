@@ -21,4 +21,6 @@ claude-flywheel の設計ドキュメント置き場。
 ## 関連
 
 - [`/challenge-ledger.md`](../challenge-ledger.md) — 課題台帳の実体（人間が一箇所に記述）
+- [`runtime/`](../runtime/README.md) — 自律実行ランタイム（スケジュール設定・運用手順）
 - [`.claude/skills/bootstrap-domain-map/`](../.claude/skills/bootstrap-domain-map/SKILL.md) — ドメイン地図づくりのスキル
+- [`.claude/skills/run-cycle/`](../.claude/skills/run-cycle/SKILL.md) — 自走サイクル1周を回すスキル
