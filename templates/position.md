@@ -2,7 +2,7 @@
 
 > ドメイン担当エージェントの「職務記述書」。1 エージェント = 1 ポジション = 1 ビジネスドメイン。
 > このテンプレートをコピーして各ドメインのポジションを定義する（例: `positions/<domain>.md`）。
-> ブートストラップ（[ドメイン地図づくり](../../.claude/skills/bootstrap-domain-map/SKILL.md)）の成果としてドラフトが生成され、人間が承認・修正する。
+> ブートストラップ（claude-flywheel の `bootstrap-domain-map` スキル）の成果としてドラフトが生成され、人間が承認・修正する。
 
 ---
 
@@ -51,7 +51,7 @@
 
 ## 7. 知識・記憶
 
-> 蓄積した知識への参照（[エージェントmemory運用](../agent-memory.md)）。
+> 蓄積した知識への参照（運用は claude-flywheel の `docs/agent-memory.md`）。
 
 - ドメイン地図: `<memory への参照>`
 - 暗黙知 / 経験: `<memory への参照>`

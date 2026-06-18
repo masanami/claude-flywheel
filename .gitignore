@@ -22,9 +22,6 @@ __pycache__/
 venv/
 
 # Claude Code
-# .claude はグローバル設定で無視されるため、本リポジトリでは skills を再包含して管理する
-!.claude/
-.claude/*
-!.claude/skills/
+# プラグインのスキルは top-level skills/ で管理（.claude/ 配下は使わない）
 # 個人設定は共有しない
 .claude/settings.local.json

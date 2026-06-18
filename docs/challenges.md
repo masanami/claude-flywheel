@@ -10,12 +10,12 @@
 
 ## 課題 1: AI 駆動開発のボトルネック解消
 
-> **位置づけ**: 本課題は claude-flywheel というより、活用中の [masanami/harness](https://github.com/masanami/harness) **自体の改善**として扱うべき可能性がある。
+> **位置づけ**: 本課題は claude-flywheel というより、活用中の [masanami/claude-harness](https://github.com/masanami/claude-harness) **自体の改善**として扱うべき可能性がある。
 > **着手順序: 課題 2 を先行**させる（課題 1 はその後 / harness 側で対応）。
 
 ### 現状
 
-- [masanami/harness](https://github.com/masanami/harness) のハーネスを活用し、**ある程度自律的に開発を行えている**。
+- [masanami/claude-harness](https://github.com/masanami/claude-harness) のハーネスを活用し、**ある程度自律的に開発を行えている**。
 - 一方で、開発フローの中に人間負担が集中する工程が残っており、そこがスループットの上限を決めている。
 
 ### ボトルネック A: 動作確認の手間（ユーザー負担）
@@ -104,4 +104,4 @@
 ### 関連ドキュメント
 
 - [requirements.md](./requirements.md) — 要件定義
-- [masanami/harness](https://github.com/masanami/harness) — 活用中の開発ハーネス
+- [masanami/claude-harness](https://github.com/masanami/claude-harness) — 活用中の開発ハーネス

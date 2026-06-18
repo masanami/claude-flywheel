@@ -1,14 +1,15 @@
 # 課題台帳（Challenge Ledger）
 
 > **AI 社員に取り組ませたい課題を、人間がここ一箇所に集約して書く**単一のソース。全エージェントがここを参照する。
-> 書き方は [docs/templates/challenge-ledger-format.md](docs/templates/challenge-ledger-format.md) を参照。
+> 書き方は claude-flywheel プラグインの `docs/challenge-ledger-format.md` を参照。
+> （このファイルは claude-flywheel の `templates/challenge-ledger.md` から利用先ワークスペースに生成された雛形）
 >
 > - **人間**: 「人間記入欄」だけ書けばよい（ドメインやサービスを知らなくてよい）。
 > - **オーケストレーター**: 各課題を読み、「分類欄」を埋める（横断課題か否かを判定・タグ付け・担当割り当て）。
 
 ---
 
-<!-- 新しい課題は下に追記。テンプレートは docs/templates/challenge-ledger-format.md -->
+<!-- 新しい課題は下に追記。テンプレートは claude-flywheel の docs/challenge-ledger-format.md -->
 
 <!-- 記入例（コピーして使う）
 
