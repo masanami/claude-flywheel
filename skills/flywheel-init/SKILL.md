@@ -28,13 +28,13 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ## 手順
 
 1. カレントワークスペースを確認する（既存ファイルを上書きしない。あれば差分を提示して承認を得る）。
-2. プラグインの `templates/` を雛形に、上記を生成する:
-   - `templates/challenge-ledger.md` → `challenge-ledger.md`
-   - `templates/runtime/README.md` → `runtime/README.md`
+2. プラグインの雛形（`${CLAUDE_PLUGIN_ROOT}/templates/`）を読み込み、カレントワークスペースに生成する:
+   - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-ledger.md` → `./challenge-ledger.md`
+   - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
 3. 次の一手を案内する:
-   - ドメインが未知なら [bootstrap-domain-map](../bootstrap-domain-map/SKILL.md) を実行して `positions/`・`memory/` を生成。
-   - 既にドメインが分かっていれば `templates/position.md` を雛形に `positions/<domain>.md` を作成。
+   - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/` を生成。
+   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成。
 4. 生成物を Git コミットする（秘密情報は含めない）。
 
 ## 注意
