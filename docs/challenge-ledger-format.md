@@ -1,7 +1,7 @@
 # 課題台帳フォーマット
 
 > **人間が一箇所に課題を書き、オーケストレーターが分類（タグ付け）する**ための形式を定義する。
-> 実体は [`/challenge-ledger.md`](../../challenge-ledger.md)（リポジトリ直下の単一ファイル）。全エージェントがここを参照する。
+> 実体は**利用先ワークスペース直下の `challenge-ledger.md`**（単一ファイル）。全エージェントがここを参照する。雛形は [`templates/challenge-ledger.md`](../templates/challenge-ledger.md)。
 
 ## 役割分担
 
@@ -44,6 +44,6 @@
 
 ## 運用メモ
 
-- 当面は人間が一箇所に集約。将来 Slack ログや対話からの自動収集を検討（[requirements.md OQ-01](../requirements.md)）。
+- 当面は人間が一箇所に集約。将来 Slack ログや対話からの自動収集を検討（[requirements.md OQ-01](./requirements.md)）。
 - 「分類欄」はオーケストレーターが更新するため、人間は基本「人間記入欄」だけ書けばよい。
 - ステータスや担当の更新履歴は Git の差分で追える。

@@ -1,7 +1,7 @@
 # エージェントmemory 運用方針
 
 > ドメイン担当エージェントが、**ドメイン地図だけでなく暗黙知・経験**を蓄積し、横断的に自律して動けるようにするための記憶の運用を定義する。
-> ブートストラップ（[bootstrap-domain-map](../.claude/skills/bootstrap-domain-map/SKILL.md)）で初期 seed を生成し、業務遂行のたびに更新していく。
+> ブートストラップ（[bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md)）で初期 seed を生成し、業務遂行のたびに更新していく。
 >
 > - ステータス: ドラフト（検討中）
 > - 関連: [requirements.md FR-40〜42](requirements.md)（学習フェーズ）, [challenges.md 課題2](challenges.md)

@@ -4,7 +4,7 @@
 > 本書は実現方式・構成・主要フローを扱う。要件そのものの追加・変更は requirements.md 側で行う。
 
 - ステータス: ドラフト
-- 最終更新: 2026-06-17
+- 最終更新: 2026-06-18
 - 関連: [requirements.md](./requirements.md) / [agent-memory.md](./agent-memory.md) / [challenges.md](./challenges.md)
 
 ---
@@ -27,11 +27,35 @@
 5. **Human-in-the-loop を構造に埋め込む**: 承認ポイントをフロー上の明示的なゲートとして配置（NFR-06）。
 6. **Claude Code 基盤の活用**: エージェント＝Claude Code のエージェント／サブエージェント、定型手順＝スキルとして実装。
 7. **段階的自律化**: 初期は人間トリガ中心、信頼に応じてスケジュール実行・自動化へ移行（要件 §6）。
+8. **プラグインとして配布し、機械と状態を分離**: claude-flywheel は Claude Code プラグイン。**機械（スキル/テンプレ）はプラグイン**に、**状態（課題台帳/positions/memory）は利用先ワークスペース**に置く（§1.1）。
+
+## 1.1 利用形態（配布とデプロイ）
+
+claude-flywheel は **Claude Code プラグイン**として install して使う。プラグインは配布・更新されるコードなので、**日々書き換わる運用状態をプラグイン内に置かない**。状態は導入先ワークスペースに生成する。
+
+| 区分 | どこ | 中身 | 性質 |
+| --- | --- | --- | --- |
+| **機械**（プラグイン本体） | claude-flywheel リポジトリ | `skills/`（flywheel-init / bootstrap-domain-map / run-cycle …）、`templates/`、`docs/`、`.claude-plugin/plugin.json` | 配布・更新される。読み取り専用扱い |
+| **状態**（live state） | **利用先ワークスペース** | `challenge-ledger.md` / `positions/` / `memory/` / `runtime/` | 利用先ごとに独立。Git 追跡 |
+
+導入手順（概要）:
+
+```
+1. claude-flywheel をプラグインとして install
+2. 利用先ワークスペースで /flywheel-init → 状態を scaffold（templates/ から生成）
+3. /bootstrap-domain-map → positions/・memory/ を生成（ドメイン地図）
+4. 課題台帳に課題を記入 → /run-cycle（または routine で定期自走）
+```
+
+- スキルは install 後 `claude-flywheel:run-cycle` のように名前空間化される。
+- 同じプラグインを複数のワークスペースに導入でき、それぞれが独立した状態を持つ（汎用性）。
 
 ## 2. 全体構成
 
+> 機械（スキル/テンプレ）は **claude-flywheel プラグイン**が提供し、状態（台帳/positions/memory）は**利用先ワークスペース**にある（§1.1）。下図のコントロールプレーンは両者が組み合わさったもの。
+
 ```
-┌──────────────────────────── コントロールプレーン（claude-flywheel リポジトリ）────────────────────────────┐
+┌─────── コントロールプレーン（利用先ワークスペースの状態 ＋ claude-flywheel プラグインの機械）────────┐
 │                                                                                                          │
 │   人間 ──書く──▶  課題台帳 (challenge-ledger.md)                                                          │
 │                        │ 参照                                                                            │
@@ -63,9 +87,9 @@
 
 ### 3.1 課題台帳（Challenge Ledger）
 
-- 実体: リポジトリ直下の単一ファイル [`challenge-ledger.md`](../challenge-ledger.md)。
+- 実体: **利用先ワークスペース直下**の単一ファイル `challenge-ledger.md`（雛形は [`templates/challenge-ledger.md`](../templates/challenge-ledger.md)）。
 - 人間が「人間記入欄」に課題を集約。オーケストレーターが「分類欄」を更新。
-- 形式・分類ルール: [challenge-ledger-format.md](./templates/challenge-ledger-format.md)。
+- 形式・分類ルール: [challenge-ledger-format.md](./challenge-ledger-format.md)。
 - 対応要件: FR-07。
 
 ### 3.2 オーケストレーター
@@ -85,7 +109,7 @@
 ### 3.4 ポジション
 
 - ドメイン担当エージェントの「職務記述書」。担当ドメイン／ミッション／関心範囲／権限／関係／関連度判定／記憶参照から成る。
-- 定義: [templates/position.md](./templates/position.md)。ブートストラップでドラフト生成→人間承認。
+- 定義: [templates/position.md](../templates/position.md)。ブートストラップでドラフト生成→人間承認。
 - 配置: `positions/<domain>.md`。
 - 対応要件: FR-04。権限欄が承認ポイントの線引き（OQ-02）を担う。
 
@@ -98,7 +122,7 @@
 
 ### 3.6 ブートストラップ
 
-- スキル [bootstrap-domain-map](../.claude/skills/bootstrap-domain-map/SKILL.md) が、対象サービス群を探索して **ドメイン地図 → ポジション案 → 記憶 seed** を生成。
+- スキル [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) が、対象サービス群を探索して **ドメイン地図 → ポジション案 → 記憶 seed** を生成。
 - 出発点が「ドメイン未知」であるため、ポジション定義の前段として必須（FR-09）。
 - 成果は人間が承認（承認ポイント）。
 
@@ -106,14 +130,14 @@
 
 - ポジション（役割）が必要とする能力を **スキル** として用意する。エージェントは自分のポジションに紐づくスキルを使って自走する。
 - 例: ドメイン調査、課題の自己選択、記憶の更新、レビュー前の前提知識ロード、報告 など。ポジションごとに必要なスキルセットを定義する。
-- 配置: `.claude/skills/`（ポジション横断の共通スキル）と、ポジション定義からの参照。
-- bootstrap-domain-map もこの一種（立ち上げ用スキル）。
+- 配置: プラグインの `skills/`（共通スキル）と、ポジション定義からの参照。
+- flywheel-init / bootstrap-domain-map / run-cycle もこの一種（立ち上げ・運用スキル）。
 
 ### 3.8 自律実行ランタイム【主要成果物 (b)】
 
 - エージェントを**自律的に動かすための実行基盤**。**専用アプリは作らず**、Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で構成する。
-- 構成は 3 レイヤー（詳細は §7）: ①拍動（routine/cron）／②サイクル本体（[`run-cycle`](../.claude/skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
-- 配置: [`runtime/`](../runtime/README.md)（スケジュール設定・運用手順）。
+- 構成は 3 レイヤー（詳細は §7）: ①拍動（routine/cron）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
+- 配置: 利用先ワークスペースの `runtime/`（スケジュール設定・運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
 - 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに routine 化して定期自走。
 
 ### 3.9 ツール層（差し替え可能なエグゼキュータ）
@@ -127,12 +151,34 @@
   | 単位 | ポジション・ドメイン・スキル | ツール固有（例: Issue・PR） |
   | 依存 | ツールに依存しない | 差し替え可能な一プラグイン |
 
-## 4. リポジトリ構成（コントロールプレーンの配置）
+## 4. リポジトリ構成
 
-> OQ-01（管理基盤）に対する**提案**。当面は claude-flywheel リポジトリ内にファイルとして集約し、Git で追跡する。実作業の対象（外部リポジトリ等）や接続ツールは本体に含めない。
+機械（プラグイン）と状態（利用先）を分離する（§1.1）。
+
+### 4.1 プラグイン本体（claude-flywheel リポジトリ）
 
 ```
 claude-flywheel/
+├── .claude-plugin/
+│   └── plugin.json              # プラグインマニフェスト
+├── skills/                      # 配布スキル【成果物(a)】
+│   ├── flywheel-init/           # 利用先に状態を scaffold
+│   ├── bootstrap-domain-map/    # ドメイン地図づくり
+│   └── run-cycle/               # 自走サイクル1周
+├── templates/                   # 利用先に scaffold する雛形
+│   ├── challenge-ledger.md
+│   ├── position.md
+│   └── runtime/README.md
+├── docs/                        # 設計ドキュメント
+└── README.md
+```
+
+### 4.2 利用先ワークスペース（状態 / live state）
+
+> `/flywheel-init` と `/bootstrap-domain-map` が生成する。Git で追跡する（NFR-02/03）。
+
+```
+<workspace>/
 ├── challenge-ledger.md          # 課題台帳（単一ソース）
 ├── positions/                   # ポジション定義（ドメインごと）
 │   └── <domain>.md
@@ -140,13 +186,12 @@ claude-flywheel/
 │   └── <domain>/
 │       ├── INDEX.md
 │       └── {map,tacit,experience,reference}-*.md
-├── orchestrator/                # オーケストレーターのルール/プロンプト
-├── runtime/                     # 自律実行ランタイム（アプリ/スケジュール設定）【成果物(b)】
-├── docs/                        # 設計ドキュメント
-└── .claude/skills/              # スキル群（ポジション別/共通）【成果物(a)】
+├── orchestrator/                # オーケストレーターのルール/プロンプト（任意）
+└── runtime/                     # 自律実行ランタイム設定【成果物(b)】
 ```
 
-- 実作業の対象（例: 会社のマイクロサービス）は**外部リポジトリ**。エージェントは接続ツール経由で作業し、claude-flywheel には含めない。
+- 実作業の対象（例: 会社のマイクロサービス）は**さらに外部のリポジトリ**。エージェントは接続ツール経由で作業し、どちらにも含めない。
+- 状態の最終配置は OQ-01 と連動。本書は「利用先ワークスペース内に集約」を提案。
 - 接続ツール（例: claude-harness）も外部。本体は依存せず、プラグインとして参照する。
 
 ## 5. 主要フロー
@@ -207,7 +252,7 @@ claude-flywheel/
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
 | ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | スケジュール実行（routine / cron） |
-| ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../.claude/skills/run-cycle/SKILL.md) スキル |
+| ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../skills/run-cycle/SKILL.md) スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群（3.7）＋ 記憶（3.5）。横断はワークフローでファンアウト |
 
 ```
@@ -228,7 +273,7 @@ routine(cron) ──起動──▶ /run-cycle
 ### 段階的導入
 
 1. **手動検証**: `/run-cycle`（または `--dry-run`）を手動実行して 1 周の挙動を確認。
-2. **定期自走**: routine 化して `run-cycle` を定期起動（[`runtime/`](../runtime/README.md)）。
+2. **定期自走**: routine 化して `run-cycle` を定期起動（[`runtime/`](../templates/runtime/README.md)）。
 3. いずれの段階でも §6 の承認ポイントを維持し、自律度の引き上げは信頼に応じて段階的に行う（要件 §6、OQ-03）。
 
 ## 8. 段階的実装ロードマップ
@@ -262,7 +307,7 @@ routine(cron) ──起動──▶ /run-cycle
 
 ## 10. アーキテクチャ上の未決事項
 
-- **AO-01**: 記憶／タスクの最終配置（OQ-01）。本書は claude-flywheel リポジトリ内集約を提案するが、実行タスクの Issue/PR 管理との接続を要確定。
+- **AO-01**: 記憶／タスクの最終配置（OQ-01）。本書は**利用先ワークスペース内集約**を提案するが、実行タスクの Issue/PR 管理との接続を要確定。
 - **AO-02**: オーケストレーターの実装形態（単発エージェント / スキル / ワークフロー / 定期ジョブ）。
 - **AO-03**: ドメインエージェントの起動・常駐モデル（都度起動 / スケジュール / イベント駆動）。
 - **AO-04**: 横断知識の共有方法（共有記憶領域 or ドメイン間相互リンク、agent-memory.md OQ）。
