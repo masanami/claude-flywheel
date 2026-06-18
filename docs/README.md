@@ -26,7 +26,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 
 | スキル | 用途 |
 | --- | --- |
-| [flywheel-init](../skills/flywheel-init/SKILL.md) | 利用先ワークスペースに状態を初期化（scaffold） |
+| [flywheel-init](../skills/flywheel-init/SKILL.md) | エージェントのリポジトリに状態を初期化（scaffold） |
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 
