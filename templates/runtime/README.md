@@ -1,15 +1,15 @@
 # runtime — 自律実行ランタイム【成果物 (b)】
 
-自走エージェントを定期的に起こすための構成。**専用アプリは作らず**、Claude Code のスケジュール実行（routine/cron）＋ [`run-cycle`](../../skills/run-cycle/SKILL.md) スキルで実現する。
+自走エージェントを定期的に起こすための構成。**専用アプリは作らず**、Claude Code のスケジュール実行（routine/cron）＋ `run-cycle` スキルで実現する。
 
-> 設計: [architecture.md §7](../../docs/architecture.md)
+> 設計: claude-flywheel の `docs/architecture.md` §7
 
 ## 3 レイヤー
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
 | ① 拍動（cadence） | いつ起こすか | スケジュール実行（routine / cron） |
-| ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../../skills/run-cycle/SKILL.md) スキル |
+| ② サイクル本体 | 1 周の制御フロー | `run-cycle` スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群 ＋ 記憶。横断はワークフローでファンアウト |
 
 ```
@@ -24,7 +24,7 @@ routine(cron) ──起動──▶ /run-cycle
 2. **定期自走**: Claude Code のスケジュール実行（routines）で `run-cycle` を定期起動する。
    - 例: 毎営業日 09:00 に「`/run-cycle` を実行して結果を報告」。
    - cron 定義は運用開始時にここへ追記する。
-3. **承認ゲートは常に維持**（[architecture.md §6](../../docs/architecture.md)）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。
+3. **承認ゲートは常に維持**（claude-flywheel の `docs/architecture.md` §6）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。
 
 ## 状態管理
 
