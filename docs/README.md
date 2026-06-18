@@ -12,20 +12,21 @@ claude-flywheel の設計ドキュメント置き場。
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
-## 配布形態
+## 配布形態（fleet：複数の独立エージェントを作る土台）
 
-claude-flywheel は **Claude Code プラグイン**として配布する。**機械（スキル/テンプレ）はプラグイン**に、**状態（課題台帳/positions/memory）は利用先ワークスペース**に置く（[architecture.md §0/§4](./architecture.md)）。
+claude-flywheel は **Claude Code プラグイン**として配布し、1 つのプラグインから**プロジェクトごとに独立した複数のエージェント（fleet）** を作る。構成は 3 層（[architecture.md §1.1/§4](./architecture.md)）。
 
-| 区分 | 配置 | 中身 |
+| 層 | 配置 | 中身 |
 | --- | --- | --- |
-| 機械（プラグイン） | `skills/` `templates/` `docs/` `.claude-plugin/` | スキル群・雛形・設計 |
-| 状態（利用先で生成） | 利用先ワークスペース | `challenge-ledger.md` `positions/` `memory/` `runtime/` |
+| 機械（プラグイン） | claude-flywheel: `skills/` `templates/` `docs/` `.claude-plugin/` | スキル群・雛形・設計（全エージェント共通の土台） |
+| 各エージェント（state＋harness） | エージェントごとの独立リポジトリ | `challenge-ledger.md` `positions/` `memory/` `runtime/` ＋ 独自ハーネス |
+| 共有課題ソース（intake） | 共有リポジトリ/ドキュメント | 人間が課題を集約する単一の入口（各エージェントが自分の分だけ取り込み） |
 
 ## スキル（`skills/`）
 
 | スキル | 用途 |
 | --- | --- |
-| [flywheel-init](../skills/flywheel-init/SKILL.md) | 利用先ワークスペースに状態を初期化（scaffold） |
+| [flywheel-init](../skills/flywheel-init/SKILL.md) | エージェントのリポジトリに状態を初期化（scaffold） |
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 

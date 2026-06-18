@@ -34,6 +34,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 3. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/` を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成。
+   - 課題は**共有ソース**に集約し、run-cycle が自分に関係する分だけ `challenge-ledger.md` へ取り込む（共有ソースの場所を控えておく）。
 4. 生成物を Git コミットする（秘密情報は含めない）。
 
 ## 注意
