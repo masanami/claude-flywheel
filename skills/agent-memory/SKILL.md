@@ -1,6 +1,6 @@
 ---
 name: agent-memory
-description: エージェントのドメイン記憶（memory/<domain>/）を構造化して管理する。save（記録）/ recall（参照）/ promote（確証昇格）/ maintain（棚卸し）を提供。Triggers on：「記憶を保存」「記憶を参照」「memory に記録」「agent-memory」。bootstrap-domain-map と run-cycle はメモリ書き込み・読み込みを本スキルに委譲する。
+description: claude-flywheel エージェントの**ドメイン記憶**（リポジトリ内 memory/<domain>/ の map/tacit/experience/reference）を構造化して管理する。save/recall/promote/maintain を提供。主に run-cycle・bootstrap-domain-map からの委譲、または「ドメイン記憶を記録/参照」「agent-memory」と明示されたときに使う。汎用的な「覚えておいて/思い出して」（ユーザーや作業文脈の記憶）は対象外＝公式 Claude Code memory の領分。
 ---
 
 # agent-memory
@@ -8,7 +8,8 @@ description: エージェントのドメイン記憶（memory/<domain>/）を構
 エージェントの**ドメイン記憶**（`memory/<domain>/`）の読み書きを一箇所に集約する共通スキル。frontmatter・type・confidence・INDEX・重複排除・リンクの規律をここで担保する。
 
 > 記憶の設計・ライフサイクルは claude-flywheel の `docs/agent-memory.md`。実行時は本スキルの規約に従えば足りる。
-> 扱うのは**エージェントrepo内の `memory/`**（Git追跡・共有・レビュー対象）。個人ローカルの公式 Claude Code memory（`~/.claude/...`）とは別物で、そちらには書かない（使い分けは docs 参照）。
+> 扱うのは**エージェントrepo内の `memory/`**（Git追跡・共有・レビュー対象）。個人ローカルの公式 Claude Code memory（`~/.claude/...`）とは別物で、そちらには書かない。
+> **汎用的な「覚えておいて／思い出して」（ユーザーの好み・作業文脈）は本スキルではなく公式 memory の領分**。本スキルは「このエージェントのドメイン知識・経験」専用（使い分けは docs 参照）。
 
 ## 格納規約
 
