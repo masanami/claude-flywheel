@@ -29,11 +29,13 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [flywheel-init](../skills/flywheel-init/SKILL.md) | エージェントのリポジトリに状態を初期化（scaffold） |
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
+| [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
 
 ## テンプレート（`templates/` ＝利用先に scaffold する雛形）
 
 | テンプレート | 用途 |
 | --- | --- |
+| [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形 |

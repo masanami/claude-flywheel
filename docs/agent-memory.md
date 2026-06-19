@@ -2,6 +2,7 @@
 
 > ドメイン担当エージェントが、**ドメイン地図だけでなく暗黙知・経験**を蓄積し、横断的に自律して動けるようにするための記憶の運用を定義する。
 > ブートストラップ（[bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md)）で初期 seed を生成し、業務遂行のたびに更新していく。
+> 記憶の読み書き（save / recall / promote / maintain）は [agent-memory](../skills/agent-memory/SKILL.md) スキルに集約し、bootstrap-domain-map・run-cycle はこれに委譲する。
 >
 > - ステータス: ドラフト（検討中）
 > - 関連: [requirements.md FR-40〜42](requirements.md)（学習フェーズ）, [challenges.md 課題2](challenges.md)
@@ -71,9 +72,32 @@ metadata:
 - **活用**: 要件・設計レビューや実装の**前ロード知識**として参照（課題1ボトルネックBの解）。
 - **保守**: 人間が閲覧・修正・削除できる（FR-42）。`confidence: low` は要検証として扱う。
 
-## 5. 検討中の論点（Open Questions）
+### 参照モデル（CLAUDE.md ＋ recall）
+
+- **ベースライン（自動）**: ポジション要約・記憶 INDEX・recall 手順を各エージェントの **`CLAUDE.md`**（セッション開始時に自動ロード）に置く。メインセッションが起動時に「自分は誰／何を知っているか／どう引くか」を把握できる。
+- **詳細（明示・選択）**: 記憶本文は全ロードせず、`agent-memory` の **recall** で関連分だけ取得する（量・トークン・関連性のため）。
+- **サブエージェント委譲時**: CLAUDE.md は引き継がれないため、前提知識はブリーフに明記して渡す。
+
+## 5. 公式 Claude Code memory との使い分け
+
+claude-flywheel の agent-memory は、Claude Code 標準のファイルベース memory（`~/.claude/projects/.../memory/` ＋ `MEMORY.md`）とは**目的もスコープも別物**。両者は併用する。
+
+| 観点 | 公式 Claude Code memory | flywheel agent-memory |
+| --- | --- | --- |
+| 置き場所 | `~/.claude/projects/...`（ローカル・個人） | エージェントrepo `memory/`（Git追跡・共有） |
+| スコープ | ユーザー/プロジェクトのセッション文脈 | エージェントのドメイン知識・経験（成果物） |
+| type | user / feedback / project / reference | map / tacit / experience / reference |
+| 共有・レビュー | 個人ローカル、レビュー対象外 | チーム共有・Git レビュー・人間承認可 |
+| ロード | セッション開始時に自動 | run-cycle / レビュー前に明示ロード（recall） |
+
+**使い分けの指針**:
+- **ドメイン知識・経験（成果物）** → flywheel agent-memory（repo 内）。共有・レビュー・version 管理したいため、公式の `~/.claude` には置かない。
+- **作業上の好み・このユーザー/repo 特有の文脈** → 公式 memory に任せる。
+- flywheel はファイル規約（frontmatter / INDEX）を公式に寄せるが、**ストアは別（in-repo）**。
+
+## 6. 検討中の論点（Open Questions）
 
 - 配置場所: リポジトリ内（Git 履歴で追える）か、別ストアか（[OQ-01](requirements.md)）。
 - 横断知識の共有: 複数ドメインで共有する事実をどう持つ（共有領域 or 相互リンク）。
-- 暗黙知の検証フロー: `confidence: low` を誰が・いつ確証へ昇格させるか。
-- recall の仕組み: タスク着手時にどの記憶を自動ロードするかの選定方法。
+- 暗黙知の検証フロー: `confidence: low` を誰が・いつ確証へ昇格させるか（agent-memory の promote）。
+- recall の選定精度: タスク着手時にどの記憶をロードするかの判定ロジック（agent-memory の recall）の改善。
