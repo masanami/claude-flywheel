@@ -33,6 +33,7 @@ metadata:
   target: skill:<name> | subagent:<name> | brief | position | recall | other  # どの資産の改善に効くか
   signal: <何が効いた/詰まったか 1行>
   recurrence: <同種が何回目か（任意）>
+  confidence: high | medium | low     # 他の type と同じく必須（格納規約）
 ```
 
 - **bad** = 改修トリガー、**good** = 再利用資産化・回帰ガード・recall 正例（[self-improvement.md §2](self-improvement.md)）。
