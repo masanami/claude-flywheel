@@ -35,6 +35,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 
 | テンプレート | 用途 |
 | --- | --- |
+| [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形 |

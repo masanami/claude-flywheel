@@ -215,6 +215,7 @@ claude-flywheel/
 
 ```
 <agent-repo>/
+├── CLAUDE.md                    # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md          # このエージェントの課題台帳（正本。共有ソースから取り込み）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
 │   └── <domain>.md
