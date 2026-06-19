@@ -11,6 +11,7 @@
 | ① 拍動（cadence） | いつ起こすか | スケジュール実行（routine / cron） |
 | ② サイクル本体 | 1 周の制御フロー | `run-cycle` スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群 ＋ 記憶。横断はワークフローでファンアウト |
+| ④ 自己改善 | ②③ を磨く別ループ | `reflect` スキル（低頻度・内省） |
 
 ```
 routine(cron) ──起動──▶ /run-cycle
@@ -24,7 +25,8 @@ routine(cron) ──起動──▶ /run-cycle
 2. **定期自走**: Claude Code のスケジュール実行（routines）で `run-cycle` を定期起動する。
    - 例: 毎営業日 09:00 に「`/run-cycle` を実行して結果を報告」。
    - cron 定義は運用開始時にここへ追記する。
-3. **承認ゲートは常に維持**（claude-flywheel の `docs/architecture.md` §6）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。
+3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（例: 週次、または再発 bad が溜まったとき）。run-cycle が残した good/bad 信号を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（設計は `docs/self-improvement.md`）。毎周は回さない。
+4. **承認ゲートは常に維持**（claude-flywheel の `docs/architecture.md` §6）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認（#8）。
 
 ## 状態管理
 

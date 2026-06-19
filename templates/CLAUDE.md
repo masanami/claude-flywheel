@@ -21,6 +21,7 @@
 ## 自走
 
 - 1 周回す: `/claude-flywheel:run-cycle`
+- 内省（低頻度・ハーネス改善）: `/claude-flywheel:reflect`（run-cycle が残した good/bad 信号を集計し改修提案）
 
 ## 注意
 

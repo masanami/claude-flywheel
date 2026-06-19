@@ -5,7 +5,7 @@
 
 - ステータス: ドラフト
 - 最終更新: 2026-06-18
-- 関連: [requirements.md](./requirements.md) / [agent-memory.md](./agent-memory.md) / [challenges.md](./challenges.md)
+- 関連: [requirements.md](./requirements.md) / [agent-memory.md](./agent-memory.md) / [self-improvement.md](./self-improvement.md) / [challenges.md](./challenges.md)
 
 ---
 
@@ -187,6 +187,15 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
   | 単位 | ポジション・ドメイン・スキル | ツール固有（例: Issue・PR） |
   | 依存 | ツールに依存しない | 差し替え可能な一プラグイン |
 
+### 3.10 自己改善（内省）ループ
+
+- 実行ループ（run-cycle）とは**分離した別ループ**として、ハーネス自体（スキル・サブエージェントのブリーフ・ポジション・recall）を継続的に改善する。設計は [self-improvement.md](./self-improvement.md)。
+- **2 層**: ① run-cycle の学習ステップで good/bad 信号を `experience` に **append するだけ**（軽量・改修しない）／② 別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で信号を集計し改修を**提案**する。
+- **good/bad 両方**を記録（bad=改修トリガー、good=再利用資産化・回帰ガード・recall 正例）。
+- **スコープ**: reflect が直接編集するのは**エージェントrepo のローカル資産**のみ。**プラグイン本体の共通スキルは読み取り専用**で、改善は upstream（claude-flywheel）への Issue 起票に倒す。
+- 起動は毎周ではなく **N 周ごと／しきい値（再発 ≥2）／手動**。改修の適用は人間承認（承認ポイント #8）。
+- 対応要件: FR-43〜45（学習＝記憶ストア 3.5 を入力に使う）。
+
 ## 4. リポジトリ構成
 
 3 層に分ける（§1.1）: プラグイン（機械）／ 各エージェント（state＋harness）／ 共有課題ソース（intake）。
@@ -200,7 +209,9 @@ claude-flywheel/
 ├── skills/                      # 配布スキル【成果物(a)】
 │   ├── flywheel-init/           # 利用先に状態を scaffold
 │   ├── bootstrap-domain-map/    # ドメイン地図づくり
-│   └── run-cycle/               # 自走サイクル1周
+│   ├── run-cycle/               # 自走サイクル1周
+│   ├── agent-memory/            # ドメイン記憶の管理
+│   └── reflect/                 # 自己改善（内省）ループ1周
 ├── templates/                   # 利用先に scaffold する雛形
 │   ├── challenge-ledger.md
 │   ├── position.md
@@ -284,6 +295,7 @@ claude-flywheel/
 | 5 | 検証の最終確認 | 5.2-5 | FR-32 |
 | 6 | 暗黙知（confidence: low）の確証昇格 | 記憶保守 | FR-42 |
 | 7 | fleet 横断・重複のルーティング（初期） | 3.2(B) / 5.3 | FR-08 |
+| 8 | ハーネス改修（skill/ブリーフ/ポジション/recall）の適用 | 3.10 / reflect | FR-44 |
 
 権限欄（ポジション §4）が、各エージェントの「自律可 / 要承認」の線引きを定義する。
 
@@ -296,6 +308,7 @@ claude-flywheel/
 | ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | スケジュール実行（routine / cron） |
 | ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../skills/run-cycle/SKILL.md) スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群（3.7）＋ 記憶（3.5）。横断はワークフローでファンアウト |
+| ④ 自己改善 | ②③ を継続的に磨く別ループ | [`reflect`](../skills/reflect/SKILL.md) スキル（低頻度・3.10）。run-cycle は信号採取のみ |
 
 ```
 routine(cron) ──起動──▶ /run-cycle
@@ -327,7 +340,7 @@ routine(cron) ──起動──▶ /run-cycle
 | **P2 ポジション別スキル＆ランタイム** | 自走に必要なスキル群と実行基盤を整備【成果物(a)(b)】 | ポジション別スキル、`runtime/`（手動トリガ版） |
 | **P3 単一エージェント自走** | 1 エージェントで取り込み→自己選択→ツール委譲→検証→学習を一巡 | 1 エージェントの Flywheel 実証（受け入れ基準 [requirements.md §11](./requirements.md)） |
 | **P4 fleet 化** | 複数の独立エージェント＋共有ソースからの取り込み | 複数エージェント、fleet 横断は人間ルーティング |
-| **P5 自律化** | スケジュール実行・自動トリアージ・fleet 調整の委譲 | 定期実行、fleet スコープ（§3.2(B)）の自動化 |
+| **P5 自律化** | スケジュール実行・自動トリアージ・fleet 調整の委譲・自己改善 | 定期実行、fleet スコープ（§3.2(B)）の自動化、reflect による内省ループ（§3.10） |
 | **P6 課題ソース外部化**（任意） | 共有ソースを外部ドキュメント（Notion 等）にする | 取り込み（ingestion）の認証・正規化（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06） |
 
 ## 9. 要件トレーサビリティ
@@ -342,6 +355,7 @@ routine(cron) ──起動──▶ /run-cycle
 | FR-20〜23（実行） | ツール層＝接続ツール（3.9）+ 自律実行ランタイム（3.8）+ 承認ポイント（6） |
 | FR-30〜32（検証） | ツール層＝接続ツール（3.9）+ 承認ポイント #5 |
 | FR-40〜42（学習） | 記憶ストア（3.5）/ agent-memory.md |
+| FR-43〜45（自己改善） | 自己改善ループ（3.10）: run-cycle 信号採取 + reflect / self-improvement.md / 承認ポイント #8 |
 | 自走の能力 | ポジション別スキル群（3.7） |
 | 自律的な起動 | 自律実行ランタイム（3.8） |
 | NFR-02/03 | ファイルベース・Git 管理（1.4） |
