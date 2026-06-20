@@ -22,6 +22,8 @@
 | `experience` | 経験 | 過去タスクの結果、効いた手順・失敗、レビュー指摘の傾向 | 実行・検証後の学習 |
 | `reference` | 参照 | API 契約、スキーマ、外部ドキュメント・ダッシュボードの場所 | ブートストラップ・運用 |
 
+> `map` は対象リポジトリを **`repos.tsv` の `<name>`** で参照する（実体は `.flywheel/repos/` の参照用クローン。管理は [architecture.md §3.9.1](architecture.md)）。秘密情報はマニフェスト・memory に書かない。
+
 ### 2.1 experience の追加フィールド（自己改善ループ用）
 
 `experience` は、自己改善（内省）ループ（[self-improvement.md](self-improvement.md)）の入力も兼ねる。run-cycle の学習ステップが **append のみ**で good/bad を記録し、傾向の集計と改修提案は別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で行う。

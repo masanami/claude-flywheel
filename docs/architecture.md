@@ -187,6 +187,24 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
   | 単位 | ポジション・ドメイン・スキル | ツール固有（例: Issue・PR） |
   | 依存 | ツールに依存しない | 差し替え可能な一プラグイン |
 
+### 3.9.1 関連リポジトリ管理（参照用クローン）
+
+エージェントがドメイン関連リポジトリを **clone して参照**（map/tacit 抽出・調査）できるようにする。**マニフェスト（Git 追跡）と クローン実体（gitignore）を分離**する。
+
+```
+<agent-repo>/
+├── repos.tsv            # 関連リポジトリのマニフェスト（Git 追跡）= 知識
+├── .flywheel/repos/     # クローン実体（.gitignore）= 参照用・読み取り中心
+└── memory/<domain>/     # map が repos.tsv の <name> を参照
+```
+
+- **マニフェスト `repos.tsv`**: 素朴な行指向（空白/タブ区切り・`#` コメント、`<name> <url> <branch>`）。yq 等に依存せず純シェルで解析できる形（雛形 [`templates/repos.tsv`](../templates/repos.tsv)）。
+- **クローン実体**: [`scripts/sync-repos.sh`](../scripts/sync-repos.sh) が `.flywheel/repos/<name>` に **冪等に clone/pull**。容量・ライセンス・秘密情報をエージェントrepo に混ぜないため **.gitignore** 対象。
+- **参照用と作業用の分離**: 参照用クローンは**読み取り中心**（調査・知識抽出）。**実装変更は接続ツール（3.9）が別途 worktree 等で行う**。
+- 秘密情報（認証）はマニフェストに書かない。git 認証は実行者環境（SSH / credential helper）を使う。
+- 生成は bootstrap（3.6）が `repos.tsv` を起こし、`map`（3.5）が `<name>` で該当リポジトリを指す。run-cycle は必要時に sync-repos.sh で最新化（任意）。
+- 対応: [#6](https://github.com/masanami/claude-flywheel/issues/6) / 接続ツール IF（AO-05）。
+
 ### 3.10 自己改善（内省）ループ
 
 - 実行ループ（run-cycle）とは**分離した別ループ**として、ハーネス自体（スキル・サブエージェントのブリーフ・ポジション・recall）を継続的に改善する。設計は [self-improvement.md](./self-improvement.md)。
@@ -212,9 +230,12 @@ claude-flywheel/
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
+├── scripts/                     # 機械的処理の純シェル
+│   └── sync-repos.sh            # 関連リポジトリの冪等な clone/pull
 ├── templates/                   # 利用先に scaffold する雛形
 │   ├── challenge-ledger.md
 │   ├── position.md
+│   ├── repos.tsv
 │   └── runtime/README.md
 ├── docs/                        # 設計ドキュメント
 └── README.md
@@ -228,6 +249,8 @@ claude-flywheel/
 <agent-repo>/
 ├── CLAUDE.md                    # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md          # このエージェントの課題台帳（正本。共有ソースから取り込み）
+├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
+├── .flywheel/repos/             # 関連リポジトリの参照用クローン（.gitignore・読み取り中心）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
 │   └── <domain>.md
 ├── memory/                      # エージェント記憶
@@ -239,7 +262,7 @@ claude-flywheel/
 ```
 
 - intra-agent の整理はメインセッションが担うため、専用の `orchestrator/` ディレクトリは不要（§3.2）。
-- 実作業の対象（例: 会社のマイクロサービス）は**さらに外部のリポジトリ**。接続ツール経由で作業し、ここには含めない。
+- `.flywheel/repos/` は関連リポジトリの**参照用クローン（読み取り中心）**で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の対象**は接続ツール経由で扱う**さらに外部のリポジトリ**で、参照用クローンとは別管理。
 
 ### 4.3 共有課題ソース（intake）
 

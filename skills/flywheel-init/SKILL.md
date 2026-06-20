@@ -20,9 +20,11 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 <workspace>/
 ├── CLAUDE.md                 # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md       # 課題台帳（テンプレートから生成）
+├── repos.tsv                 # 関連リポジトリのマニフェスト（テンプレートから生成）
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
-└── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
+├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
+└── .gitignore                # .flywheel/repos/（参照用クローン実体）を除外
 ```
 
 ## 手順
@@ -31,13 +33,20 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 2. プラグインの雛形（`${CLAUDE_PLUGIN_ROOT}/templates/`）を読み込み、カレントワークスペースに生成する:
    - `${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md` → `./CLAUDE.md`（既存 CLAUDE.md があれば追記/マージ。上書きしない）
    - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-ledger.md` → `./challenge-ledger.md`
+   - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
-3. 次の一手を案内する:
-   - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/` を生成。
-   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成。
+3. `.gitignore` に **参照用クローンの実体**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
+   ```
+   # 関連リポジトリの参照用クローン（実体はコミットしない。マニフェストは repos.tsv）
+   .flywheel/repos/
+   ```
+4. 次の一手を案内する:
+   - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
+   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle が自分に関係する分だけ `challenge-ledger.md` へ取り込む（共有ソースの場所を控えておく）。
-4. 生成物を Git コミットする（秘密情報は含めない）。
+   - 関連リポジトリを参照したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/` に clone/pull する。
+5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 
 ## 注意
 
