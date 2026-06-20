@@ -31,7 +31,7 @@ while getopts "f:d:nh" opt; do
     f) MANIFEST="$OPTARG" ;;
     d) CLONE_DIR="$OPTARG" ;;
     n) DRY_RUN=1 ;;
-    h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    h) sed -n '2,/^$/p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; exit 0 ;;
     *) echo "usage: $0 [-f repos.tsv] [-d clone-dir] [-n]" >&2; exit 2 ;;
   esac
 done
@@ -54,12 +54,10 @@ while IFS= read -r line || [ -n "$line" ]; do
   line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   [ -z "$line" ] && continue
 
-  # 1列目=name, 2列目=url, 3列目=branch（任意）
-  # shellcheck disable=SC2086
-  set -- $line
-  name="${1:-}"
-  url="${2:-}"
-  branch="${3:-main}"
+  # 列を分割（空白/タブ区切り）。read は単語分割するが glob 展開はしないため、
+  # url/branch に * ? [ 等が含まれてもファイル名に化けない。余分な列は _ に捨てる。
+  read -r name url branch _ <<< "$line" || true
+  branch="${branch:-main}"
 
   if [ -z "$name" ] || [ -z "$url" ]; then
     echo "sync-repos: 不正な行（name/url が必要）: $line" >&2
@@ -72,9 +70,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   if [ -d "$dest/.git" ]; then
     echo "sync-repos: pull  $name ($branch)"
     if [ "$DRY_RUN" -eq 0 ]; then
-      if git -C "$dest" fetch --quiet origin "$branch" \
-         && git -C "$dest" checkout --quiet "$branch" \
-         && git -C "$dest" merge --ff-only --quiet "origin/$branch"; then
+      if git -C "$dest" fetch --quiet origin "$branch" </dev/null \
+         && git -C "$dest" checkout --quiet "$branch" </dev/null \
+         && git -C "$dest" merge --ff-only --quiet "origin/$branch" </dev/null; then
         synced=$((synced + 1))
       else
         echo "sync-repos: pull 失敗: $name" >&2
@@ -84,7 +82,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   else
     echo "sync-repos: clone $name ($branch) <- $url"
     if [ "$DRY_RUN" -eq 0 ]; then
-      if git clone --quiet --branch "$branch" "$url" "$dest"; then
+      if git clone --quiet --branch "$branch" "$url" "$dest" </dev/null; then
         synced=$((synced + 1))
       else
         echo "sync-repos: clone 失敗: $name" >&2
