@@ -190,7 +190,7 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 ### 3.10 自己改善（内省）ループ
 
 - 実行ループ（run-cycle）とは**分離した別ループ**として、ハーネス自体（スキル・サブエージェントのブリーフ・ポジション・recall）を継続的に改善する。設計は [self-improvement.md](./self-improvement.md)。
-- **2 層**: ① run-cycle の学習ステップで good/bad 信号を `experience` に **append するだけ**（軽量・改修しない）／② 別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で信号を集計し改修を**提案**する。
+- **2 層**: ① run-cycle の学習ステップで good/bad を `experience` に **append するだけ**（軽量・改修しない）／② 別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で記録を集計し改修を**提案**する。
 - **good/bad 両方**を記録（bad=改修トリガー、good=再利用資産化・回帰ガード・recall 正例）。
 - **スコープ**: reflect が直接編集するのは**エージェントrepo のローカル資産**のみ。**プラグイン本体の共通スキルは読み取り専用**で、改善は upstream（claude-flywheel）への Issue 起票に倒す。
 - 起動は毎周ではなく **N 周ごと／しきい値（再発 ≥2）／手動**。改修の適用は人間承認（承認ポイント #8）。
@@ -308,7 +308,7 @@ claude-flywheel/
 | ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | スケジュール実行（routine / cron） |
 | ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../skills/run-cycle/SKILL.md) スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群（3.7）＋ 記憶（3.5）。横断はワークフローでファンアウト |
-| ④ 自己改善 | ②③ を継続的に磨く別ループ | [`reflect`](../skills/reflect/SKILL.md) スキル（低頻度・3.10）。run-cycle は信号採取のみ |
+| ④ 自己改善 | ②③ を継続的に磨く別ループ | [`reflect`](../skills/reflect/SKILL.md) スキル（低頻度・3.10）。run-cycle は good/bad の記録のみ |
 
 ```
 routine(cron) ──起動──▶ /run-cycle
@@ -355,7 +355,7 @@ routine(cron) ──起動──▶ /run-cycle
 | FR-20〜23（実行） | ツール層＝接続ツール（3.9）+ 自律実行ランタイム（3.8）+ 承認ポイント（6） |
 | FR-30〜32（検証） | ツール層＝接続ツール（3.9）+ 承認ポイント #5 |
 | FR-40〜42（学習） | 記憶ストア（3.5）/ agent-memory.md |
-| FR-43〜45（自己改善） | 自己改善ループ（3.10）: run-cycle 信号採取 + reflect / self-improvement.md / 承認ポイント #8 |
+| FR-43〜45（自己改善） | 自己改善ループ（3.10）: run-cycle の記録 + reflect / self-improvement.md / 承認ポイント #8 |
 | 自走の能力 | ポジション別スキル群（3.7） |
 | 自律的な起動 | 自律実行ランタイム（3.8） |
 | NFR-02/03 | ファイルベース・Git 管理（1.4） |

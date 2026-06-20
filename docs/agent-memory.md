@@ -22,9 +22,9 @@
 | `experience` | 経験 | 過去タスクの結果、効いた手順・失敗、レビュー指摘の傾向 | 実行・検証後の学習 |
 | `reference` | 参照 | API 契約、スキーマ、外部ドキュメント・ダッシュボードの場所 | ブートストラップ・運用 |
 
-### 2.1 experience の信号フィールド（自己改善ループ用）
+### 2.1 experience の追加フィールド（自己改善ループ用）
 
-`experience` は、自己改善（内省）ループ（[self-improvement.md](self-improvement.md)）の入力も兼ねる。run-cycle の学習ステップが **append のみ**で信号を記録し、傾向の集計と改修提案は別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で行う。
+`experience` は、自己改善（内省）ループ（[self-improvement.md](self-improvement.md)）の入力も兼ねる。run-cycle の学習ステップが **append のみ**で good/bad を記録し、傾向の集計と改修提案は別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で行う。
 
 ```yaml
 metadata:
@@ -37,7 +37,7 @@ metadata:
 ```
 
 - **bad** = 改修トリガー、**good** = 再利用資産化・回帰ガード・recall 正例（[self-improvement.md §2](self-improvement.md)）。
-- run-cycle 内では評価・改修をせず、信号を残すだけ（軽量・冪等）。
+- run-cycle 内では評価・改修をせず、good/bad を記録するだけ（軽量・冪等）。
 
 ## 3. 置き場所・構造
 

@@ -31,7 +31,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
-| [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（信号集計→改修提案、低頻度） |
+| [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
 
 ## テンプレート（`templates/` ＝利用先に scaffold する雛形）
 
