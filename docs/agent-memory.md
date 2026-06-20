@@ -5,7 +5,7 @@
 > 記憶の読み書き（save / recall / promote / maintain）は [agent-memory](../skills/agent-memory/SKILL.md) スキルに集約し、bootstrap-domain-map・run-cycle はこれに委譲する。
 >
 > - ステータス: ドラフト（検討中）
-> - 関連: [requirements.md FR-40〜42](requirements.md)（学習フェーズ）, [challenges.md 課題2](challenges.md)
+> - 関連: [requirements.md FR-40〜42](requirements.md)（学習フェーズ）, [challenges.md 課題2](challenges.md), [self-improvement.md](self-improvement.md)（experience を内省ループの入力に使う）
 
 ## 1. なぜ memory か
 
@@ -21,6 +21,23 @@
 | `tacit` | 暗黙知 | 業務ルール、命名の意図、設計上の制約、注意点 | コメント/README/人間からの確認 |
 | `experience` | 経験 | 過去タスクの結果、効いた手順・失敗、レビュー指摘の傾向 | 実行・検証後の学習 |
 | `reference` | 参照 | API 契約、スキーマ、外部ドキュメント・ダッシュボードの場所 | ブートストラップ・運用 |
+
+### 2.1 experience の追加フィールド（自己改善ループ用）
+
+`experience` は、自己改善（内省）ループ（[self-improvement.md](self-improvement.md)）の入力も兼ねる。run-cycle の学習ステップが **append のみ**で good/bad を記録し、傾向の集計と改修提案は別スキル [reflect](../skills/reflect/SKILL.md) が低頻度で行う。
+
+```yaml
+metadata:
+  type: experience
+  outcome: good | bad                 # この経験の評価
+  target: skill:<name> | subagent:<name> | brief | position | recall | other  # どの資産の改善に効くか
+  signal: <何が効いた/詰まったか 1行>
+  recurrence: <同種が何回目か（任意）>
+  confidence: high | medium | low     # 他の type と同じく必須（格納規約）
+```
+
+- **bad** = 改修トリガー、**good** = 再利用資産化・回帰ガード・recall 正例（[self-improvement.md §2](self-improvement.md)）。
+- run-cycle 内では評価・改修をせず、good/bad を記録するだけ（軽量・冪等）。
 
 ## 3. 置き場所・構造
 

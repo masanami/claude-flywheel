@@ -7,6 +7,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [challenges.md](./challenges.md) | 課題・テーマ（現場の具体課題 / Why） | ドラフト |
 | [requirements.md](./requirements.md) | 要件定義（何を満たすべきか / What） | ドラフト |
 | [agent-memory.md](./agent-memory.md) | エージェントmemory運用方針（地図・暗黙知・経験） | ドラフト |
+| [self-improvement.md](./self-improvement.md) | 自己改善（内省）ループ運用方針（run-cycle と分離した reflect） | ドラフト |
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 
@@ -30,6 +31,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
+| [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
 
 ## テンプレート（`templates/` ＝利用先に scaffold する雛形）
 
