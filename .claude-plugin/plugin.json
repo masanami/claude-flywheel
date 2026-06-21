@@ -1,7 +1,7 @@
 {
   "name": "claude-flywheel",
   "description": "自走するエージェントのための汎用ハーネス。課題の自己選択・ポジション・記憶・自律サイクルを提供する。状態（課題台帳/positions/memory）は導入先ワークスペースに生成する。",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "author": {
     "name": "masanami"
   },
