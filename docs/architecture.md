@@ -4,7 +4,7 @@
 > 本書は実現方式・構成・主要フローを扱う。要件そのものの追加・変更は requirements.md 側で行う。
 
 - ステータス: ドラフト
-- 最終更新: 2026-06-18
+- 最終更新: 2026-06-21
 - 関連: [requirements.md](./requirements.md) / [agent-memory.md](./agent-memory.md) / [self-improvement.md](./self-improvement.md) / [challenges.md](./challenges.md)
 
 ---
@@ -200,11 +200,48 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 
 - **マニフェスト `repos.tsv`**: 素朴な行指向（空白/タブ区切り・`#` コメント、`<name> <url> <branch>`）。yq 等に依存せず純シェルで解析できる形（雛形 [`templates/repos.tsv`](../templates/repos.tsv)）。
 - **クローン実体**: [`scripts/sync-repos.sh`](../scripts/sync-repos.sh) が `.flywheel/repos/<name>` に **冪等に clone/fetch**。容量・ライセンス・秘密情報をエージェントrepo に混ぜないため **.gitignore** 対象。
-- **作業用に一本化（参照／作業の二本立ては廃止）**: クローンは編集・ブランチ・コミット可。調査・知識抽出（読み取り）も同じクローンから行える。実作業（コード変更）の委譲先 cwd もこの作業用クローン（[#13](https://github.com/masanami/claude-flywheel/issues/13)）。
+- **作業用に一本化（参照／作業の二本立ては廃止）**: クローンは編集・ブランチ・コミット可。調査・知識抽出（読み取り）も同じクローンから行える。実作業（コード変更）の委譲先 cwd もこの作業用クローン（委譲のセッションパターンは §3.9.2 / [#13](https://github.com/masanami/claude-flywheel/issues/13)）。
 - **安全な同期（ローカル作業を壊さない）**: `git pull` による上書きはしない。clone は初回のみ、以後は `git fetch`。ワーキングツリーが **clean かつ既定ブランチ上**のときだけ ff-only で前進し、**dirty / 別ブランチ / ff 不能（ローカルが分岐済み）**のときは更新をスキップして警告する。
 - 秘密情報（認証）はマニフェストに書かない。git 認証は実行者環境（SSH / credential helper）を使う。
 - 生成は bootstrap（3.6）が `repos.tsv` を起こし、`map`（3.5）が `<name>` で該当リポジトリを指す。run-cycle は必要時に sync-repos.sh で最新化（任意）。
 - 対応: [#6](https://github.com/masanami/claude-flywheel/issues/6) / [#12](https://github.com/masanami/claude-flywheel/issues/12)（作業用一本化）/ 接続ツール IF（AO-05）。
+
+### 3.9.2 実行委譲のセッションパターン
+
+run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接続ツール（例: claude-harness）へ実作業を委譲するとき、**「別セッションをどう起こすか」を誤ると接続ツールが対象 repo の設定で動かない**。委譲の実体を次に固定する。ここで決めるのは executor の**起動方式**であり、接続ツール自体は §3.9 のとおり差し替え可能（両者は別レイヤー）。
+
+- **実行委譲 ＝ cwd＝作業用クローン（§3.9.1 の `.flywheel/repos/<name>`）の独立 `claude -p` セッション**で接続ツールを回す。子セッションは cwd の `CLAUDE.md` ＋ `.claude/settings.json` を**ネイティブにロード**するため、対象 repo 本来の設定（ベースライン・権限・接続ツール）で開発できる。
+
+- **なぜ独立セッションが要るか（Claude Code の設定解決）**:
+  - 設定は**セッションの cwd（起動ディレクトリ）で決まる**。ロードされるのは cwd とその祖先の `CLAUDE.md` ＋ user の `~/.claude/CLAUDE.md`。**サブディレクトリの `CLAUDE.md` はオンデマンド**（読んだ時のみ）、**サブディレクトリの `settings.json` は不適用**（cwd＋user＋managed のみ）。
+  - **サブエージェント（Task）は親（エージェントrepo）の設定を継承**し、対象 repo の `CLAUDE.md`/`settings.json` は支配的に効かない。`cd` はツール呼び出し間で永続しない。
+  - → 対象 repo を「その設定」で開発するには、**cwd＝対象 repo の独立フルセッション**を起こすしかない。
+
+- **反例（やってはいけない）**:
+  - **メインセッションで直接 skill を回す** → 対象の `CLAUDE.md` はオンデマンド・`settings.json` は不適用で、対象設定では動かない。
+  - **サブエージェントに委譲** → 親設定のままで対象設定に切り替わらない。
+  - **親セッション ＋ `--add-dir` で対象ディレクトリを足す** → 設定は cwd で解決されるため、対象 repo の `settings.json` は効かない（ディレクトリへのアクセス許可が増えるだけ）。
+  - **注入 / union 方式**（親に対象 repo の設定を寄せ集める）→ **多 repo でスケールしないため不採用**。
+
+- **起動方式は `claude -p` に一本化（YAGNI）**:
+  - ヘッドレス `claude -p` を cwd＝作業用クローンで起動する。多ターンが必要なら `-c`（`--continue`）/ `--resume <session-id>`。
+  - **Agent SDK / `claude --bg` は前提にしない**（必要になるまで導入しない）。
+  - 非対話の権限は `--permission-mode` / `--allowedTools` / **対象 repo の `.claude/settings.json`** で制御する。ネスト起動は許可（`CLAUDECODE=1` が立つのみでハードガードは無い）。
+  - 権限は **FR-22 の承認境界**に従う: ローカル編集・commit は自動可、**push / PR / merge は承認ゲート対象**（§5.2 step 4・§6）。起動例の `--permission-mode acceptEdits` は編集の自動承認のみで、push 等の不可逆操作はゲートする。
+  - 起動例（cwd を対象クローンに固定して非対話実行）:
+
+    ```bash
+    # 対象クローンを cwd にして非対話起動する。設定は cwd から解決されるので
+    # 「親で起動して --add-dir で足す」のは不可（対象の settings.json が効かない）。
+    cd .flywheel/repos/<name>
+    claude -p "（ブリーフ: 目標・recall した map/tacit/reference・完了条件）" \
+      --permission-mode acceptEdits
+    ```
+
+- **ブリーフに前提知識を必ず含める**: 独立セッションは文脈を引き継がないため、recall した `map` / `tacit` / `reference` と完了条件を**ブリーフに明記**して渡す（run-cycle 実行ステップ ＝ §5.2 step 4 / SKILL.md step 3、課題1ボトルネックB の解）。
+- **同一クローンへの委譲は直列化する**: cwd を `.flywheel/repos/<name>` に固定するため、同じ repo に複数の独立セッションを**同時に**走らせると worktree / ブランチが衝突する。run-cycle は冪等（着手中ステータスで二重実行しない・§5.2）なので **1 repo ＝ 同時に 1 委譲セッション**を原則とし、repo をまたぐ委譲のみ並列にする。同一 repo の並列度を上げたい場合は **session ごとに `git worktree` / clone を分離**する（必要になってからの将来課題＝YAGNI）。
+- **課金前提**: `claude -p` はサブスク枠で動作する前提（2026-06 時点。Agent SDK 課金の一時停止に依存。再開時は代替をそのとき再検討）。クロスツール エグゼキュータ（[#15](https://github.com/masanami/claude-flywheel/issues/15)：Claude→codex exec 等）は pluggable な 1 バックエンド候補として別管理。
+- 対応: 接続ツール IF（AO-05）/ [#12](https://github.com/masanami/claude-flywheel/issues/12)（委譲先 cwd）/ [#13](https://github.com/masanami/claude-flywheel/issues/13)。
 
 ### 3.10 自己改善（内省）ループ
 
@@ -263,7 +300,7 @@ claude-flywheel/
 ```
 
 - intra-agent の整理はメインセッションが担うため、専用の `orchestrator/` ディレクトリは不要（§3.2）。
-- `.flywheel/repos/` は関連リポジトリの**作業用クローン（編集・ブランチ・コミット可）**で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の委譲先 cwd もこのクローン**で、接続ツール（3.9）がここでブランチを切って実装する（委譲方式は [#13](https://github.com/masanami/claude-flywheel/issues/13)）。調査・知識抽出（読み取り）も同じクローンから行う。
+- `.flywheel/repos/` は関連リポジトリの**作業用クローン（編集・ブランチ・コミット可）**で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の委譲先 cwd もこのクローン**で、接続ツール（3.9）が **cwd＝このクローンの独立 `claude -p` セッション**（§3.9.2）でブランチを切って実装する。調査・知識抽出（読み取り）も同じクローンから行う。
 
 ### 4.3 共有課題ソース（intake）
 
@@ -296,7 +333,7 @@ claude-flywheel/
 1. 取り込み: 共有ソースから自分に関係する課題を自台帳へ ingestion（§3.1）
 2. 整理（メインセッション）: 自分の positions に分類・自己選択（要相談は人間へ: FR-08）
 3. 計画: 関連記憶を前ロード（recall）→ タスク探索・分解（人間承認: FR-13）
-4. 実行: 接続ツールで実作業（開発なら claude-harness 等）。**サブエージェント／別セッションへ委譲する場合は recall した前提知識（map/tacit/reference）をブリーフに含める**（メインセッション内なら保持済み。破壊的/不可逆操作は人間承認: FR-22）
+4. 実行: 接続ツールで実作業（開発なら claude-harness 等）。委譲は **cwd＝作業用クローンの独立 `claude -p` セッション**で回す（§3.9.2。メインセッション直叩き／サブエージェントは対象 repo の設定で動かないため不可）。**recall した前提知識（map/tacit/reference）と完了条件はブリーフに明記して渡す**（独立セッションは文脈を引き継がない。破壊的/不可逆操作は人間承認: FR-22）
 5. 検証: テスト・レビュー・動作確認。別セッション委譲時は前提知識をレビュー観点に含める（人間が最終確認: FR-32）
 6. 学習: experience を記憶に追記、新たな暗黙知を tacit に追記（FR-40/41）
 7. 報告: 状況・成果を人間へ（FR-51）
@@ -393,4 +430,4 @@ routine(cron) ──起動──▶ /run-cycle
 - **AO-02**: **fleet スコープ（§3.2(B)）の自動化**。人間ルーティングをオーケストレーターへ委譲する形態（調整担当ポジションの専用エージェント / fleet オーケストレーション機能）と、重複検知・依存順序・ハンドオフ規約。（intra スコープはメインセッションで確定）
 - **AO-03**: エージェントの起動・常駐モデル（都度起動 / スケジュール / イベント駆動）。
 - **AO-04**: 横断知識の共有方法（共有記憶領域 or ドメイン間相互リンク、agent-memory.md OQ）。
-- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。**作業先 cwd は作業用クローン `.flywheel/repos/<name>` に確定済み（[#12](https://github.com/masanami/claude-flywheel/issues/12)・§3.9.1）**。残る委譲方式（独立セッションで何を渡すか）は [#13](https://github.com/masanami/claude-flywheel/issues/13) で扱う。
+- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。**作業先 cwd は作業用クローン `.flywheel/repos/<name>` に確定済み（[#12](https://github.com/masanami/claude-flywheel/issues/12)・§3.9.1）**。委譲のセッションパターン（**cwd＝作業用クローンの独立 `claude -p` セッション**で接続ツールを回す）も §3.9.2 / [#13](https://github.com/masanami/claude-flywheel/issues/13) で確定。残るは「何を渡すか」の共通接続規約の標準化。
