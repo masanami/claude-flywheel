@@ -1,15 +1,16 @@
 # repos.tsv — 関連リポジトリのマニフェスト（Git 追跡 = 知識）
 #
 # このエージェントのドメインに関係するリポジトリを列挙する。
-# scripts/sync-repos.sh がこれを読み、参照用クローンを .flywheel/repos/<name> に
-# 冪等に clone / pull する（クローン実体は .gitignore 対象でコミットしない）。
+# scripts/sync-repos.sh がこれを読み、作業用クローンを .flywheel/repos/<name> に
+# 冪等に clone / fetch する（クローン実体は .gitignore 対象でコミットしない）。
 #
 # 形式: 空白/タブ区切りの行指向。# 始まりはコメント。行中の # 以降も無視。
 #   <name>  <url>  <branch（任意・既定 main）>
 #
 # 注意:
 #   - 秘密情報（認証・トークン）はここに書かない。git 認証は実行者の環境を使う。
-#   - 参照用クローンは読み取り中心（調査・知識抽出）。実装変更は接続ツールが別途行う。
+#   - クローンは作業用（編集・ブランチ・コミット可）。同期はローカル作業を壊さない
+#     安全側（clone は初回のみ、以後は fetch、clean かつ既定ブランチ時だけ ff 更新）。
 #
 # 例（不要なら削除してください）:
 # billing-api   https://github.com/org/billing-api   main
