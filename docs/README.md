@@ -40,11 +40,11 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
-| [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（参照用クローン） |
+| [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形 |
 
 ## スクリプト（`scripts/` ＝機械的処理の純シェル）
 
 | スクリプト | 用途 |
 | --- | --- |
-| [sync-repos.sh](../scripts/sync-repos.sh) | `repos.tsv` を読み、関連リポジトリを `.flywheel/repos/` へ冪等に clone/pull（参照用・読み取り中心） |
+| [sync-repos.sh](../scripts/sync-repos.sh) | `repos.tsv` を読み、関連リポジトリを `.flywheel/repos/` へ冪等に clone/fetch（作業用・ローカル作業を壊さない安全同期） |

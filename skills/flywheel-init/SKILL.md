@@ -24,7 +24,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
-└── .gitignore                # .flywheel/repos/（参照用クローン実体）を除外
+└── .gitignore                # .flywheel/repos/（作業用クローン実体）を除外
 ```
 
 ## 手順
@@ -36,16 +36,16 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
-3. `.gitignore` に **参照用クローンの実体**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
+3. `.gitignore` に **作業用クローンの実体**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
    ```
-   # 関連リポジトリの参照用クローン（実体はコミットしない。マニフェストは repos.tsv）
+   # 関連リポジトリの作業用クローン（実体はコミットしない。マニフェストは repos.tsv）
    .flywheel/repos/
    ```
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle が自分に関係する分だけ `challenge-ledger.md` へ取り込む（共有ソースの場所を控えておく）。
-   - 関連リポジトリを参照したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/` に clone/pull する。
+   - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 
 ## 注意

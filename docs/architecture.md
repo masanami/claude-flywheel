@@ -187,23 +187,24 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
   | 単位 | ポジション・ドメイン・スキル | ツール固有（例: Issue・PR） |
   | 依存 | ツールに依存しない | 差し替え可能な一プラグイン |
 
-### 3.9.1 関連リポジトリ管理（参照用クローン）
+### 3.9.1 関連リポジトリ管理（作業用クローン）
 
-エージェントがドメイン関連リポジトリを **clone して参照**（map/tacit 抽出・調査）できるようにする。**マニフェスト（Git 追跡）と クローン実体（gitignore）を分離**する。
+エージェントがドメイン関連リポジトリを **clone**（map/tacit 抽出・調査に加え、実作業＝編集・ブランチ・コミットも可）できるようにする。**マニフェスト（Git 追跡）と クローン実体（gitignore）を分離**する。
 
 ```
 <agent-repo>/
 ├── repos.tsv            # 関連リポジトリのマニフェスト（Git 追跡）= 知識
-├── .flywheel/repos/     # クローン実体（.gitignore）= 参照用・読み取り中心
+├── .flywheel/repos/     # クローン実体（.gitignore）= 作業用（編集・ブランチ・コミット可）
 └── memory/<domain>/     # map が repos.tsv の <name> を参照
 ```
 
 - **マニフェスト `repos.tsv`**: 素朴な行指向（空白/タブ区切り・`#` コメント、`<name> <url> <branch>`）。yq 等に依存せず純シェルで解析できる形（雛形 [`templates/repos.tsv`](../templates/repos.tsv)）。
-- **クローン実体**: [`scripts/sync-repos.sh`](../scripts/sync-repos.sh) が `.flywheel/repos/<name>` に **冪等に clone/pull**。容量・ライセンス・秘密情報をエージェントrepo に混ぜないため **.gitignore** 対象。
-- **参照用と作業用の分離**: 参照用クローンは**読み取り中心**（調査・知識抽出）。**実装変更は接続ツール（3.9）が別途 worktree 等で行う**。
+- **クローン実体**: [`scripts/sync-repos.sh`](../scripts/sync-repos.sh) が `.flywheel/repos/<name>` に **冪等に clone/fetch**。容量・ライセンス・秘密情報をエージェントrepo に混ぜないため **.gitignore** 対象。
+- **作業用に一本化（参照／作業の二本立ては廃止）**: クローンは編集・ブランチ・コミット可。調査・知識抽出（読み取り）も同じクローンから行える。実作業（コード変更）の委譲先 cwd もこの作業用クローン（[#13](https://github.com/masanami/claude-flywheel/issues/13)）。
+- **安全な同期（ローカル作業を壊さない）**: `git pull` による上書きはしない。clone は初回のみ、以後は `git fetch`。ワーキングツリーが **clean かつ既定ブランチ上**のときだけ ff-only で前進し、**dirty / 別ブランチ / ff 不能（ローカルが分岐済み）**のときは更新をスキップして警告する。
 - 秘密情報（認証）はマニフェストに書かない。git 認証は実行者環境（SSH / credential helper）を使う。
 - 生成は bootstrap（3.6）が `repos.tsv` を起こし、`map`（3.5）が `<name>` で該当リポジトリを指す。run-cycle は必要時に sync-repos.sh で最新化（任意）。
-- 対応: [#6](https://github.com/masanami/claude-flywheel/issues/6) / 接続ツール IF（AO-05）。
+- 対応: [#6](https://github.com/masanami/claude-flywheel/issues/6) / [#12](https://github.com/masanami/claude-flywheel/issues/12)（作業用一本化）/ 接続ツール IF（AO-05）。
 
 ### 3.10 自己改善（内省）ループ
 
@@ -231,7 +232,7 @@ claude-flywheel/
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
 ├── scripts/                     # 機械的処理の純シェル
-│   └── sync-repos.sh            # 関連リポジトリの冪等な clone/pull
+│   └── sync-repos.sh            # 関連リポジトリ（作業用クローン）の冪等な clone/fetch
 ├── templates/                   # 利用先に scaffold する雛形
 │   ├── challenge-ledger.md
 │   ├── position.md
@@ -250,7 +251,7 @@ claude-flywheel/
 ├── CLAUDE.md                    # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md          # このエージェントの課題台帳（正本。共有ソースから取り込み）
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
-├── .flywheel/repos/             # 関連リポジトリの参照用クローン（.gitignore・読み取り中心）
+├── .flywheel/repos/             # 関連リポジトリの作業用クローン（.gitignore・編集/ブランチ/コミット可）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
 │   └── <domain>.md
 ├── memory/                      # エージェント記憶
@@ -262,7 +263,7 @@ claude-flywheel/
 ```
 
 - intra-agent の整理はメインセッションが担うため、専用の `orchestrator/` ディレクトリは不要（§3.2）。
-- `.flywheel/repos/` は関連リポジトリの**参照用クローン（読み取り中心）**で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の対象**は接続ツール経由で扱う**さらに外部のリポジトリ**で、参照用クローンとは別管理。
+- `.flywheel/repos/` は関連リポジトリの**作業用クローン（編集・ブランチ・コミット可）**で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の委譲先 cwd もこのクローン**で、接続ツール（3.9）がここでブランチを切って実装する（委譲方式は [#13](https://github.com/masanami/claude-flywheel/issues/13)）。調査・知識抽出（読み取り）も同じクローンから行う。
 
 ### 4.3 共有課題ソース（intake）
 
@@ -392,4 +393,4 @@ routine(cron) ──起動──▶ /run-cycle
 - **AO-02**: **fleet スコープ（§3.2(B)）の自動化**。人間ルーティングをオーケストレーターへ委譲する形態（調整担当ポジションの専用エージェント / fleet オーケストレーション機能）と、重複検知・依存順序・ハンドオフ規約。（intra スコープはメインセッションで確定）
 - **AO-03**: エージェントの起動・常駐モデル（都度起動 / スケジュール / イベント駆動）。
 - **AO-04**: 横断知識の共有方法（共有記憶領域 or ドメイン間相互リンク、agent-memory.md OQ）。
-- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。
+- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。**作業先 cwd は作業用クローン `.flywheel/repos/<name>` に確定済み（[#12](https://github.com/masanami/claude-flywheel/issues/12)・§3.9.1）**。残る委譲方式（独立セッションで何を渡すか）は [#13](https://github.com/masanami/claude-flywheel/issues/13) で扱う。

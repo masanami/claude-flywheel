@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 #
-# sync-repos.sh — 関連リポジトリ（参照用クローン）を repos.tsv に従って同期する。
+# sync-repos.sh — 関連リポジトリ（作業用クローン）を repos.tsv に従って同期する。
 #
 # マニフェスト（repos.tsv, Git 追跡）と クローン実体（.flywheel/repos/, .gitignore）を分離し、
-# 純シェルで冪等に clone / pull する（yq 等の依存なし）。参照用クローンは読み取り中心。
+# 純シェルで冪等に clone / fetch する（yq 等の依存なし）。
+#
+# クローンは「作業用」（編集・ブランチ・コミット可）に一本化している。そのため
+# ローカルのブランチ作業を壊さないよう、同期はあくまで安全側に倒す:
+#   - 未 clone     → 既定ブランチを clone する。
+#   - clone 済み   → まず fetch でリモート追跡を更新し、ワーキングツリーが clean かつ
+#                    既定ブランチ上のときだけ ff-only で前進させる。
+#                    dirty / 別ブランチのときは更新せずスキップして警告（作業を保持）。
+# 既存クローンを git pull で上書きすることはしない。
 #
 # 使い方:
 #   scripts/sync-repos.sh [-f <repos.tsv>] [-d <clone-dir>] [-n]
 #
 #   -f  マニフェストのパス（既定: ./repos.tsv）
 #   -d  クローン先ディレクトリ（既定: ./.flywheel/repos）
-#   -n  dry-run（clone/pull せず、実行予定だけ表示）
+#   -n  dry-run（clone/fetch せず、実行予定だけ表示）
 #
 # repos.tsv のフォーマット（素朴な行指向・空白/タブ区切り・# はコメント）:
 #   # name        url                                  branch(任意, 既定 main)
@@ -44,6 +52,7 @@ fi
 mkdir -p "$CLONE_DIR"
 
 synced=0
+skipped=0
 failed=0
 
 # 行指向で読む。# コメント行・空行はスキップ。列は空白/タブ区切り。
@@ -65,18 +74,40 @@ while IFS= read -r line || [ -n "$line" ]; do
     continue
   fi
 
+  # name はクローン先ディレクトリ名（さらに memory map の参照キー）になる。
+  # パス区切り / .. を含むと CLONE_DIR の外へ脱出しうるため弾く。
+  case "$name" in
+    */* | *..*)
+      echo "sync-repos: 不正な name（/ や .. は使えません）: $name" >&2
+      failed=$((failed + 1))
+      continue
+      ;;
+  esac
+
   dest="$CLONE_DIR/$name"
 
   if [ -d "$dest/.git" ]; then
-    echo "sync-repos: pull  $name ($branch)"
+    # 作業用クローン: ローカルのブランチ・編集・コミットを保持したまま安全に同期する。
+    echo "sync-repos: fetch $name ($branch)"
     if [ "$DRY_RUN" -eq 0 ]; then
-      if git -C "$dest" fetch --quiet origin "$branch" </dev/null \
-         && git -C "$dest" checkout --quiet "$branch" </dev/null \
-         && git -C "$dest" merge --ff-only --quiet "origin/$branch" </dev/null; then
+      if ! git -C "$dest" fetch --quiet origin "$branch" </dev/null; then
+        echo "sync-repos: fetch 失敗: $name" >&2
+        failed=$((failed + 1))
+        continue
+      fi
+      cur="$(git -C "$dest" rev-parse --abbrev-ref HEAD </dev/null 2>/dev/null || echo '?')"
+      dirty="$(git -C "$dest" status --porcelain </dev/null)"
+      if [ -n "$dirty" ]; then
+        echo "sync-repos: 変更あり（dirty）につき更新をスキップ: $name (branch=$cur)" >&2
+        skipped=$((skipped + 1))
+      elif [ "$cur" != "$branch" ]; then
+        echo "sync-repos: 別ブランチ（${cur}）につき更新をスキップ: $name" >&2
+        skipped=$((skipped + 1))
+      elif git -C "$dest" -c advice.diverging=false merge --ff-only --quiet "origin/$branch" </dev/null; then
         synced=$((synced + 1))
       else
-        echo "sync-repos: pull 失敗: $name" >&2
-        failed=$((failed + 1))
+        echo "sync-repos: ff-only で前進できず更新をスキップ: ${name}（ローカル作業を保持）" >&2
+        skipped=$((skipped + 1))
       fi
     fi
   else
@@ -92,5 +123,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "$MANIFEST"
 
-echo "sync-repos: 完了（同期 $synced 件 / 失敗 $failed 件）"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "sync-repos: dry-run 完了（上記が実行予定。clone/fetch は行っていません）"
+else
+  echo "sync-repos: 完了（更新 $synced 件 / スキップ $skipped 件 / 失敗 $failed 件）"
+fi
 [ "$failed" -eq 0 ]

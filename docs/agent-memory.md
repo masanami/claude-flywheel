@@ -22,7 +22,7 @@
 | `experience` | 経験 | 過去タスクの結果、効いた手順・失敗、レビュー指摘の傾向 | 実行・検証後の学習 |
 | `reference` | 参照 | API 契約、スキーマ、外部ドキュメント・ダッシュボードの場所 | ブートストラップ・運用 |
 
-> `map` は対象リポジトリを **`repos.tsv` の `<name>`** で参照する（実体は `.flywheel/repos/` の参照用クローン。管理は [architecture.md §3.9.1](architecture.md)）。秘密情報はマニフェスト・memory に書かない。
+> `map` は対象リポジトリを **`repos.tsv` の `<name>`** で参照する（実体は `.flywheel/repos/` の作業用クローン。管理は [architecture.md §3.9.1](architecture.md)）。秘密情報はマニフェスト・memory に書かない。
 
 ### 2.1 experience の追加フィールド（自己改善ループ用）
 
