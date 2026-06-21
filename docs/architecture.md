@@ -201,7 +201,7 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 - **マニフェスト `repos.tsv`**: 素朴な行指向（空白/タブ区切り・`#` コメント、`<name> <url> <branch>`）。yq 等に依存せず純シェルで解析できる形（雛形 [`templates/repos.tsv`](../templates/repos.tsv)）。
 - **クローン実体**: [`scripts/sync-repos.sh`](../scripts/sync-repos.sh) が `.flywheel/repos/<name>` に **冪等に clone/fetch**。容量・ライセンス・秘密情報をエージェントrepo に混ぜないため **.gitignore** 対象。
 - **作業用に一本化（参照／作業の二本立ては廃止）**: クローンは編集・ブランチ・コミット可。調査・知識抽出（読み取り）も同じクローンから行える。実作業（コード変更）の委譲先 cwd もこの作業用クローン（[#13](https://github.com/masanami/claude-flywheel/issues/13)）。
-- **安全な同期（ローカル作業を壊さない）**: `git pull` による上書きはしない。clone は初回のみ、以後は `git fetch`。ワーキングツリーが **clean かつ既定ブランチ上**のときだけ ff-only で前進し、**dirty / 別ブランチ**のときは更新をスキップして警告する。
+- **安全な同期（ローカル作業を壊さない）**: `git pull` による上書きはしない。clone は初回のみ、以後は `git fetch`。ワーキングツリーが **clean かつ既定ブランチ上**のときだけ ff-only で前進し、**dirty / 別ブランチ / ff 不能（ローカルが分岐済み）**のときは更新をスキップして警告する。
 - 秘密情報（認証）はマニフェストに書かない。git 認証は実行者環境（SSH / credential helper）を使う。
 - 生成は bootstrap（3.6）が `repos.tsv` を起こし、`map`（3.5）が `<name>` で該当リポジトリを指す。run-cycle は必要時に sync-repos.sh で最新化（任意）。
 - 対応: [#6](https://github.com/masanami/claude-flywheel/issues/6) / [#12](https://github.com/masanami/claude-flywheel/issues/12)（作業用一本化）/ 接続ツール IF（AO-05）。
@@ -393,4 +393,4 @@ routine(cron) ──起動──▶ /run-cycle
 - **AO-02**: **fleet スコープ（§3.2(B)）の自動化**。人間ルーティングをオーケストレーターへ委譲する形態（調整担当ポジションの専用エージェント / fleet オーケストレーション機能）と、重複検知・依存順序・ハンドオフ規約。（intra スコープはメインセッションで確定）
 - **AO-03**: エージェントの起動・常駐モデル（都度起動 / スケジュール / イベント駆動）。
 - **AO-04**: 横断知識の共有方法（共有記憶領域 or ドメイン間相互リンク、agent-memory.md OQ）。
-- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。
+- **AO-05**: 接続ツール（例: claude-harness）とのインターフェース（どの単位で何を渡すか）。pluggable に保つための共通の接続規約をどう定義するか。**作業先 cwd は作業用クローン `.flywheel/repos/<name>` に確定済み（[#12](https://github.com/masanami/claude-flywheel/issues/12)・§3.9.1）**。残る委譲方式（独立セッションで何を渡すか）は [#13](https://github.com/masanami/claude-flywheel/issues/13) で扱う。

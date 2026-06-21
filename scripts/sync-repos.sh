@@ -74,6 +74,16 @@ while IFS= read -r line || [ -n "$line" ]; do
     continue
   fi
 
+  # name はクローン先ディレクトリ名（さらに memory map の参照キー）になる。
+  # パス区切り / .. を含むと CLONE_DIR の外へ脱出しうるため弾く。
+  case "$name" in
+    */* | *..*)
+      echo "sync-repos: 不正な name（/ や .. は使えません）: $name" >&2
+      failed=$((failed + 1))
+      continue
+      ;;
+  esac
+
   dest="$CLONE_DIR/$name"
 
   if [ -d "$dest/.git" ]; then
@@ -93,7 +103,7 @@ while IFS= read -r line || [ -n "$line" ]; do
       elif [ "$cur" != "$branch" ]; then
         echo "sync-repos: 別ブランチ（${cur}）につき更新をスキップ: $name" >&2
         skipped=$((skipped + 1))
-      elif git -C "$dest" merge --ff-only --quiet "origin/$branch" </dev/null; then
+      elif git -C "$dest" -c advice.diverging=false merge --ff-only --quiet "origin/$branch" </dev/null; then
         synced=$((synced + 1))
       else
         echo "sync-repos: ff-only で前進できず更新をスキップ: ${name}（ローカル作業を保持）" >&2
@@ -113,5 +123,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "$MANIFEST"
 
-echo "sync-repos: 完了（更新 $synced 件 / スキップ $skipped 件 / 失敗 $failed 件）"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "sync-repos: dry-run 完了（上記が実行予定。clone/fetch は行っていません）"
+else
+  echo "sync-repos: 完了（更新 $synced 件 / スキップ $skipped 件 / 失敗 $failed 件）"
+fi
 [ "$failed" -eq 0 ]
