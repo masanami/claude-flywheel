@@ -3,7 +3,9 @@
 > claude-flywheel のスキルが**生成するドキュメント**、および本リポジトリの docs を書くときの規約。
 > 目的は **AI（後続のセッション・サブエージェント）が確実にパースし、文脈を取り違えないこと**。図や知識は人間だけでなく AI が読む前提で書く。
 >
-> この規約は docs に置くだけでは生成時に効かないため、**図/ドキュメントを生成するスキルは本ファイルを参照し、要点をスキル本文にもインライン明記する**（例: [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md)）。
+> この規約は docs に置くだけでは生成時に効かないため、**図/ドキュメントを生成するスキルは本ファイルを参照し、要点をスキル本文にもインライン明記する**（例: [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) / [agent-memory](../skills/agent-memory/SKILL.md) / [reflect](../skills/reflect/SKILL.md)）。
+> **本ファイルが唯一の正本**。スキル側のインラインは「**mermaid・言語タグ・キャプションの3点トリガ ＋ 本ファイルへのポインタ**」に留め、判断基準（ツリーは text 例外 等）は本ファイルだけが持つ（二重定義のドリフトを避ける）。
+> **適用範囲**: claude-flywheel が生成する成果物（地図・ポジション・memory・内省レポート等）。run-cycle が委譲する独立 `claude -p` セッション（§3.9.2）が生成する成果物は**対象リポジトリの流儀に従う**ため本規約の射程外。エージェント自身の `memory/` への書き戻しは agent-memory スキル経由で本規約が効く。
 
 ## 1. 図は mermaid で描く（ASCII art を使わない）
 

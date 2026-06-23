@@ -40,7 +40,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    ```text
    # 関連リポジトリの作業用クローン（実体はコミットしない。マニフェストは repos.tsv）
    .flywheel/repos/
-```
+   ```
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
