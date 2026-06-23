@@ -54,6 +54,7 @@ metadata:
 4. 関連する既存記憶へ `[[name]]` でリンク。
 5. `INDEX.md` の該当行を追加/更新。
 6. **秘密情報（認証・接続文字列）は記録しない。**
+7. 本文に図（サービス関係・フロー等）を載せる場合は **mermaid** で描き、コードフェンスに言語タグを付ける（ASCII art は使わない）。規約は `${CLAUDE_PLUGIN_ROOT}/docs/authoring-style.md`。
 
 ### recall（参照）
 - 対象 `domain`（と任意のクエリ）を受け、`INDEX.md` から関連エントリを選び、本文をロードする。

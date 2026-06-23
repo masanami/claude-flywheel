@@ -10,6 +10,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [self-improvement.md](./self-improvement.md) | 自己改善（内省）ループ運用方針（run-cycle と分離した reflect） | ドラフト |
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
+| [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
