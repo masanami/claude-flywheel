@@ -13,10 +13,12 @@
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群 ＋ 記憶。横断はワークフローでファンアウト |
 | ④ 自己改善 | ②③ を磨く別ループ | `reflect` スキル（低頻度・内省） |
 
-```
-routine(cron) ──起動──▶ /run-cycle
-                          観測→整理→計画→実行(接続ツール委譲)→検証→学習→報告→コミット
-                          （状態は challenge-ledger.md / memory/ / positions/ ＝ファイル, 冪等）
+*図: ランタイム — cron が run-cycle を定期起動し、状態はファイルに保持して冪等に回す。*
+
+```mermaid
+flowchart LR
+    cron["routine (cron)"] -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
+    cycle --- state["状態はファイル（冪等）<br/>challenge-ledger.md / memory/ / positions/"]
 ```
 
 ## セットアップ（段階）

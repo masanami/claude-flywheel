@@ -16,7 +16,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 
 ## 生成するもの（利用先ワークスペース直下）
 
-```
+```text
 <workspace>/
 ├── CLAUDE.md                 # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md       # 課題台帳（テンプレートから生成）
@@ -37,10 +37,12 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
 3. `.gitignore` に **作業用クローンの実体**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
-   ```
+
+   ```text
    # 関連リポジトリの作業用クローン（実体はコミットしない。マニフェストは repos.tsv）
    .flywheel/repos/
    ```
+
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
