@@ -29,7 +29,7 @@ run-cycle（整理→計画→実行→…）
 
 - 利用先ワークスペースに `challenge-ledger.md`（正本）が存在する（無ければ flywheel-init で生成）。
 - 取り込み元の宣言（任意）: ワークスペース直下の `challenge-sources.md`（雛形は `${CLAUDE_PLUGIN_ROOT}/templates/challenge-sources.md`）。**無ければ**、対話で「どこから取り込むか」を確認するか、共有 repo のファイル直接参照にフォールバックする。
-- 外部接続は**実行者環境の資格情報**で解決する（MCP サーバ接続 / API トークン / SSH 等）。**秘密情報は `challenge-sources.md` にも台帳にも書かない**（§セキュリティ）。
+- 外部接続は**実行者環境の資格情報**で解決する（MCP サーバ接続 / API トークン / SSH 等）。**秘密情報は `challenge-sources.md` にも台帳にも書かない**（§セキュリティ・権限）。
 
 ## 入力（任意）
 
@@ -77,7 +77,7 @@ run-cycle（整理→計画→実行→…）
 各エントリの**外部キー**で、既存台帳の**取り込み元マーカー**を照合する。マーカーは分類欄に置く 1 行（`docs/challenge-ledger-format.md` の「取り込み元」）:
 
 ```markdown
-- 取り込み元: <source-id> / <外部キー>（取り込み: <YYYY-MM-DD>）<!-- fp:<本文フィンガープリント> -->
+- 取り込み元: <source-id> / <外部キー>（取り込み: <YYYY-MM-DD>）<!-- fp:<フィンガープリント> -->
 ```
 
 判定は 3 分岐:
