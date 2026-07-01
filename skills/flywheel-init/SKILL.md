@@ -19,7 +19,8 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ```text
 <workspace>/
 ├── CLAUDE.md                 # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
-├── challenge-ledger.md       # 課題台帳（テンプレートから生成）
+├── challenge-ledger.md       # 課題台帳（正本・テンプレートから生成）
+├── challenge-sources.md      # 課題の取り込み元宣言（任意・外部ソースを使うとき。テンプレートから生成）
 ├── repos.tsv                 # 関連リポジトリのマニフェスト（テンプレートから生成）
 ├── .claude/settings.json     # 自走委譲の権限（Bash(claude -p:*) を allow。§権限前提）
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
@@ -34,6 +35,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 2. プラグインの雛形（`${CLAUDE_PLUGIN_ROOT}/templates/`）を読み込み、カレントワークスペースに生成する:
    - `${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md` → `./CLAUDE.md`（既存 CLAUDE.md があれば追記/マージ。上書きしない）
    - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-ledger.md` → `./challenge-ledger.md`
+   - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ。初期は内部台帳直接記入だけでも可＝生成を省略できる）
    - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
    - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
@@ -48,7 +50,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
-   - 課題は**共有ソース**に集約し、run-cycle が自分に関係する分だけ `challenge-ledger.md` へ取り込む（共有ソースの場所を控えておく）。
+   - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
    - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 

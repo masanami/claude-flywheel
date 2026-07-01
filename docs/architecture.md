@@ -111,7 +111,7 @@ flowchart TD
 - **共有課題ソース（intake）**: 人間は **共有リポジトリ/ドキュメント**の単一の入口に課題を集約する。各エージェントは、そこから**自分に関係する課題だけ**を自リポジトリの台帳へ**取り込む（ingestion）**。
   - 守備範囲は原則重複しないため、各エージェントは自分の関心範囲（ポジション）に合う課題を取り込む。
   - 取り込み後の分類タグ・ステータスは各エージェントの台帳（内部）で管理し、共有ソースへ書き戻さない。
-- **課題ソースは差し替え可能（pluggable）**: 共有ソースの実体（共有 repo / Notion / Google Doc / Slack ログ等）は問わない。取り込みステップが読み取り・正規化を担い、**それ以降の機械は変更不要**。初期は最小（共有 repo のファイル直接参照など）から始め、外部ドキュメント取り込みは後続（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06）。
+- **課題ソースは差し替え可能（pluggable）**: 共有ソースの実体（共有 repo / Notion / Google Doc / Slack ログ等）は問わない。取り込みステップ（スキル [ingest-challenges](../skills/ingest-challenges/SKILL.md)）が読み取り・正規化・冪等マージを担い、**それ以降の機械は変更不要**。取り込み元は各エージェントの `challenge-sources.md`（雛形 [`templates/challenge-sources.md`](../templates/challenge-sources.md)）で宣言し、再取り込みは**取り込み元マーカー**で冪等化する（[challenge-ledger-format.md](./challenge-ledger-format.md)）。初期は最小（共有 repo のファイル直接参照、あるいは内部台帳直接記入）から始め、外部ドキュメント取り込みは後続（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06）。
 - 形式・分類ルール: [challenge-ledger-format.md](./challenge-ledger-format.md)。
 - 対応要件: FR-07。
 
@@ -166,7 +166,7 @@ flowchart TD
 - ポジション（役割）が必要とする能力を **スキル** として用意する。エージェントは自分のポジションに紐づくスキルを使って自走する。
 - 例: ドメイン調査、課題の自己選択、記憶の更新、レビュー前の前提知識ロード、報告 など。ポジションごとに必要なスキルセットを定義する。
 - 配置: プラグインの `skills/`（共通スキル）と、ポジション定義からの参照。
-- flywheel-init / bootstrap-domain-map / run-cycle もこの一種（立ち上げ・運用スキル）。
+- flywheel-init / bootstrap-domain-map / ingest-challenges / run-cycle もこの一種（立ち上げ・運用スキル）。
 
 ### 3.8 自律実行ランタイム【主要成果物 (b)】
 
@@ -275,6 +275,7 @@ claude-flywheel/
 ├── skills/                      # 配布スキル【成果物(a)】
 │   ├── flywheel-init/           # 利用先に状態を scaffold
 │   ├── bootstrap-domain-map/    # ドメイン地図づくり
+│   ├── ingest-challenges/       # 外部ソースから課題を正本台帳へ冪等取り込み（pluggable）
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
@@ -282,6 +283,7 @@ claude-flywheel/
 │   └── sync-repos.sh            # 関連リポジトリ（作業用クローン）の冪等な clone/fetch
 ├── templates/                   # 利用先に scaffold する雛形
 │   ├── challenge-ledger.md
+│   ├── challenge-sources.md     # 課題の取り込み元宣言（任意）
 │   ├── position.md
 │   ├── repos.tsv
 │   └── runtime/README.md
@@ -297,6 +299,7 @@ claude-flywheel/
 <agent-repo>/
 ├── CLAUDE.md                    # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md          # このエージェントの課題台帳（正本。共有ソースから取り込み）
+├── challenge-sources.md         # 課題の取り込み元宣言（任意。外部ソース ingestion 用）
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
 ├── .flywheel/repos/             # 関連リポジトリの作業用クローン（.gitignore・編集/ブランチ/コミット可）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
@@ -319,7 +322,7 @@ claude-flywheel/
 └── 課題の集約（人間が記入する単一の入口）
 ```
 
-- 全エージェントが参照し、自分に関係する課題だけを 4.2 の台帳へ取り込む（§3.1）。
+- 全エージェントが参照し、自分に関係する課題だけを [ingest-challenges](../skills/ingest-challenges/SKILL.md) が 4.2 の台帳へ取り込む（§3.1）。取り込み元は `challenge-sources.md` で宣言する。
 - 実体は差し替え可能（pluggable）。最終配置は OQ-01 / AO-06 と連動。
 
 ## 5. 主要フロー
@@ -341,7 +344,7 @@ flowchart TD
 `run-cycle` が 1 周回す。
 
 ```text
-1. 取り込み: 共有ソースから自分に関係する課題を自台帳へ ingestion（§3.1）
+1. 取り込み: 共有ソースから自分に関係する課題を自台帳へ ingestion（スキル ingest-challenges・取り込み元マーカーで冪等・§3.1）
 2. 整理（メインセッション）: 自分の positions に分類・自己選択（要相談は人間へ: FR-08）
 3. 計画: 関連記憶を前ロード（recall）→ タスク探索・分解（人間承認: FR-13）
 4. 実行: 接続ツールで実作業（開発なら claude-harness 等）。委譲は **cwd＝作業用クローンの独立 `claude -p` セッション**で回す（§3.9.2。メインセッション直叩き／サブエージェントは対象 repo の設定で動かないため不可）。**recall した前提知識（map/tacit/reference）と完了条件はブリーフに明記して渡す**（独立セッションは文脈を引き継がない。破壊的/不可逆操作は人間承認: FR-22）
@@ -416,7 +419,7 @@ flowchart LR
 | **P3 単一エージェント自走** | 1 エージェントで取り込み→自己選択→ツール委譲→検証→学習を一巡 | 1 エージェントの Flywheel 実証（受け入れ基準 [requirements.md §11](./requirements.md)） |
 | **P4 fleet 化** | 複数の独立エージェント＋共有ソースからの取り込み | 複数エージェント、fleet 横断は人間ルーティング |
 | **P5 自律化** | スケジュール実行・自動トリアージ・fleet 調整の委譲・自己改善 | 定期実行、fleet スコープ（§3.2(B)）の自動化、reflect による内省ループ（§3.10） |
-| **P6 課題ソース外部化**（任意） | 共有ソースを外部ドキュメント（Notion 等）にする | 取り込み（ingestion）の認証・正規化（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06） |
+| **P6 課題ソース外部化**（任意） | 共有ソースを外部ドキュメント（Notion 等）にする | 取り込み（ingestion）スキル [ingest-challenges](../skills/ingest-challenges/SKILL.md)＝pluggable な読み取り・正規化・冪等マージ＋ `challenge-sources.md`（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06） |
 
 ## 9. 要件トレーサビリティ
 
@@ -440,7 +443,7 @@ flowchart LR
 ## 10. アーキテクチャ上の未決事項
 
 - **AO-01**: 記憶／タスクの最終配置（OQ-01）。本書は**各エージェントのリポジトリ内集約**を提案するが、実行タスクの Issue/PR 管理との接続を要確定。
-- **AO-06**: 課題ソースの外部化（P6）。外部ドキュメント（Notion / Doc / Slack 等）の取り込み方式・認証・正本への正規化ルール。初期は内部ファイルのみで、外部化は後続。
+- **AO-06**: 課題ソースの外部化（P6）。外部ドキュメント（Notion / Doc / Slack 等）の取り込み方式・認証・正本への正規化ルール。**取り込みスキル [ingest-challenges](../skills/ingest-challenges/SKILL.md) で pluggable に対応（[#3](https://github.com/masanami/claude-flywheel/issues/3)）**: ソースは `challenge-sources.md` で宣言（type = repo-file / mcp-doc / mcp-chat）、認証は実行者環境（MCP 接続等）に委ね秘密情報は台帳・設定に残さない、再取り込みは取り込み元マーカー＋ `fp` で冪等（新規追記 / `fp` 変化時は人間記入欄のみ更新し分類・ステータス保持）。初期は内部ファイル直接記入のみでも運用可。残論点は採用ソースの選定と取り込み頻度の運用（手動 / run-cycle 連動 / スケジュール）。
 - **AO-02**: **fleet スコープ（§3.2(B)）の自動化**。人間ルーティングをオーケストレーターへ委譲する形態（調整担当ポジションの専用エージェント / fleet オーケストレーション機能）と、重複検知・依存順序・ハンドオフ規約。（intra スコープはメインセッションで確定）
 - **AO-03**: エージェントの起動・常駐モデル（都度起動 / スケジュール / イベント駆動）。
 - **AO-04**: 横断知識の共有方法（共有記憶領域 or ドメイン間相互リンク、agent-memory.md OQ）。
