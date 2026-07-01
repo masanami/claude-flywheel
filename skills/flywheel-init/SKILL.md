@@ -48,7 +48,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    ```
 
 4. 次の一手を案内する:
-   - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv` を生成。
+   - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
    - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。

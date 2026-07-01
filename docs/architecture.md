@@ -157,7 +157,7 @@ flowchart TD
 
 ### 3.6 ブートストラップ
 
-- スキル [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) が、対象サービス群を探索して **ドメイン地図 → ポジション案 → 記憶 seed** を生成。
+- スキル [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) が、対象サービス群を探索して **ドメイン地図 → ポジション案 → 記憶 seed** を生成。あわせて `repos.tsv`（関連リポジトリ・§3.9.1）と、任意で `challenge-sources.md`（課題の取り込み元候補・§3.1）を**ドラフト**する（同じ探索材料から。確証は低い前提で人間が確定）。
 - 出発点が「ドメイン未知」であるため、ポジション定義の前段として必須（FR-09）。
 - 成果は人間が承認（承認ポイント）。
 
