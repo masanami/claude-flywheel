@@ -21,6 +21,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── CLAUDE.md                 # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md       # 課題台帳（テンプレートから生成）
 ├── repos.tsv                 # 関連リポジトリのマニフェスト（テンプレートから生成）
+├── .claude/settings.json     # 自走委譲の権限（Bash(claude -p:*) を allow。§権限前提）
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
@@ -35,6 +36,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-ledger.md` → `./challenge-ledger.md`
    - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
+   - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
 3. `.gitignore` に **作業用クローンの実体**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
 
@@ -50,7 +52,18 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 
+## 自走委譲の権限前提（`.claude/settings.json`）
+
+run-cycle の実行ステップは、実作業を **cwd＝作業用クローンの独立 `claude -p` セッション**へ委譲する（`docs/architecture.md` §3.9.2）。このとき **親（このワークスペース）から headless `claude -p` を spawn する行為は、事前許可が無いと Claude Code の auto-mode セーフティ分類器にブロックされ、routine/cron の自走が実装ステップに到達できない**。
+
+そのため本スキルは `.claude/settings.json` に `Bash(claude -p:*)` を **allow として scaffold し、自律委譲を opt-in 化**する。分類器を経ずに委譲 spawn できるようになる。
+
+- 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針。§3.9.2）。
+- 多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ allow ルールで通るよう、**`-p` を先頭に置く**呼び出し形にする。
+- 対象 repo 側（`.flywheel/repos/<name>`）にも、子セッションが実装作業できるよう `.claude/settings.json`（lint/test/build/git 等を allow、破壊的操作を deny）を整えておくと安全（各 repo 側の `/init-project` 等で生成）。
+
 ## 注意
 
 - **状態はプラグイン内に作らない**（プラグインは配布物・読み取り専用扱い）。必ず利用先ワークスペースに作る。
 - 再実行時は既存状態を尊重し、不足分のみ補う（冪等）。
+- `.claude/settings.json` は**破壊的操作までは許可しない**（`Bash(claude -p:*)` の opt-in に留める）。push / PR / マージ等の不可逆操作は run-cycle の承認ゲート（FR-22）で扱う。
