@@ -1,7 +1,7 @@
 # 課題の取り込み元（challenge sources）
 
 > このエージェントが課題を**取り込む外部ソース**の宣言。`ingest-challenges` スキルがこれを読み、
-> 各ソースから自分に関係する課題を正本 `challenge-ledger.md` へ冪等に取り込む（[architecture.md §3.1](../docs/architecture.md) / AO-06）。
+> 各ソースから自分に関係する課題を正本 `challenge-ledger.md` へ冪等に取り込む（設計は claude-flywheel の `docs/architecture.md` §3.1 / AO-06）。
 > （このファイルは claude-flywheel の `templates/challenge-sources.md` から生成された雛形。任意。無い場合は取り込み時に確認するか共有 repo 直参照にフォールバックする）
 >
 > - **ソースは差し替え可能（pluggable）**: 共有 repo / Notion / Google Doc / Slack 等、実体は問わない。
@@ -41,5 +41,5 @@
 ## 運用メモ
 
 - **正規化の既定**: 作成者→起票者、作成日→起票日、本文→説明、明示があれば完了条件・緊急度。取れない欄は空にし、判断が要る箇所は台帳の「備考」に**仮定として明記**する（推測で埋めない）。
-- **冪等**: 同じ課題を再取り込みしても二重登録しない。既存エントリの `fp`（フィンガープリント）が変われば**人間記入欄だけ**更新し、分類・ステータスは保持する（[challenge-ledger-format.md](../docs/challenge-ledger-format.md)）。
+- **冪等**: 同じ課題を再取り込みしても二重登録しない。既存エントリの `fp`（フィンガープリント）が変われば**人間記入欄だけ**更新し、分類・ステータスは保持する（形式は claude-flywheel の `docs/challenge-ledger-format.md`）。
 - **頻度**: 手動（`/ingest-challenges`）／`run-cycle` の観測ステップから自動／routine 連動のいずれでもよい。
