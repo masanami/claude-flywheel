@@ -1,7 +1,7 @@
 # 課題の取り込み元（challenge sources）
 
 > このエージェントが課題を**取り込む外部ソース**の宣言。`ingest-challenges` スキルがこれを読み、
-> 各ソースから自分に関係する課題を正本 `challenge-ledger.md` へ冪等に取り込む（宣言方法は下の「ソース一覧」に自己完結。設計背景は claude-flywheel プラグイン側にあるが運用には不要）。
+> 各ソースから自分に関係する課題を正本 `challenge-ledger.md` へ冪等に取り込む。
 > （このファイルは claude-flywheel の `templates/challenge-sources.md` から生成された雛形。任意。無い場合は取り込み時に確認するか共有 repo 直参照にフォールバックする）
 >
 > - **ソースは差し替え可能（pluggable）**: 共有 repo / Notion / Google Doc / Slack 等、実体は問わない。
