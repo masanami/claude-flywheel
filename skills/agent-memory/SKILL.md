@@ -43,7 +43,7 @@ metadata:
   confidence: high | medium | low
 ```
 
-- bad は改修トリガー、good は再利用資産化・回帰ガード・recall 正例に使う（詳細は self-improvement.md §2）。
+- bad は改修トリガー、good は再利用資産化・回帰ガード・recall 正例に使う（背景は plugin の `${CLAUDE_PLUGIN_ROOT}/docs/self-improvement.md` §2。実行には本節で足りる）。
 
 ## 操作
 

@@ -56,11 +56,11 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 
 ## 自走委譲の権限前提（`.claude/settings.json`）
 
-run-cycle の実行ステップは、実作業を **cwd＝作業用クローンの独立 `claude -p` セッション**へ委譲する（`docs/architecture.md` §3.9.2）。このとき **親（このワークスペース）から headless `claude -p` を spawn する行為は、事前許可が無いと Claude Code の auto-mode セーフティ分類器にブロックされ、routine/cron の自走が実装ステップに到達できない**。
+run-cycle の実行ステップは、実作業を **cwd＝作業用クローンの独立 `claude -p` セッション**へ委譲する（設計背景は plugin の `${CLAUDE_PLUGIN_ROOT}/docs/architecture.md` §3.9.2）。このとき **親（このワークスペース）から headless `claude -p` を spawn する行為は、事前許可が無いと Claude Code の auto-mode セーフティ分類器にブロックされ、routine/cron の自走が実装ステップに到達できない**。
 
 そのため本スキルは `.claude/settings.json` に `Bash(claude -p:*)` を **allow として scaffold し、自律委譲を opt-in 化**する。分類器を経ずに委譲 spawn できるようになる。
 
-- 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針。§3.9.2）。
+- 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針）。
 - 多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ allow ルールで通るよう、**`-p` を先頭に置く**呼び出し形にする。
 - 対象 repo 側（`.flywheel/repos/<name>`）にも、子セッションが実装作業できるよう `.claude/settings.json`（lint/test/build/git 等を allow、破壊的操作を deny）を整えておくと安全（各 repo 側の `/init-project` 等で生成）。
 

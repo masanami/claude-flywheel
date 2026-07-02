@@ -52,7 +52,7 @@
 
 ## 7. 知識・記憶
 
-> 蓄積した知識への参照（運用は claude-flywheel の `docs/agent-memory.md`）。
+> 蓄積した知識（記憶）への参照。記憶の記録・recall は `claude-flywheel:agent-memory` スキルが担う（運用手順はそのスキルに自己完結）。
 
 - ドメイン地図: `<memory への参照>`
 - 暗黙知 / 経験: `<memory への参照>`
