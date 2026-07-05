@@ -40,7 +40,7 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 | 層 | どこ | 中身 | 性質 |
 | --- | --- | --- | --- |
 | **機械**（プラグイン） | claude-flywheel リポジトリ | `skills/`（flywheel-init / bootstrap-domain-map / run-cycle …）、`templates/`、`docs/`、`.claude-plugin/` | 配布・更新される。読み取り専用扱い。全エージェント共通の土台 |
-| **各エージェント**（state＋harness） | **エージェントごとの独立リポジトリ** | `challenge-ledger.md` / `positions/` / `memory/` / `runtime/` ＋ 独自ハーネス | エージェントごとに独立。Git 追跡。**守備範囲は原則重複しない** |
+| **各エージェント**（state＋harness） | **エージェントごとの独立リポジトリ** | `challenge-ledger.md` / `positions/` / `memory/` / `runtime/` / `journal/` ＋ 独自ハーネス | エージェントごとに独立。Git 追跡。**守備範囲は原則重複しない** |
 | **共有課題ソース**（intake） | 共有リポジトリ / ドキュメント | 人間が課題を集約する単一の入口 | 全エージェントが参照し、**自分に関係する分だけ取り込む** |
 
 導入手順（エージェント 1 体あたり）:
@@ -287,7 +287,8 @@ claude-flywheel/
 │   ├── challenge-sources.md     # 課題の取り込み元宣言（任意）
 │   ├── position.md
 │   ├── repos.tsv
-│   └── runtime/README.md
+│   ├── runtime/README.md
+│   └── journal/{README.md,cycle-template.md}
 ├── docs/                        # 設計ドキュメント
 └── README.md
 ```
@@ -310,6 +311,11 @@ claude-flywheel/
 │       ├── INDEX.md
 │       └── {map,tacit,experience,reference}-*.md
 ├── runtime/                     # 自律実行ランタイム設定【成果物(b)】
+├── journal/                     # サイクルジャーナル（run-cycle step 6 が書き出し。台帳=現在状態／journal=行動履歴）
+│   ├── README.md                # flywheel-init が scaffold
+│   ├── cycle-template.md        # flywheel-init が scaffold（1周分 .md の雛形）
+│   ├── YYYY-MM-DD-cycle.md（同日再実行は -2 / -3 ...）# run-cycle step 6 が新規作成（1周1ファイル）
+│   └── index.jsonl              # run-cycle step 6 が append
 └── （独自ハーネス）             # 各エージェントが自由に発展させる
 ```
 
