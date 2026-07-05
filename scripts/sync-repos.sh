@@ -124,6 +124,7 @@ report_untrusted_clones() {
   claude_json="${HOME:-}/.claude.json"
 
   if [ -z "${HOME:-}" ] || [ ! -f "$claude_json" ] || [ ! -r "$claude_json" ]; then
+    echo "sync-repos: ~/.claude.json が無い/読めないため trust チェックをスキップします" >&2
     return 0
   fi
 
@@ -134,7 +135,7 @@ report_untrusted_clones() {
     while IFS= read -r d; do
       [ -d "$d/.git" ] || continue
       abs=""
-      if abs="$(cd "$d" && pwd)"; then
+      if abs="$(cd "$d" && pwd -P)"; then
         abs_paths="${abs_paths}${abs}
 "
       fi
