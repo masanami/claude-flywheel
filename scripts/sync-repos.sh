@@ -27,6 +27,10 @@
 # 注意:
 #   - 秘密情報（認証）はマニフェストに書かない。git 認証は実行者の環境（SSH/credential helper）を使う。
 #   - クローン実体は .gitignore 対象。エージェントrepo にコミットしない。
+#   - 実行末尾で ~/.claude.json を読み取り、クローン先が Claude Code の trust 未承認
+#     （projects["<絶対パス>"].hasTrustDialogAccepted != true）かどうかを検出し警告する
+#     （run-cycle の headless 委譲が権限ブロックされる既知の落とし穴）。読み取り専用の検出のみ
+#     で、~/.claude.json への書き込みは一切行わない（対応は人間の一度きりの手動作業）。
 
 set -euo pipefail
 
@@ -54,6 +58,160 @@ mkdir -p "$CLONE_DIR"
 synced=0
 skipped=0
 failed=0
+# クローン先（trust 未承認チェック対象）を集める。行数分だけ増える素朴なリスト（改行区切り）。
+all_dests=""
+
+# --- trust 未承認クローンの検出（読み取り専用。~/.claude.json への書き込みは行わない） ---
+#
+# Claude Code は projects["<絶対パス>"].hasTrustDialogAccepted が true の場所でしか
+# .claude/settings.json の permissions.allow を有効化しない。sync-repos が新規 clone
+# した直後のクローンは常に未承認のため、run-cycle の headless 委譲がブロックされる
+# （#27）。ここでは検出と警告のみ行い、修正（trust 承認）は人間の一度きりの手動作業に
+# 委ねる（自己書き込みは禁止）。
+#
+# python3 があれば json モジュールで厳密に判定し、無ければ grep/sed によるヒューリス
+# ティックへ degrade する。~/.claude.json が無い/読めない/解析不能な場合は「安全側」
+# として検出そのものを静かにスキップする（set -e を壊さないよう、失敗しうるコマンド
+# は必ず条件文の中で評価する）。
+
+# 与えたパスが ~/.claude.json 上で trust 未承認かどうかを、grep/sed のヒューリスティッ
+# クで判定する（python3 が使えない環境向けの degrade 経路）。
+# 戻り値: 0=trust 承認済み, 1=未承認 or 判定不能（安全側で「未承認」扱い）
+_trust_check_grep_fallback() {
+  file="$1"
+  path="$2"
+  keyline=""
+  if keyline="$(grep -nF "\"$path\"" "$file" 2>/dev/null | head -n1 | cut -d: -f1)"; then
+    :
+  fi
+  if [ -z "${keyline:-}" ]; then
+    return 1
+  fi
+  # このプロジェクトのオブジェクト範囲を、次に現れる「絶対パスキー」の行（＝次エントリの
+  # 開始）の手前までに区切る。区切らずに固定行数だけ読むと、後続エントリの
+  # hasTrustDialogAccepted:true を誤って自分のものとして拾ってしまう（false positive）。
+  # このヒューリスティックは pretty-print（複数行）の JSON を前提とする。1行に圧縮された
+  # JSON では境界を区切れず判定を誤りうるため、その場合は呼び出し側（report_untrusted_clones）
+  # で丸ごとスキップする。
+  total_lines="$(wc -l <"$file" 2>/dev/null || echo 0)"
+  nextkeyline=""
+  if nextkeyline="$(tail -n "+$((keyline + 1))" "$file" 2>/dev/null | grep -nE '^[[:space:]]*"/' | head -n1 | cut -d: -f1)"; then
+    :
+  fi
+  if [ -n "${nextkeyline:-}" ]; then
+    end=$((keyline + nextkeyline - 1))
+  else
+    # 末尾エントリ: 末尾改行が無いファイルだと wc -l が実際の行数を過小に数えることが
+    # あるため、安全側に少し余裕を持たせる（sed は範囲外の行番号を指定しても単に無視する）。
+    end=$((total_lines + 5))
+  fi
+  if [ -z "${end:-}" ] || [ "$end" -lt "$keyline" ]; then
+    end="$keyline"
+  fi
+  window=""
+  if window="$(sed -n "${keyline},${end}p" "$file" 2>/dev/null)"; then
+    :
+  fi
+  if printf '%s\n' "$window" | grep -Eq '"hasTrustDialogAccepted"[[:space:]]*:[[:space:]]*true' 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+# 蓄積した clone dir のうち、実在するものだけを対象に trust 未承認を検出して警告する。
+# 完全に読み取り専用。~/.claude.json への書き込みは一切行わない。
+report_untrusted_clones() {
+  claude_json="${HOME:-}/.claude.json"
+
+  if [ -z "${HOME:-}" ] || [ ! -f "$claude_json" ] || [ ! -r "$claude_json" ]; then
+    echo "sync-repos: ~/.claude.json が無い/読めないため trust チェックをスキップします" >&2
+    return 0
+  fi
+
+  # 存在するクローンの絶対パスを集める（未 clone・失敗分は対象外）。
+  abs_paths=""
+  existing_dests="$(printf '%s' "$all_dests" | sed '/^$/d')"
+  if [ -n "$existing_dests" ]; then
+    while IFS= read -r d; do
+      [ -d "$d/.git" ] || continue
+      abs=""
+      if abs="$(cd "$d" && pwd -P)"; then
+        abs_paths="${abs_paths}${abs}
+"
+      fi
+    done <<EOF
+$existing_dests
+EOF
+  fi
+
+  [ -n "$abs_paths" ] || return 0
+
+  untrusted=""
+  used_python=0
+  if command -v python3 >/dev/null 2>&1; then
+    used_python=1
+    py_prog='
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+projects = data.get("projects", {}) if isinstance(data, dict) else {}
+for line in sys.stdin:
+    p = line.rstrip("\n")
+    if not p:
+        continue
+    info = projects.get(p)
+    trusted = isinstance(info, dict) and info.get("hasTrustDialogAccepted") is True
+    if not trusted:
+        print(p)
+'
+    if untrusted="$(printf '%s' "$abs_paths" | python3 -c "$py_prog" "$claude_json" 2>/dev/null)"; then
+      :
+    else
+      status=$?
+      if [ "$status" -eq 3 ]; then
+        # ~/.claude.json の解析に失敗（壊れている等）。安全側で検出をスキップ。
+        echo "sync-repos: ~/.claude.json の解析に失敗したため trust チェックをスキップします（想定外の形式）" >&2
+        return 0
+      fi
+      # python3 実行自体に失敗 → ヒューリスティックへ degrade
+      used_python=0
+      untrusted=""
+    fi
+  fi
+
+  if [ "$used_python" -eq 0 ]; then
+    # grep/sed ヒューリスティックは pretty-print（複数行）の JSON を前提とする。1行に
+    # 圧縮された JSON だとエントリの境界を区切れず、他エントリの true を誤って拾って
+    # 「trust 承認済み」と誤判定しうる（安全側と逆方向の false negative）。python3 が
+    # 無い環境でこの形式に遭遇した場合は、誤判定より「静かにスキップ」を優先する。
+    json_lines="$(wc -l <"$claude_json" 2>/dev/null || echo 0)"
+    if [ "$json_lines" -le 1 ]; then
+      echo "sync-repos: ~/.claude.json が 1 行に圧縮された形式のようで、python3 なしのヒューリスティックでは安全に判定できないため trust チェックをスキップします" >&2
+      return 0
+    fi
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if ! _trust_check_grep_fallback "$claude_json" "$p"; then
+        untrusted="${untrusted}${p}
+"
+      fi
+    done <<EOF
+$abs_paths
+EOF
+  fi
+
+  untrusted="$(printf '%s' "$untrusted" | sed '/^$/d')"
+  [ -n "$untrusted" ] || return 0
+
+  echo "sync-repos: 以下のクローンは Claude Code の trust 未承認です（.claude/settings.json の permissions.allow が無効化され、headless 委譲がブロックされます）:" >&2
+  printf '%s\n' "$untrusted" | while IFS= read -r p; do
+    echo "  - $p" >&2
+  done
+  echo "sync-repos: 対応（人間の一度きりの手動作業。本スクリプトは ~/.claude.json を書き込みません）: 該当ディレクトリで一度 \`claude\` を対話実行して trust ダイアログを承認するか、~/.claude.json の projects[\"<絶対パス>\"].hasTrustDialogAccepted を true に設定してください。" >&2
+}
 
 # 行指向で読む。# コメント行・空行はスキップ。列は空白/タブ区切り。
 while IFS= read -r line || [ -n "$line" ]; do
@@ -85,6 +243,8 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
 
   dest="$CLONE_DIR/$name"
+  all_dests="${all_dests}${dest}
+"
 
   if [ -d "$dest/.git" ]; then
     # 作業用クローン: ローカルのブランチ・編集・コミットを保持したまま安全に同期する。
@@ -128,4 +288,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   echo "sync-repos: 完了（更新 $synced 件 / スキップ $skipped 件 / 失敗 $failed 件）"
 fi
+
+report_untrusted_clones || true
+
 [ "$failed" -eq 0 ]
