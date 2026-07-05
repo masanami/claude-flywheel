@@ -310,10 +310,10 @@ claude-flywheel/
 │       ├── INDEX.md
 │       └── {map,tacit,experience,reference}-*.md
 ├── runtime/                     # 自律実行ランタイム設定【成果物(b)】
-├── journal/                     # サイクルジャーナル（run-cycle step 6 が append。台帳=現在状態／journal=行動履歴）
+├── journal/                     # サイクルジャーナル（run-cycle step 6 が書き出し。台帳=現在状態／journal=行動履歴）
 │   ├── README.md                # flywheel-init が scaffold
 │   ├── cycle-template.md        # flywheel-init が scaffold（1周分 .md の雛形）
-│   ├── YYYY-MM-DD-cycle.md（同日再実行は -2 / -3 ...）# run-cycle step 6 が生成
+│   ├── YYYY-MM-DD-cycle.md（同日再実行は -2 / -3 ...）# run-cycle step 6 が新規作成（1周1ファイル）
 │   └── index.jsonl              # run-cycle step 6 が append
 └── （独自ハーネス）             # 各エージェントが自由に発展させる
 ```
