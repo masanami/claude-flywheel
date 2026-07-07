@@ -210,7 +210,7 @@ EOF
   printf '%s\n' "$untrusted" | while IFS= read -r p; do
     echo "  - $p" >&2
   done
-  echo "sync-repos: 対応（人間の一度きりの手動作業。本スクリプトは ~/.claude.json を書き込みません）: 該当ディレクトリで一度 \`claude\` を対話実行して trust ダイアログを承認するか、~/.claude.json の projects[\"<絶対パス>\"].hasTrustDialogAccepted を true に設定してください。" >&2
+  echo "sync-repos: 対応（人間の一度きりの手動作業。本スクリプトは ~/.claude.json を書き込みません）: \`scripts/trust-clone.sh <name>\`（<name> は上記パスのディレクトリ名）を実行して trust 承認してください。本スクリプトもエージェント自身が実行してはいけません（人間が一度だけ手動で実行）。対話的に \`claude\` を起動して trust ダイアログを承認しても構いません。" >&2
 }
 
 # 行指向で読む。# コメント行・空行はスキップ。列は空白/タブ区切り。
