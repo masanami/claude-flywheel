@@ -20,7 +20,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 
 | 層 | 配置 | 中身 |
 | --- | --- | --- |
-| 機械（プラグイン） | claude-flywheel: `skills/` `templates/` `docs/` `.claude-plugin/` | スキル群・雛形・設計（全エージェント共通の土台） |
+| 機械（プラグイン） | claude-flywheel: `skills/` `templates/` `scripts/` `docs/` `.claude-plugin/` | スキル群・雛形・スクリプト・設計（全エージェント共通の土台） |
 | 各エージェント（state＋harness） | エージェントごとの独立リポジトリ | `challenge-ledger.md` `positions/` `memory/` `runtime/` ＋ 独自ハーネス |
 | 共有課題ソース（intake） | 共有リポジトリ/ドキュメント | 人間が課題を集約する単一の入口（各エージェントが自分の分だけ取り込み） |
 
@@ -44,7 +44,10 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [challenge-sources.md](../templates/challenge-sources.md) | 課題の取り込み元宣言の雛形（任意・外部ソース ingestion 用） |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
+| [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形 |
+| [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |
+| [journal/cycle-template.md](../templates/journal/cycle-template.md) | サイクルジャーナル 1 周分の雛形（run-cycle step 6 が参照） |
 
 ## スクリプト（`scripts/` ＝機械的処理の純シェル）
 

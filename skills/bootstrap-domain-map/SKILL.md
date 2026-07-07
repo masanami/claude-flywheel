@@ -1,6 +1,6 @@
 ---
 name: bootstrap-domain-map
-description: マイクロサービス群を探索してドメイン地図を作成し、ポジション案とエージェントmemoryの初期seedを生成する。Triggers on：「ドメイン地図を作って」「ブートストラップして」「サービス構成を把握して」
+description: マイクロサービス群を探索してドメイン地図を作成し、ポジション案とエージェントmemoryの初期seedを生成する。関連リポジトリのマニフェスト（repos.tsv）と課題の取り込み元候補（challenge-sources.md）のドラフトもあわせて生成する。Triggers on：「ドメイン地図を作って」「ブートストラップして」「サービス構成を把握して」
 ---
 
 # bootstrap-domain-map

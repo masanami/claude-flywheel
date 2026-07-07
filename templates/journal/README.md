@@ -41,11 +41,11 @@ journal/
 | --- | --- | --- |
 | `date` | string (`YYYY-MM-DD`) | 実行日 |
 | `seq` | number | 同日内の連番（**1 始まり**。`seq: 1` はファイル名にサフィックスを付けない＝ `YYYY-MM-DD-cycle.md`、`seq: 2` から `-2` を付ける） |
-| `touched_issues` | array<object> | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }` |
-| `delegations` | array<object> | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<claude -p の session_id>", "result": "<結果1行>" }` |
-| `pr_urls` | array<string> | 作成した PR / ブランチの URL |
-| `pending_approvals` | array<object> | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |
-| `decisions` | array<string> | 判断と根拠（1〜3 行を要素として） |
+| `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }` |
+| `delegations` | `array<object>` | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<claude -p の session_id>", "result": "<結果1行>" }` |
+| `pr_urls` | `array<string>` | 作成した PR / ブランチの URL |
+| `pending_approvals` | `array<object>` | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |
+| `decisions` | `array<string>` | 判断と根拠（1〜3 行を要素として） |
 
 サンプル（1 行）:
 

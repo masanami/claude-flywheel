@@ -43,7 +43,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/journal/cycle-template.md` → `./journal/cycle-template.md`（run-cycle step 6 が参照する 1 周分 .md の雛形）
    - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
-3. `.gitignore` に **ローカル実行状態（`.flywheel/`）**を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
+3. `.gitignore` に**ローカル実行状態**（`.flywheel/`）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
 
    ```text
    # ローカル実行状態（作業用クローン .flywheel/repos/・run-cycle のロック等。コミットしない。マニフェストは repos.tsv）
