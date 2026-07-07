@@ -131,6 +131,15 @@ try:
         )
         sys.exit(1)
 except FileNotFoundError:
+    if orig_stat is not None:
+        # 読み込み時に存在したファイルが後続プロセスに削除された＝競合。古いスナップショット
+        # から os.replace で復活させると lost update になるため中断する。
+        print(
+            f"trust-clone: {claude_json} が読み込み後に削除されました（競合の可能性）。"
+            "セッションを閉じてから再実行してください。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     pass  # 元から無い場合はそのまま新規作成に進む
 
 # tmp は作成時点からパーミッションを制限し（umask 依存で一時的に他ユーザ可読になるのを防ぐ）、
