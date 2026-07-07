@@ -46,8 +46,10 @@ run-cycle（整理→計画→実行→…）
 | `repo-file` | 共有 repo 内の Markdown を Read（既定・最小構成） | 見出し ID（例 `[C-001]`）または見出しテキスト |
 | `mcp-doc` | 接続済み MCP（例: Google Drive / Notion）の read 系ツールで本文取得 | ドキュメント/ページの安定 ID（page id 等）＋見出しアンカー |
 | `mcp-chat` | 接続済み MCP（例: Slack）の read 系ツールでメッセージ取得 | メッセージの安定 ID（ts / permalink） |
+| `github-issue` | `gh` CLI（`gh issue list --repo <owner/name> --state open --json number,title,body,author,createdAt,labels,url --limit 200`）で Issue を取得。認証は実行者の `gh` 認証に委ねる | `<repo>#<number>`（GitHub Issue の安定キー） |
 
 - **MCP ツールは実行者の接続済みサーバから discover する**（このプラグインは特定 SaaS の MCP を同梱しない）。ツールが見つからなければ、その旨を報告して当該ソースはスキップする（他ソースは継続）。
+- **`github-issue` は `gh` CLI が実行者環境にインストール・認証済みであることが前提**（MCP 不要）。`gh issue list` は Issue のみを返すため **PR は取り込まない**。`gh issue list` の既定 `--limit` は 30 件のため、**open Issue を取りこぼさないよう `--limit` を明示**する（既定値は上表のコマンド例を参照。件数が多いリポジトリでは適宜引き上げる）。`locator` に複数リポジトリ（`owner/name` をカンマ区切りで列挙）を指定でき、読み取れない／権限不足のリポジトリはエラーにせずスキップして他のリポジトリは継続する。
 - 認証・権限はソース側の設定に従う。読めない／権限不足は**エラーにせず報告してスキップ**（冪等・部分成功を許容）。
 
 ## 手順
@@ -58,6 +60,7 @@ run-cycle（整理→計画→実行→…）
 
 ### 2. 読み取り（外部 → 生エントリ）
 - ソースごとに上表の方式で候補エントリを取得する。
+- `github-issue` の `locator` に複数リポジトリが列挙されている場合、**リポジトリごとに個別取得**する。読めない／権限不足のリポジトリはエラーにせずスキップし、残りのリポジトリの取得は継続する（部分成功・冪等の原則）。
 - **関連度フィルタ**: 自ポジションの関心範囲（記憶 `map` ／ `challenge-sources.md` の `filter`）に照らし、**自分に関係する課題だけ**を残す。範囲外は取り込まない（共有ソースに残す）。
 
 ### 3. 正規化（外部記述 → 「人間記入欄」へマッピング）
