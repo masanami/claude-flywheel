@@ -36,8 +36,13 @@
 - type: `...`
 ...
 
-記入例（github-issue・複数リポジトリ）:
+-->
 
+### 記入例: `github-issue`（複数リポジトリ）
+
+`type: github-issue` は次のように宣言するだけでよい（`access` に直接コマンドを書くワークアラウンドは不要）:
+
+```markdown
 ### [core-repo-issues] 編集対象リポジトリの GitHub Issue
 - id: core-repo-issues
 - type: github-issue
@@ -46,8 +51,7 @@
 - filter: 自ポジションの関心範囲（open Issue 全件を候補にし関連度で判定）
 - external-key: <repo>#<number>
 - mapping: 起票者←author.login / 起票日←createdAt / 説明←body / 緊急度←ラベル（例: `priority:*` → 高/中/低）
-
--->
+```
 
 ## 運用メモ
 
