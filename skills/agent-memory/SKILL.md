@@ -50,9 +50,12 @@ metadata:
   signal: <何が効いた/詰まったか 1行>
   recurrence: <同種が何回目か（任意。reflect が集計時に更新してよい）>
   confidence: high | medium | low
+  reflected: <YYYY-MM-DD>             # reflect が集計処理済みの印（reflect が付与。無ければ「未処理」）
+  applied_as: <diff の対象 / Issue 参照>  # 採用された改修の参照（任意・reflect が付与）
 ```
 
 - bad は改修トリガー、good は再利用資産化・回帰ガード・recall 正例に使う。
+- `reflected` / `applied_as` は **reflect スキルだけが付与**する（run-cycle の学習ステップは付けない）。reflect の集計窓の既定「未処理」は `reflected` の有無で判定する。
 
 ## 操作
 

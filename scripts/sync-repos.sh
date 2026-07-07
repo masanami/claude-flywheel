@@ -213,10 +213,28 @@ EOF
   echo "sync-repos: 対応（人間の一度きりの手動作業。本スクリプトは ~/.claude.json を書き込みません）: \`$(dirname "$0")/trust-clone.sh <name>\`（<name> は上記パスのディレクトリ名）を実行して trust 承認してください。本スクリプトもエージェント自身が実行してはいけません（人間が一度だけ手動で実行）。対話的に \`claude\` を起動して trust ダイアログを承認しても構いません。" >&2
 }
 
+# URL の緩い正規化（origin とマニフェストの比較用）。ローカルパスなら先に物理パスへ解決し、
+# そのうえで末尾の / と .git を落とす（git は clone 時に相対パスを絶対パスへ解決して保存する
+# ため、素の文字列比較では表記揺れを誤検知する。.git を先に剥がすと `repo.git` のような bare
+# クローンのディレクトリが実在解決できなくなるので、解決を先に行う）。
+norm_url() {
+  u="$1"
+  u="${u%/}"
+  if [ -d "$u" ]; then
+    u="$(cd "$u" 2>/dev/null && pwd -P || printf '%s' "$u")"
+  fi
+  u="${u%.git}"
+  printf '%s' "$u"
+}
+
 # 行指向で読む。# コメント行・空行はスキップ。列は空白/タブ区切り。
 while IFS= read -r line || [ -n "$line" ]; do
-  # コメント除去（行頭 # と 行中の # 以降）と前後空白の整理
-  line="${line%%#*}"
+  # コメント除去と前後空白の整理。行中コメントは「空白 + #」のみを対象にする
+  # （URL 等のトークン内部の # をコメント扱いで黙って切り詰めないため）。
+  case "$line" in
+    \#*) continue ;;
+  esac
+  line="${line%%[[:space:]]\#*}"
   # 前後の空白をトリム
   line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   [ -z "$line" ] && continue
@@ -250,13 +268,25 @@ while IFS= read -r line || [ -n "$line" ]; do
     # 作業用クローン: ローカルのブランチ・編集・コミットを保持したまま安全に同期する。
     echo "sync-repos: fetch $name ($branch)"
     if [ "$DRY_RUN" -eq 0 ]; then
+      # origin がマニフェストの url と食い違う場合は警告して更新をスキップする
+      # （repos.tsv の URL 変更・name 重複を、古い origin の fetch 成功で隠さない）。
+      origin_url="$(git -C "$dest" remote get-url origin </dev/null 2>/dev/null || echo '?')"
+      if [ "$(norm_url "$origin_url")" != "$(norm_url "$url")" ]; then
+        echo "sync-repos: origin がマニフェストと不一致につき更新をスキップ: $name (origin=$origin_url manifest=$url)" >&2
+        skipped=$((skipped + 1))
+        continue
+      fi
       if ! git -C "$dest" fetch --quiet origin "$branch" </dev/null; then
         echo "sync-repos: fetch 失敗: $name" >&2
         failed=$((failed + 1))
         continue
       fi
       cur="$(git -C "$dest" rev-parse --abbrev-ref HEAD </dev/null 2>/dev/null || echo '?')"
-      dirty="$(git -C "$dest" status --porcelain </dev/null)"
+      if ! dirty="$(git -C "$dest" status --porcelain </dev/null)"; then
+        echo "sync-repos: status 失敗: $name" >&2
+        failed=$((failed + 1))
+        continue
+      fi
       if [ -n "$dirty" ]; then
         echo "sync-repos: 変更あり（dirty）につき更新をスキップ: $name (branch=$cur)" >&2
         skipped=$((skipped + 1))
