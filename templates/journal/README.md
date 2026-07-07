@@ -25,7 +25,7 @@ journal/
 
 ## `.md` の定型セクション（5 つ・この順）
 
-1. **触った課題**: ID とステータス遷移（例 `C-002-4: 承認待ち → 着手中`）。
+1. **触った課題**: ID とステータス遷移（例 `C-002-4: 分類済 → 計画承認待ち`）。
 2. **委譲**: 対象 repo / 実行スキル / **子セッション ID**（`claude -p --output-format json` の `session_id`）/ 結果 1 行。
 3. **作成した PR・ブランチの URL**: run-cycle step 3 の FR-22 節運用注記「自律で PR を作成したら PR URL を必ずサイクルレポートに出す」の固定置き場。
 4. **承認待ちゲート一覧**: その周で保留になった人間承認ゲート（FR-13 / FR-22 / FR-32 等）を 1 箇所に集約。
@@ -41,7 +41,7 @@ journal/
 | --- | --- | --- |
 | `date` | string (`YYYY-MM-DD`) | 実行日 |
 | `seq` | number | 同日内の連番（**1 始まり**。`seq: 1` はファイル名にサフィックスを付けない＝ `YYYY-MM-DD-cycle.md`、`seq: 2` から `-2` を付ける） |
-| `touched_issues` | array<object> | `{ "id": "C-002-4", "from": "承認待ち", "to": "着手中" }` |
+| `touched_issues` | array<object> | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }` |
 | `delegations` | array<object> | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<claude -p の session_id>", "result": "<結果1行>" }` |
 | `pr_urls` | array<string> | 作成した PR / ブランチの URL |
 | `pending_approvals` | array<object> | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |
@@ -50,7 +50,7 @@ journal/
 サンプル（1 行）:
 
 ```json
-{"date":"2026-07-04","seq":1,"touched_issues":[{"id":"C-002-4","from":"承認待ち","to":"着手中"}],"delegations":[{"repo":"service-a","skill":"tdd-impl","session_id":"sess-abc123","result":"実装完了・PR起票"}],"pr_urls":["https://github.com/org/service-a/pull/12"],"pending_approvals":[{"gate":"FR-13","issue":"C-003","summary":"タスク起票の承認待ち"}],"decisions":["既存パターンに合わせフォールバック処理を追加"]}
+{"date":"2026-07-04","seq":1,"touched_issues":[{"id":"C-002-4","from":"着手中","to":"検証中"}],"delegations":[{"repo":"service-a","skill":"tdd-impl","session_id":"sess-abc123","result":"実装完了・PR起票"}],"pr_urls":["https://github.com/org/service-a/pull/12"],"pending_approvals":[{"gate":"FR-13","issue":"C-003","summary":"タスク起票の承認待ち"}],"decisions":["既存パターンに合わせフォールバック処理を追加"]}
 ```
 
 `reflect` スキルはこのファイルを、`experience`（good/bad）と並ぶ集計入力として使う。
