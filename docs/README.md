@@ -51,3 +51,4 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | スクリプト | 用途 |
 | --- | --- |
 | [sync-repos.sh](../scripts/sync-repos.sh) | `repos.tsv` を読み、関連リポジトリを `.flywheel/repos/` へ冪等に clone/fetch（作業用・ローカル作業を壊さない安全同期） |
+| [trust-clone.sh](../scripts/trust-clone.sh) | 作業用クローンを Claude Code の trust 承認済みにする（`~/.claude.json` を更新。人間が一度だけ手動実行） |
