@@ -69,6 +69,7 @@ fi
 CLONE_PATH="$abs_path" python3 - <<'PY'
 import json
 import os
+import stat
 import sys
 
 path = os.environ["CLONE_PATH"]
@@ -89,9 +90,18 @@ if not isinstance(data, dict):
 
 data.setdefault("projects", {}).setdefault(path, {})["hasTrustDialogAccepted"] = True
 
+# 既存ファイルのパーミッションを引き継ぐ（無ければ 600 ＝ 所有者のみ読み書き可、を既定にする）。
+# open(tmp, "w") は umask 依存のパーミッション（通常 644 程度）で作成するため、既存が
+# より制限的（例: 600）だと os.replace 後に意図せず緩くなってしまう。
+try:
+    orig_mode = stat.S_IMODE(os.stat(claude_json).st_mode)
+except FileNotFoundError:
+    orig_mode = 0o600
+
 tmp = claude_json + ".tmp"
 with open(tmp, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
+os.chmod(tmp, orig_mode)
 os.replace(tmp, claude_json)  # 同一ファイルシステム内のアトミックな置き換え（書き込み中断時の破損を防ぐ）
 
 print(f"trusted: {path}")
