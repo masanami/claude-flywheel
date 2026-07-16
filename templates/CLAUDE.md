@@ -23,6 +23,18 @@
 - 1 周回す: `/claude-flywheel:run-cycle`
 - 内省（低頻度・ハーネス改善）: `/claude-flywheel:reflect`（run-cycle が残した good/bad の記録を集計し改修提案）
 
+## 差し込みタスク（サイクル外作業）の記録
+
+- 差し込み（run-cycle のサイクル外で行う作業）を始めるときは、課題台帳に起票するか、少なくとも `.flywheel/runs.jsonl` に `adhoc_start` を 1 行 append してから着手し、終わったら `adhoc_end` を append する（形式は `runtime/README.md` の実行イベントログを参照）。
+- 理由: 記録を経由しない作業は台帳にも観測面にも映らず、進行状況が誰からも見えなくなる。
+- `adhoc_start` の例:
+
+  ```json
+  {"ts":"2026-07-16T13:02:00+09:00","event":"adhoc_start","id":"adhoc-20260716-1302-ci-failure","title":"CI 落ちの調査","repo":"net-config"}
+  ```
+
+- append-only（既存行を書き換えない）・秘密情報を書かない・書き込みに失敗しても作業は止めない（best-effort）。
+
 ## 意思決定の主体（課題のスコープで所在が分岐する）
 
 - 自走委譲（headless `claude -p`）には**対話相手の人間がいない**。ただし子セッションは cwd の対象 repo の設定・記憶しかロードせず、`repos.tsv`・`positions/`・横断のドメイン記憶は親だけが持つため、**意思決定権の所在を課題のスコープで分岐する**。

@@ -26,7 +26,7 @@ journal/
 ## `.md` の定型セクション（5 つ・この順）
 
 1. **触った課題**: ID とステータス遷移（例 `C-002-4: 分類済 → 計画承認待ち`）。
-2. **委譲**: 対象 repo / 実行スキル / **子セッション ID**（`claude -p --output-format json` の `session_id`）/ 結果 1 行。
+2. **委譲**: 対象 repo / 実行スキル / **子セッション ID**（委譲時に事前採番し `--session-id` で指定した `session_id`。`--output-format json` の返り値は一致確認に使う）/ 結果 1 行。
 3. **作成した PR・ブランチの URL**: run-cycle step 3 の FR-22 節運用注記「自律で PR を作成したら PR URL を必ずサイクルレポートに出す」の固定置き場。
 4. **承認待ちゲート一覧**: その周で保留になった人間承認ゲート（FR-13 / FR-22 / FR-32 等）を 1 箇所に集約。
 5. **判断と根拠**: 非自明な意思決定を 1〜3 行で。
@@ -42,7 +42,7 @@ journal/
 | `date` | string (`YYYY-MM-DD`) | 実行日 |
 | `seq` | number | 同日内の連番（**1 始まり**。`seq: 1` はファイル名にサフィックスを付けない＝ `YYYY-MM-DD-cycle.md`、`seq: 2` から `-2` を付ける） |
 | `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }` |
-| `delegations` | `array<object>` | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<claude -p の session_id>", "result": "<結果1行>" }` |
+| `delegations` | `array<object>` | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<事前採番して --session-id で指定した UUID>", "result": "<結果1行>" }` |
 | `pr_urls` | `array<string>` | 作成した PR / ブランチの URL |
 | `pending_approvals` | `array<object>` | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |
 | `decisions` | `array<string>` | 判断と根拠（1〜3 行を要素として） |
@@ -57,4 +57,4 @@ journal/
 
 ## 子セッション ID を残す理由
 
-委譲は独立した `claude -p --output-format json` セッションで行われ、返り値の `session_id` をジャーナルへ記録する。普段はジャーナルの `.md` / `index.jsonl` だけ読めば周の内容が分かり、怪しい周だけ `claude -p --resume <session_id>` やトランスクリプト（`~/.claude/projects/`）で深掘りできる。
+委譲は独立した `claude -p` セッションで行われ、委譲時に事前採番して `--session-id` で指定した `session_id` をジャーナルへ記録する（`--output-format json` の返り値は一致確認に使う。子がクラッシュして返り値が無くても事前採番値を記録できる）。普段はジャーナルの `.md` / `index.jsonl` だけ読めば周の内容が分かり、怪しい周だけ `claude -p --resume <session_id>` やトランスクリプト（`~/.claude/projects/`）で深掘りできる。

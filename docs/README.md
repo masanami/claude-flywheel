@@ -45,7 +45,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
-| [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形 |
+| [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形（実行イベントログ `runs.jsonl` の仕様の正本を含む） |
 | [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |
 | [journal/cycle-template.md](../templates/journal/cycle-template.md) | サイクルジャーナル 1 周分の雛形（run-cycle step 6 が参照） |
 

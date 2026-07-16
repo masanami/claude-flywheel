@@ -4,7 +4,7 @@
 > 本書は実現方式・構成・主要フローを扱う。要件そのものの追加・変更は requirements.md 側で行う。
 
 - ステータス: ドラフト
-- 最終更新: 2026-06-21
+- 最終更新: 2026-07-16
 - 関連: [requirements.md](./requirements.md) / [agent-memory.md](./agent-memory.md) / [self-improvement.md](./self-improvement.md) / [challenges.md](./challenges.md)
 
 ---
@@ -170,7 +170,8 @@ flowchart TD
 
 ### 3.8 自律実行ランタイム【主要成果物 (b)】
 
-- エージェントを**自律的に動かすための実行基盤**。**専用アプリは作らず**、Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で構成する。
+- エージェントを**自律的に動かすための実行基盤**。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で構成する。
+- 「専用アプリは作らない」原則は**制御プレーンに限定**する。**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（条件・消費者例は §7 冒頭、実行イベントログ `.flywheel/runs.jsonl` の仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
 - 構成は 3 レイヤー（詳細は §7）: ①拍動（routine/cron）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
 - 配置: 各エージェントのリポジトリの `runtime/`（スケジュール設定・運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
 - 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに routine 化して定期自走。
@@ -315,6 +316,7 @@ claude-flywheel/
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
 ├── .claude/settings.json        # 自走委譲の権限前提（Bash(claude -p:*) を allow。flywheel-init が scaffold・§3.9.2）
 ├── .flywheel/repos/             # 関連リポジトリの作業用クローン（.gitignore・編集/ブランチ/コミット可）
+├── .flywheel/runs.jsonl         # 実行イベントログ（run-cycle・差し込みセッションが append／観測プレーンが読む／.gitignore）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
 │   └── <domain>.md
 ├── memory/                      # エージェント記憶
@@ -332,6 +334,7 @@ claude-flywheel/
 
 - intra-agent の整理はメインセッションが担うため、専用の `orchestrator/` ディレクトリは不要（§3.2）。
 - `.flywheel/repos/` は関連リポジトリの**作業用クローン**（編集・ブランチ・コミット可）で、`repos.tsv` から sync する（§3.9.1、.gitignore 対象）。**実作業（コード変更）の委譲先 cwd もこのクローン**で、接続ツール（3.9）が **cwd＝このクローンの独立 `claude -p` セッション**（§3.9.2）でブランチを切って実装する。調査・知識抽出（読み取り）も同じクローンから行う。
+- 実行状態の役割分担: **台帳＝現在状態／journal＝行動履歴（Git 追跡・恒久記録）／`.flywheel/runs.jsonl`＝リアルタイムのイベント境界（ローカル・.gitignore 対象・観測用）**。runs.jsonl は journal を代替しない（仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション、書き出しの規律は §7）。
 
 ### 4.3 共有課題ソース（intake）
 
@@ -395,7 +398,7 @@ flowchart TD
 
 ## 7. 自律実行サイクルの実装
 
-**専用アプリは作らない**。Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で、3 レイヤーに分けて構成する。
+**制御プレーン（自走の実行基盤）には専用アプリを作らない**。Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で、3 レイヤーに分けて構成する。この原則は制御プレーンに限定し、**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（§3.8）。観測プレーンの条件は 2 つ: **①状態ファイルに書き込まない**、**②制御プレーンの依存にならない（止まっても自走に影響しない）**。消費者例は [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)（`.flywheel/runs.jsonl`〔§4.2〕を読む。仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
@@ -415,6 +418,7 @@ flowchart LR
 ### 冪等性と状態
 
 - 状態はすべてファイル（台帳のステータス／記憶／ポジション）。サイクルは**ステータスに基づき着手可能なものだけ**を処理し、**何度起動しても二重実行しない**（**逐次の再実行**に対して冪等）。**並走**（cron の間隔超過・手動併走で 2 サイクルが同時に走る場合）はステータスでは防げないため、run-cycle のロック（`.flywheel/cycle.lock`・step 0）で排他する。
+- run-cycle にはサイクル・委譲の境界で `.flywheel/runs.jsonl`（§4.2）へ `cycle_start/end`・`delegate_start/end` を append する規律がある（仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。gitignore 対象のローカル観測用で、書き込みは best-effort（失敗してもサイクルを止めない）。
 
 ### 承認ゲートの扱い（重要）
 
@@ -453,7 +457,7 @@ flowchart LR
 | FR-30〜32（検証） | ツール層＝接続ツール（3.9）+ 承認ポイント #5 |
 | FR-40〜42（学習） | 記憶ストア（3.5）/ agent-memory.md |
 | FR-43〜45（自己改善） | 自己改善ループ（3.10）: run-cycle の記録 + reflect / self-improvement.md / 承認ポイント #8 |
-| FR-50〜51（可観測性・報告） | journal（§4.2 の `journal/` ＋ [templates/journal/README.md](../templates/journal/README.md)）＋ run-cycle step 6 のサイクルレポート |
+| FR-50〜51（可観測性・報告） | journal（§4.2 の `journal/` ＋ [templates/journal/README.md](../templates/journal/README.md)）＋ run-cycle step 6 のサイクルレポート ＋ runs.jsonl（ローカル実行イベントログ・[templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl)） |
 | 自走の能力 | ポジション別スキル群（3.7） |
 | 自律的な起動 | 自律実行ランタイム（3.8） |
 | NFR-02/03 | ファイルベース・Git 管理（1.4） |

@@ -1,6 +1,6 @@
 # runtime — 自律実行ランタイム【成果物 (b)】
 
-自走エージェントを定期的に起こすための構成。**専用アプリは作らず**、Claude Code のスケジュール実行（routine/cron）＋ `run-cycle` スキルで実現する。
+自走エージェントを定期的に起こすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code のスケジュール実行（routine/cron）＋ `run-cycle` スキルで実現する。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。
 
 ## 4 レイヤー
 
@@ -33,6 +33,71 @@ flowchart LR
 - 状態はすべてファイル（`challenge-ledger.md` / `memory/` / `positions/`）。
 - routine は毎回それらを読み、ステータスに基づき**冪等**に処理する（**逐次の再実行**に対して安全。**並走**は run-cycle のロック `.flywheel/cycle.lock` が排他する）。
 
+## 実行イベントログ（runs.jsonl）
+
+各エージェント repo の `.flywheel/runs.jsonl` に残す**リアルタイムのイベント境界ログ（append-only JSONL）**。gitignore 対象＝コミットしないローカル実行状態であり、「いま何が走っているか」を表す。journal を代替しない。本セクションがこのファイルの**スキーマの正本**。
+
+台帳・journal・runs.jsonl は役割が違う（役割が重なると正本が曖昧になるため、分担を固定する）:
+
+| ファイル | 表すもの | 記録の性質 |
+| --- | --- | --- |
+| `challenge-ledger.md`（台帳） | 課題の**現在状態** | Git 追跡・恒久記録 |
+| `journal/` | 1 周の**事後サマリ**（FR-50 / NFR-02 の正） | Git 追跡・恒久記録 |
+| `.flywheel/runs.jsonl` | **いま何が走っているか**（イベント境界） | ローカルのみ（gitignore）・観測用 |
+
+消費者は**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）。「実行中」は**対応する `*_end` のない `*_start`** として導出する。
+
+### イベント（6 種）
+
+| イベント | 意味 |
+| --- | --- |
+| `cycle_start` | run-cycle 1 周の開始 |
+| `cycle_end` | run-cycle 1 周の終了 |
+| `delegate_start` | 子セッションへの委譲の開始 |
+| `delegate_end` | 委譲の終了（【委譲結果の照合】の後） |
+| `adhoc_start` | 差し込み作業（サイクル外の対話作業）の開始 |
+| `adhoc_end` | 差し込み作業の終了 |
+
+### フィールド
+
+1 行 1 イベント・1 JSON オブジェクト。
+
+| フィールド | 型 | 必須となるイベント | 内容 |
+| --- | --- | --- | --- |
+| `ts` | string | 全イベント | ISO 8601・タイムゾーンオフセット付き |
+| `event` | string | 全イベント | 上表 6 種のいずれか |
+| `cycle` | string | `cycle_*` | 当周の journal ファイル名 basename（`YYYY-MM-DD-cycle`、同日 2 周目以降は `-2` / `-3` ...）。**`cycle_start` 時に journal の命名規則（既存ファイルの存在で連番判定）で確定し、run-cycle step 6 の journal 書き出しは同じ名前を使う**（ログと journal を機械的に突合できるようにするため）。`cycle_start` / `cycle_end` の対応付けキー |
+| `challenge` | string | `delegate_*`（`adhoc_*` は任意） | 課題 ID（`C-xxx`） |
+| `repo` | string | `delegate_*`（`adhoc_*` は任意） | `repos.tsv` の `<name>` |
+| `session_id` | string (UUID) | `delegate_*` | **委譲コマンド発行の直前に `uuidgen` で事前採番し、子セッションに `--session-id <uuid>` で指定する**（停止したセッションにも start 時点で resume 用 ID が残るようにするため）。macOS の `uuidgen` は大文字を返すため `uuidgen \| tr '[:upper:]' '[:lower:]'` のように**小文字へ正規化**する（対応付けを大文字小文字差で壊さないため）。`delegate_start` / `delegate_end` の対応付けキー |
+| `result` | string | `*_end` | 結果 1 行。`delegate_end` は【委譲結果の照合】を経た**実状態**に基づく。`cycle_end` は `completed`（正常終了）または `abandoned`（後続サイクルが stale ロック回収時に代筆） |
+| `id` | string | `adhoc_*` | `adhoc_start` / `adhoc_end` の対応付けキー（例: `adhoc-YYYYMMDD-HHMM-<slug>`。start 時に発番） |
+| `title` | string | `adhoc_start` | 差し込み作業の 1 行タイトル |
+
+サンプル（1 行ずつ）:
+
+```json
+{"ts":"2026-07-16T10:00:00+09:00","event":"cycle_start","cycle":"2026-07-16-cycle"}
+{"ts":"2026-07-16T10:05:12+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000"}
+{"ts":"2026-07-16T10:42:30+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"実装完了・PR起票（照合済み）"}
+{"ts":"2026-07-16T10:45:00+09:00","event":"cycle_end","cycle":"2026-07-16-cycle","result":"completed"}
+{"ts":"2026-07-16T13:02:00+09:00","event":"adhoc_start","id":"adhoc-20260716-1302-ci-failure","title":"CI 落ちの調査","repo":"net-config"}
+{"ts":"2026-07-16T13:40:00+09:00","event":"adhoc_end","id":"adhoc-20260716-1302-ci-failure","result":"修正PRを作成"}
+```
+
+### 規則
+
+- **append-only**。既存行を書き換えず、**末尾に 1 行 append** のみ（journal の `index.jsonl` と同じ規律。過去のイベントを後から改変しないため）。
+- **書き手は親セッション**（run-cycle を回すメインセッション／差し込みの対話セッション）。委譲先の子セッションは書かない（書き手を一本化し、並走委譲での競合を避けるため）。
+- 初回 append の前に `mkdir -p .flywheel` する（ディレクトリ未作成で append が失敗しないため）。
+- **best-effort**: 書き込みに失敗してもサイクル・作業を止めない（観測が制御を阻害しないため）。
+- **秘密情報（トークン・資格情報等）は書かない**（run-cycle 本体の原則を踏襲。`session_id` は識別子であり可）。
+- `run-cycle --dry-run` 実行時は一切書かない（journal と同じパリティ。dry-run は状態を変えないため）。
+- gitignore 対象＝コミットしない（ローカル実行状態のため）。恒久記録は journal 側が担う。
+- 肥大化対策（ローテーション等）は必要になるまで入れない（YAGNI。当面問題にならないため）。
+- **再開（`--resume`）の扱い**: 同一サイクル内の `--resume` 往復は 1 委譲とみなしイベントを追加しない。**別サイクルに持ち越した resume は新しい `delegate_start`（同じ `session_id` の再登場可）で挟む**（各サイクルの委譲区間を独立に観測できるようにするため）。対応付けは「同一 `session_id` の**最新の未終了 start**」とする。
+
 ## メモ
 
-- リアルタイムのイベント駆動（Slack 連動等）やダッシュボードが必要になった段階で、初めて薄いアプリの追加を検討する。当面は不要。
+- **読み取り専用の観測プレーン**（ダッシュボード。例: claude-flywheel-board）は冒頭の 2 条件（状態ファイルに書き込まない・制御プレーンの依存にならない）を満たす限り**許容済み**であり、`runs.jsonl` 等の状態ファイルを読んで可視化する。
+- 一方、**制御プレーン側**の薄いアプリ追加（リアルタイムのイベント駆動〔Slack 連動等〕）は、必要になった段階で初めて検討する。当面は不要。
