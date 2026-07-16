@@ -22,6 +22,7 @@
 #   0 = 成功（acquire: 取得。stale 回収と abandoned 代筆は内包 / release: 解放）
 #   2 = 並走検出（呼び出し側は「並走検出・今周スキップ」を報告して即終了する）
 #   3 = release 所有者不一致（削除しない）
+#   4 = 内部エラー（所有者メタデータの書き込み失敗等。ロックは未取得＝サイクルを中止して報告する）
 #   1 = 引数エラー等
 #
 # acquire の判定:
@@ -60,12 +61,15 @@ DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session-id)
-      if [ $# -lt 2 ]; then echo "cycle-lock: --session-id に値がありません" >&2; exit 1; fi
+      if [ $# -lt 2 ] || [ -z "$2" ]; then echo "cycle-lock: --session-id に値がありません" >&2; exit 1; fi
       SESSION_ID="$2"; shift 2 ;;
     --workspace)
-      if [ $# -lt 2 ]; then echo "cycle-lock: --workspace に値がありません" >&2; exit 1; fi
+      # 空文字を許すと LOCK が /.flywheel/cycle.lock（ルート直下）に化けるため拒否する。
+      if [ $# -lt 2 ] || [ -z "$2" ]; then echo "cycle-lock: --workspace に値がありません" >&2; exit 1; fi
       WORKSPACE="$2"; shift 2 ;;
     --dry-run)
+      # --dry-run は acquire 専用（release が黙って実ロックを削除する誤解を防ぐ）。
+      if [ "$CMD" != "acquire" ]; then echo "cycle-lock: --dry-run は acquire でのみ指定できます" >&2; exit 1; fi
       DRY_RUN=1; shift ;;
     -h | --help)
       usage; exit 0 ;;
@@ -116,9 +120,11 @@ meta_get() {
   sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n1 || true
 }
 
-# ロックの mtime（epoch 秒）。取得できなければ 0（macOS: stat -f / Linux: stat -c）。
+# ロックの mtime（epoch 秒）。取得できなければ現在時刻（macOS: stat -f / Linux: stat -c）。
+# フォールバックを 0 にすると経過が巨大値になり即「残骸」判定＝稼働中サイクルのロック奪取に
+# つながるため、取得不能時は現在時刻＝「更新直後」とみなして安全側（並走扱い）に倒す。
 lock_mtime() {
-  stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo 0
+  stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || date +%s
 }
 
 # 取得済みロックに所有者メタデータを書く。
@@ -167,8 +173,8 @@ do_acquire() {
     # （所有者不明・mtime 2 時間以内 → 並走扱い）ため、失敗時はロックを解除して中止する。
     if ! write_owner; then
       rm -rf "$LOCK"
-      echo "cycle-lock: 所有者メタデータの書き込みに失敗したためロックを解除して中止します" >&2
-      exit 2
+      echo "cycle-lock: 所有者メタデータの書き込みに失敗したためロックを解除して中止します（内部エラー）" >&2
+      exit 4
     fi
     exit 0
   fi
@@ -206,8 +212,8 @@ do_acquire() {
   if mkdir "$LOCK" 2>/dev/null; then
     if ! write_owner; then
       rm -rf "$LOCK"
-      echo "cycle-lock: 所有者メタデータの書き込みに失敗したためロックを解除して中止します" >&2
-      exit 2
+      echo "cycle-lock: 所有者メタデータの書き込みに失敗したためロックを解除して中止します（内部エラー）" >&2
+      exit 4
     fi
     exit 0
   fi

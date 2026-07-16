@@ -123,6 +123,44 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 
+# 空の --workspace は出力先が /.flywheel（ルート直下）に化けるため拒否する。
+if [ -z "$WORKSPACE" ]; then
+  warn "--workspace が空です。書かずに終了します（best-effort）"
+  exit 0
+fi
+
+# イベント別の必須フィールド検証（仕様の正本 templates/runtime/README.md のフィールド表に従う）。
+# 欠落したまま書くと消費者（観測プレーン）が対応付けできないため、警告して書かずに終了する。
+require_nonempty() {
+  if [ -z "$1" ]; then
+    warn "必須オプションがありません: ${2}（event=${EVENT}）。書かずに終了します（best-effort）"
+    exit 0
+  fi
+}
+
+case "$EVENT" in
+  cycle_start)
+    require_nonempty "$CYCLE" "--cycle" ;;
+  cycle_end)
+    require_nonempty "$CYCLE" "--cycle"
+    require_nonempty "$RESULT" "--result" ;;
+  delegate_start)
+    require_nonempty "$CHALLENGE" "--challenge"
+    require_nonempty "$REPO" "--repo"
+    require_nonempty "$SESSION_ID" "--session-id" ;;
+  delegate_end)
+    require_nonempty "$CHALLENGE" "--challenge"
+    require_nonempty "$REPO" "--repo"
+    require_nonempty "$SESSION_ID" "--session-id"
+    require_nonempty "$RESULT" "--result" ;;
+  adhoc_start)
+    require_nonempty "$ADHOC_ID" "--id"
+    require_nonempty "$TITLE" "--title" ;;
+  adhoc_end)
+    require_nonempty "$ADHOC_ID" "--id"
+    require_nonempty "$RESULT" "--result" ;;
+esac
+
 # ts の自動付与。date +%z は +0900 形式を返すため、末尾 2 桁の前にコロンを挿入して
 # +09:00 形式（ISO 8601）へ変換する（GNU/BSD 双方で動く %z のみ使用）。
 if ! ts_raw="$(date +%Y-%m-%dT%H:%M:%S%z)"; then
