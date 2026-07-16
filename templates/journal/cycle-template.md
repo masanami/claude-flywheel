@@ -12,7 +12,7 @@ run-cycle step 6 がコピーして日付・内容を埋める。セクション
 
 ## 委譲
 
-- repo: `<name>` / skill: `<実行スキル>` / session_id: `<claude -p の session_id>` / 結果: `<1行>`
+- repo: `<name>` / skill: `<実行スキル>` / session_id: `<事前採番して --session-id で指定した UUID>` / 結果: `<1行>`
 
 ## 作成した PR・ブランチの URL
 

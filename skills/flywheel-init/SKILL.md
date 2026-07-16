@@ -27,7 +27,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
 ├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。実体は run-cycle が生成）
-└── .gitignore                # .flywheel/repos/（作業用クローン実体）を除外
+└── .gitignore                # .flywheel/（作業用クローン・ロック・実行イベントログ runs.jsonl 等のローカル実行状態）を除外
 ```
 
 ## 手順
@@ -46,7 +46,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 3. `.gitignore` に**ローカル実行状態**（`.flywheel/`）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
 
    ```text
-   # ローカル実行状態（作業用クローン .flywheel/repos/・run-cycle のロック等。コミットしない。マニフェストは repos.tsv）
+   # ローカル実行状態（作業用クローン .flywheel/repos/・run-cycle のロック・実行イベントログ runs.jsonl 等。コミットしない。マニフェストは repos.tsv）
    .flywheel/
    ```
 
