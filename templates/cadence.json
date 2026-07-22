@@ -1,0 +1,10 @@
+{
+  "business_days": "1-5",
+  "business_start": "10:00",
+  "business_end": "18:00",
+  "run_cycle_interval_minutes": 90,
+  "cron_minute_offset": null,
+  "reflect": {
+    "every_n_cycles": 10
+  }
+}

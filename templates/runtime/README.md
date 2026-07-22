@@ -1,37 +1,40 @@
 # runtime — 自律実行ランタイム【成果物 (b)】
 
-自走エージェントを定期的に起こすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code のスケジュール実行（routine/cron）＋ `run-cycle` スキルで実現する。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。
+自走エージェントを定期的に起こすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code のセッション内 cron（`start-day` スキルが登録）＋ `run-cycle` スキルで実現する。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。
 
 ## 4 レイヤー
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
-| ① 拍動（cadence） | いつ起こすか | スケジュール実行（routine / cron） |
+| ① 拍動（cadence） | いつ起こすか | セッション内 cron（Claude Code の CronCreate）。`start-day` スキルが起動時に登録 |
 | ② サイクル本体 | 1 周の制御フロー | `run-cycle` スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群 ＋ 記憶。横断はワークフローでファンアウト |
 | ④ 自己改善 | ②③ を磨く別ループ | `reflect` スキル（低頻度・内省） |
 
-*図: ランタイム — cron が run-cycle を定期起動し、状態はファイルに保持して冪等に回す。*
+*図: ランタイム — セッション内 cron（start-day が登録）が run-cycle を定期起動し、状態はファイルに保持して冪等に回す。*
 
 ```mermaid
 flowchart LR
-    cron["routine (cron)"] -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
+    startday["start-day<br/>（cadence 読込→初回 run-cycle→cron 登録）"] -->|セッション内 cron 登録| cron["セッション内 cron (CronCreate)"]
+    cron -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
     cycle --- state["状態はファイル（冪等）<br/>challenge-ledger.md / memory/ / positions/"]
 ```
 
 ## セットアップ（段階）
 
 1. **手動検証**: まず `/run-cycle`（または `/run-cycle --dry-run`）を手動実行し、1 周の挙動を確認する。
-2. **定期自走**: Claude Code のスケジュール実行（routines）で `run-cycle` を定期起動する。
-   - 例: 毎営業日 09:00 に「`/run-cycle` を実行して結果を報告」。
-   - cron 定義は運用開始時にここへ追記する。
-3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（例: 週次、または再発 bad が溜まったとき）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
+2. **定期自走**: board（または人間）が各エージェントワークスペースで `claude "/claude-flywheel:start-day"` を起動する。`start-day` スキルが cadence 設定（`.flywheel/cadence.json`。無ければ既定値＝平日 10:00–18:00・90 分間隔で続行し、その旨を報告）を読み、**初回 `run-cycle` を即実行**したうえで、セッション内 cron（Claude Code の CronCreate）に次を登録する:
+   - **run-cycle 定期便**（recurring）: 業務時間内の発火時刻を間隔から算出して登録した cron 式（例: 開始 10:00・間隔 90 分・オフセット 5 分なら `5 10,13,16 * * 1-5` と `35 11,14,17 * * 1-5` の 2 ジョブ。分はエージェントごとにずらし `:00`/`:30` を避ける＝fleet で複数エージェントが同時発火して API バーストしないため）。**各発火後、台帳に未完了課題が無ければ（`計画承認待ち`/`完了確認待ち` 等の承認待ちを除く）定期便を自動削除**し「課題が枯渇した。次は要件定義から」と報告して終了する。
+   - **就業前の締めジョブ**（one-shot）: 業務時間終了直前に本日サマリを報告 → run-cycle 定期便を削除 → reflect しきい値（`.flywheel/cadence.json` の `reflect.every_n_cycles` 等）到達時のみ `/claude-flywheel:reflect` を起動する。
+   - セッション（board の埋め込みターミナル等）を閉じると登録した cron ごと消滅する（「board を閉じたら自走も止まる」安全なキルスイッチ）。recurring は 7 日で自動失効するが、日次起動の運用では到達しない。対話割り込み中は発火が遅延する（承認対話を邪魔しない望ましい挙動）。
+   - 拍動（cadence）の詳細仕様（手順・設計メモ）の**正本は [`skills/start-day/SKILL.md`](../../skills/start-day/SKILL.md)**。本 README と architecture.md §7 は要約であり、食い違う場合はスキル側が正（runs.jsonl の正本が本 README にあるのと同じレイヤリング規律）。
+3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（通常は上記 `start-day` の締めジョブがしきい値判定で条件付き起動する。手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
 4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認。
 
 ## 状態管理
 
 - 状態はすべてファイル（`challenge-ledger.md` / `memory/` / `positions/`）。
-- routine は毎回それらを読み、ステータスに基づき**冪等**に処理する（**逐次の再実行**に対して安全。**並走**は run-cycle のロック `.flywheel/cycle.lock` が排他する）。
+- `run-cycle` は毎回それらを読み、ステータスに基づき**冪等**に処理する（**逐次の再実行**に対して安全。**並走**は run-cycle のロック `.flywheel/cycle.lock` が排他する）。
 
 ## 実行イベントログ（runs.jsonl）
 

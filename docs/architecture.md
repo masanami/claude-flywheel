@@ -50,7 +50,7 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 1. claude-flywheel をプラグインとして install
 2. エージェント用リポジトリで /claude-flywheel:flywheel-init → 状態を scaffold（templates/ から生成）
 3. /claude-flywheel:bootstrap-domain-map → positions/・memory/ を生成（ドメイン地図）
-4. 共有ソースから自分に関係する課題を取り込み → /claude-flywheel:run-cycle（または routine で定期自走）
+4. 共有ソースから自分に関係する課題を取り込み → /claude-flywheel:run-cycle（または /claude-flywheel:start-day でセッション内 cron による業務時間内の定期自走を開始）
 ```
 
 - プラグインは配布・更新されるコードなので、**日々書き換わる運用状態をプラグイン内に置かない**。状態は各エージェントのリポジトリに持つ。
@@ -173,9 +173,9 @@ flowchart TD
 
 - エージェントを**自律的に動かすための実行基盤**。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で構成する。
 - 「専用アプリは作らない」原則は**制御プレーンに限定**する。**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（条件・消費者例は §7 冒頭、実行イベントログ `.flywheel/runs.jsonl` の仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
-- 構成は 3 レイヤー（詳細は §7）: ①拍動（routine/cron）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
+- 構成は 3 レイヤー（詳細は §7）: ①拍動（セッション内 cron。[`start-day`](../skills/start-day/SKILL.md) スキルが起動時に登録）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
 - 配置: 各エージェントのリポジトリの `runtime/`（スケジュール設定・運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
-- 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに routine 化して定期自走。
+- 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに `start-day` スキルでセッション内 cron を登録し定期自走。
 
 ### 3.9 ツール層（差し替え可能なエグゼキュータ）
 
@@ -403,7 +403,7 @@ flowchart TD
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
-| ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | スケジュール実行（routine / cron） |
+| ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | セッション内 cron（Claude Code の CronCreate）。[`start-day`](../skills/start-day/SKILL.md) スキルが起動時に登録 |
 | ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../skills/run-cycle/SKILL.md) スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群（3.7）＋ 記憶（3.5）。横断はワークフローでファンアウト |
 | ④ 自己改善 | ②③ を継続的に磨く別ループ | [`reflect`](../skills/reflect/SKILL.md) スキル（低頻度・3.10）。run-cycle は good/bad の記録のみ |
@@ -412,7 +412,8 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    cron["routine (cron)"] -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
+    startday["start-day<br/>（cadence 読込→初回 run-cycle→cron 登録）"] -->|セッション内 cron 登録| cron["セッション内 cron (CronCreate)"]
+    cron -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
     cycle --- state["状態はファイル<br/>challenge-ledger.md / memory/ / positions/"]
 ```
 
@@ -430,7 +431,7 @@ flowchart LR
 ### 段階的導入
 
 1. **手動検証**: `/run-cycle`（または `--dry-run`）を手動実行して 1 周の挙動を確認。
-2. **定期自走**: routine 化して `run-cycle` を定期起動（[`runtime/`](../templates/runtime/README.md)）。
+2. **定期自走**: [`start-day`](../skills/start-day/SKILL.md) スキルを起動し、セッション内 cron（CronCreate）で `run-cycle` を業務時間内に定期起動（[`runtime/`](../templates/runtime/README.md)）。
 3. いずれの段階でも §6 の承認ポイントを維持し、自律度の引き上げは信頼に応じて段階的に行う（要件 §6、OQ-03）。
 
 ### 採用しない選択肢（検討済みの代替・2026-07-16）
@@ -441,6 +442,8 @@ flowchart LR
 | --- | --- | --- |
 | **ワークフローエンジンでサイクルを駆動**（n8n 等の既存 / 最小自作） | run-cycle の制御フローは 7 ステップの直列で自明であり、複雑さはステップ内の**判断**（LLM 側）にある。「承認待ちで止まらず台帳へ駐機 → 次サイクルが拾う」設計により **cron ＋ 冪等な再入が durable execution を代替済み**。エンジン導入は常時稼働デーモン（＝制御プレーンの依存）と第二の状態正本を生み、エンジン主導への反転はステップ間の**文脈の連続性**（整理で読んだ台帳が計画・ブリーフの質を支える）を分断する。実行の可視化は runs.jsonl ＋ 観測プレーンが担う | 1 サイクル内で多数課題の並列委譲・個別リトライポリシーが必要になったとき。その場合も外部エンジンではなく **Claude Code ネイティブの [Dynamic Workflows](https://code.claude.com/docs/en/workflows.md)**（セッション内でスクリプトがサブエージェント群を決定的に制御。デーモン・第二の状態正本を持たない＝本行の見送り理由に抵触しない）を第一候補とする。なお直列の判断の背骨には使わず、ファンアウト形のステップ（例: bootstrap-domain-map の並列探索〔[#47](https://github.com/masanami/claude-flywheel/issues/47)〕・検証パネル・reflect の集計）に限る。サブエージェントは親設定を継承し cwd 不変のため、委譲エグゼキュータ（§3.9.2）の代替にはならない点は変わらない |
 | **状態管理のライト DB 化**（SQLite 等を正本に） | エージェントのネイティブ操作（Read/Edit/Grep）が CLI 呼び出しに置き換わり全スキルの信頼性が下がる。観測プレーンの fs-watch 契約が壊れる（DB に変更通知は無い）。ロック・append まわりの痛みは**機械処理の scripts 化（[#46](https://github.com/masanami/claude-flywheel/issues/46)）が解く問題**であり、DB でもロック競合として形を変えて残るだけ | Git 追跡外のローカル実行状態（runs.jsonl 系）に肥大・競合の**実痛が観測された**とき（予期では移行しない。設計方針 §1-9 と同じ規律） |
+| **launchd（OS スケジューラ）→ headless `claude -p` で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | スリープ復帰時の追い掛け実行など耐久性は上だが、業務時間内運用（board でセッションを開いたまま自走）では過剰。セッションが無いため**対話承認が使えず**、「人間コミットの `[x]`」経路（§7 承認ゲート）の実運用検証が必要になる。サブスク消費の制御（起動頻度の対話的な調整・即時停止）もしにくい | 夜間・無人時間帯の自走が必要になったとき |
+| **クラウド routine（`/schedule`）で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | 状態正本がローカルファイル（台帳・memory・`.flywheel/`）で、委譲もローカルクローンへの `claude -p` spawn、trust 承認も `~/.claude.json` 依存のため、クラウド実行環境と噛み合わない | ワークスペースごとクラウド常駐へ移す将来フェーズ |
 
 いずれも「skills（散文）がきつくなってきた」という同じ動機から出た案だが、痛みの正体は**機械的処理の散文化**であり、解は判断と機械の分離（設計方針 §1-9・[#46](https://github.com/masanami/claude-flywheel/issues/46)）にある、というのが判断の要点。
 
