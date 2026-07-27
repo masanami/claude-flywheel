@@ -27,7 +27,9 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
 ├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。実体は run-cycle が生成）
-└── .gitignore                # .flywheel/（作業用クローン・ロック・実行イベントログ runs.jsonl 等のローカル実行状態）を除外
+├── .flywheel/
+│   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・reflectしきい値。start-day スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
+└── .gitignore                # .flywheel/ 配下のローカル実行状態（作業用クローン・ロック・runs.jsonl 等）を除外。cadence.json だけは例外的に追跡
 ```
 
 ## 手順
@@ -42,18 +44,24 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/journal/README.md` → `./journal/README.md`
    - `${CLAUDE_PLUGIN_ROOT}/templates/journal/cycle-template.md` → `./journal/cycle-template.md`（run-cycle step 6 が参照する 1 周分 .md の雛形）
    - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
+   - `${CLAUDE_PLUGIN_ROOT}/templates/cadence.json` → `./.flywheel/cadence.json`（既存があれば上書きしない。`start-day` スキルが読む拍動設定＝業務時間・run-cycle 間隔・発火分オフセット・reflect しきい値）
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
-3. `.gitignore` に**ローカル実行状態**（`.flywheel/`）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）:
+3. `.gitignore` に**ローカル実行状態**（`.flywheel/` 配下）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）。**`cadence.json` は運用設定として Git 追跡する**ため、ディレクトリ丸ごとの ignore（`.flywheel/`）ではなく `.flywheel/*` ＋個別 unignore の形にする（`dir/` 形式で丸ごと ignore すると Git がディレクトリ内を走査せず `!` の例外が効かないため）:
 
    ```text
    # ローカル実行状態（作業用クローン .flywheel/repos/・run-cycle のロック・実行イベントログ runs.jsonl 等。コミットしない。マニフェストは repos.tsv）
-   .flywheel/
+   # cadence.json のみ運用設定として Git 追跡する（start-day スキル参照）
+   .flywheel/*
+   !.flywheel/cadence.json
    ```
+
+   既存の `.gitignore` に旧来の `.flywheel/`（ディレクトリ丸ごと ignore）が既にある場合は、上記の `.flywheel/*` ＋ `!.flywheel/cadence.json` の形へ置き換える（`cadence.json` を Git 追跡させるため）。
 
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
+   - 定期自走を始めるには `/claude-flywheel:start-day` を実行する（`.flywheel/cadence.json` を読み込み、初回 `run-cycle` の実行とセッション内 cron の登録までを行う。詳細は `runtime/README.md`）。
    - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。**新規クローンは trust 未承認から始まる**ため、`sync-repos.sh` が出す未承認クローンの警告に対応する `${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>`（下記「自走委譲の権限前提」）を人間に案内する。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 
