@@ -72,9 +72,9 @@ flowchart LR
 | `cycle` | string | `cycle_*` | 当周の journal ファイル名 basename（`YYYY-MM-DD-cycle`、同日 2 周目以降は `-2` / `-3` ...）。**`cycle_start` 時に journal の命名規則（既存ファイルの存在で連番判定）で確定し、run-cycle step 6 の journal 書き出しは同じ名前を使う**（ログと journal を機械的に突合できるようにするため）。`cycle_start` / `cycle_end` の対応付けキー |
 | `challenge` | string | `delegate_*`（`adhoc_*` は任意） | 課題 ID（`C-xxx`） |
 | `repo` | string | `delegate_*`（`adhoc_*` は任意） | `repos.tsv` の `<name>` |
-| `session_id` | string (UUID) | `delegate_*` | **委譲コマンド発行の直前に `uuidgen` で事前採番し、子セッションに `--session-id <uuid>` で指定する**（停止したセッションにも start 時点で resume 用 ID が残るようにするため）。macOS の `uuidgen` は大文字を返すため `uuidgen \| tr '[:upper:]' '[:lower:]'` のように**小文字へ正規化**する（対応付けを大文字小文字差で壊さないため）。`delegate_start` / `delegate_end` の対応付けキー |
+| `session_id` | string (UUID) | `delegate_*` | **委譲コマンド発行の直前に `uuidgen` で事前採番し、子セッションに `--session-id <uuid>` で指定する**（停止したセッションにも start 時点で resume 用 ID が残るようにするため）。macOS の `uuidgen` は大文字を返すため `uuidgen \| tr '[:upper:]' '[:lower:]'` のように**小文字へ正規化**する（対応付けを大文字小文字差で壊さないため）。`delegate_start` / `delegate_end` の対応付けキー。UUID 前提のため通常は該当しないが、`"` と `\` は使用不可（`check` の対応付けキー抽出が未エスケープの `"` 区切り前提のため） |
 | `result` | string | `*_end` | 結果 1 行。`delegate_end` は【委譲結果の照合】を経た**実状態**に基づく。`cycle_end` は `completed`（正常終了）または `abandoned`（後続サイクルが stale ロック回収時に代筆） |
-| `id` | string | `adhoc_*` | `adhoc_start` / `adhoc_end` の対応付けキー（例: `adhoc-YYYYMMDD-HHMM-<slug>`。start 時に発番） |
+| `id` | string | `adhoc_*` | `adhoc_start` / `adhoc_end` の対応付けキー（例: `adhoc-YYYYMMDD-HHMM-<slug>`。start 時に発番）。`"` と `\` は使用不可（`check` の対応付けキー抽出が未エスケープの `"` 区切り前提のため。書き込み時に `log-run-event.sh` が拒否する） |
 | `title` | string | `adhoc_start` | 差し込み作業の 1 行タイトル |
 
 サンプル（1 行ずつ）:

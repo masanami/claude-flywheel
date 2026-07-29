@@ -15,9 +15,11 @@
 #   --cycle      当周の journal ファイル名 basename（cycle_* 用）
 #   --challenge  課題 ID（C-xxx。delegate_* 用）
 #   --repo       repos.tsv の <name>
-#   --session-id 事前採番した子セッションの UUID（delegate_* 用）
+#   --session-id 事前採番した子セッションの UUID（delegate_* 用。" や \ は使用不可＝
+#                check の対応付けキー抽出（extract_field）の前提を守るための入力制約）
 #   --result     結果 1 行（*_end 用。JSON エスケープはスクリプトが行う）
-#   --id         adhoc_start / adhoc_end の対応付けキー
+#   --id         adhoc_start / adhoc_end の対応付けキー（" や \ は使用不可。理由は
+#                --session-id と同じ）
 #   --title      差し込み作業の 1 行タイトル（adhoc_start 用）
 #   --dry-run    何も書かず exit 0（journal と同じパリティ。dry-run は状態を変えないため）
 #   --workspace  ワークスペースのルート（既定: .）。<workspace>/.flywheel/runs.jsonl に書く
@@ -115,13 +117,13 @@ cmd_check() {
     case "$1" in
       --workspace)
         if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-          echo "log-run-event: --workspace に値がありません" >&2
+          warn "--workspace に値がありません"
           echo "$USAGE_CHECK" >&2
           exit 2
         fi
         case "$2" in
           --*)
-            echo "log-run-event: --workspace に値がありません（次の引数もフラグ）: $1 $2" >&2
+            warn "--workspace に値がありません（次の引数もフラグ）: $1 $2"
             echo "$USAGE_CHECK" >&2
             exit 2
             ;;
@@ -134,7 +136,7 @@ cmd_check() {
         exit 0
         ;;
       *)
-        echo "log-run-event: check の不明な引数: $1" >&2
+        warn "check の不明な引数: $1"
         echo "$USAGE_CHECK" >&2
         exit 2
         ;;
@@ -142,18 +144,18 @@ cmd_check() {
   done
 
   if [ -z "$workspace" ]; then
-    echo "log-run-event: --workspace が空です" >&2
+    warn "--workspace が空です"
     exit 2
   fi
   if [ ! -d "$workspace" ]; then
-    echo "log-run-event: workspace ディレクトリが存在しません: $workspace" >&2
+    warn "workspace ディレクトリが存在しません: $workspace"
     exit 2
   fi
   if [ ! -x "$workspace" ]; then
     # workspace 自体の実行（走査）権限が無いと、配下の .flywheel/runs.jsonl は存在しても
     # -e/-r が偽になり「ファイル無し」と誤判定しうる（fail-open の温床）。.flywheel と
     # 同様、workspace 自身でも先に区別して弾く。
-    echo "log-run-event: workspace ディレクトリを走査できません（権限不足の可能性）: $workspace" >&2
+    warn "workspace ディレクトリを走査できません（権限不足の可能性）: $workspace"
     exit 2
   fi
 
@@ -161,7 +163,7 @@ cmd_check() {
   if [ -d "$flywheel_dir" ] && [ ! -x "$flywheel_dir" ]; then
     # ディレクトリの実行（走査）権限が無いと、中の runs.jsonl は存在しても -e/-r が
     # 偽になり「ファイル無し」と誤判定しうる（fail-open の温床）。先に区別して弾く。
-    echo "log-run-event: .flywheel ディレクトリを走査できません（権限不足の可能性）: $flywheel_dir" >&2
+    warn ".flywheel ディレクトリを走査できません（権限不足の可能性）: $flywheel_dir"
     exit 2
   fi
 
@@ -171,11 +173,11 @@ cmd_check() {
     # 正常な状態）ことが多いが、--workspace の指定ミス（無関係な既存ディレクトリを指した等）
     # でも同じ状態になりうる。未終了 start は検出できないため、判別の手掛かりとして警告だけ
     # 出し、契約どおり exit 0 とする（best-effort ではなく検算不能を明示するのみ）。
-    echo "log-run-event: runs.jsonl が見つかりません（初回サイクルなら正常。--workspace の指定に誤りがないか確認）: $file" >&2
+    warn "runs.jsonl が見つかりません（初回サイクルなら正常。--workspace の指定に誤りがないか確認）: $file"
     exit 0
   fi
   if [ ! -r "$file" ]; then
-    echo "log-run-event: runs.jsonl を読み取れません（権限不足の可能性）: $file" >&2
+    warn "runs.jsonl を読み取れません（権限不足の可能性）: $file"
     exit 2
   fi
   if [ ! -s "$file" ]; then
@@ -331,6 +333,23 @@ require_nonempty() {
     exit 0
   fi
 }
+
+# --session-id / --id は check サブコマンドの extract_field（"<field>":"<value>" の
+# 未エスケープ " 区切り前提で読む対応付けキー）で読み戻されるため、" や \ を含むと
+# check が誤ったキーとして扱う（json_escape は runs.jsonl 自体は壊さないが、
+# extract_field 側の前提までは救わない）。書き込み時点で拒否する
+# （他の必須フィールド検証と同じ best-effort 契約＝警告して書かずに exit 0）。
+reject_unsafe_key() {
+  case "$1" in
+    *'"'*|*\\*)
+      warn "${2} に \" または \\ を含めることはできません: ${1}（event=${EVENT}）。書かずに終了します（best-effort）"
+      exit 0
+      ;;
+  esac
+}
+
+reject_unsafe_key "$SESSION_ID" "--session-id"
+reject_unsafe_key "$ADHOC_ID" "--id"
 
 case "$EVENT" in
   cycle_start)
