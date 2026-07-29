@@ -31,6 +31,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [flywheel-init](../skills/flywheel-init/SKILL.md) | エージェントのリポジトリに状態を初期化（scaffold） |
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [ingest-challenges](../skills/ingest-challenges/SKILL.md) | 外部ソース（共有 repo / Notion / Doc / Slack 等）から課題を正本台帳へ冪等に取り込み（pluggable） |
+| [start-day](../skills/start-day/SKILL.md) | 一日の自走を開始（cadence 読込→初回 run-cycle→セッション内 cron 登録） |
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
 | [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
@@ -45,6 +46,8 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
+| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・reflect しきい値。`start-day` が読む） |
+| [container/{Dockerfile,compose.yml}](../templates/container/) | コンテナ隔離モード（`execution_mode: container`）の雛形。start-day 層をコンテナに閉じ込める |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形（実行イベントログ `runs.jsonl` の仕様の正本を含む） |
 | [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |
 | [journal/cycle-template.md](../templates/journal/cycle-template.md) | サイクルジャーナル 1 周分の雛形（run-cycle step 6 が参照） |

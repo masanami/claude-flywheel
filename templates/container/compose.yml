@@ -1,0 +1,117 @@
+# claude-flywheel コンテナ隔離モード（`.flywheel/cadence.json` の `execution_mode: container`）の
+# compose 雛形。start-day 層（その日のエージェントセッション全体）をこのコンテナに閉じ込める。
+#
+# クリティカル設計決定（Issue #54）:
+#   1) ワークスペースをホストと同一の絶対パスにマウントする（trust 承認〔~/.claude.json〕が
+#      絶対パスをキーに持つため、コンテナ内外でパスを一致させる必要がある）。
+#   2) `user: "${HOST_UID}:${HOST_GID}"` でホストユーザーと同一の UID/GID で実行する
+#      （バインドマウント先の所有者一致・root 所有化の回避）。
+#   3) `mem_limit` / `cpus` でリソース上限を設定する（並列運用時の暴走・共有ホストへの影響を防ぐ）。
+#   4) 常駐サービスとして `up -d` し、実作業は `exec` で入る（セッションが落ちてもコンテナは生存し、
+#      再 exec で作業環境が残る）。
+#
+# 前提条件（trust 承認・認証情報共有・マウント範囲・既知の制約）の詳細は
+# ../runtime/README.md「container モードの前提条件」を参照
+#（プラグインリポジトリ内では templates/runtime/README.md。本ファイルは scaffold 後、
+#  利用先ワークスペースの `container/compose.yml` に配置され、README は `runtime/README.md` になる）。
+#
+# 使い方（1 エージェント = 1 プロジェクト名 `-p` を使う想定。fleet で複数エージェントを分離するため）:
+#
+# `env FOO=... docker compose ... up -d` のようにコマンド前置代入すると、その1コマンドにしか
+# 値が渡らず、後続の `exec`/`down`/`ps`/`logs` 等で毎回同じ前置きが要る（書き忘れると
+# `working_dir` の必須変数エラーで失敗する）。代わりに、このファイルと同じディレクトリに
+# `.env`（gitignore 対象。ホスト固有の絶対パス・UID/GID を含むため Git 追跡しない）を
+# 一度だけ作成しておけば、`docker compose -f container/compose.yml ...` は以後この値を
+# 自動で読み込む（compose の既定動作。project directory ＝ 1つ目の `-f` が指すファイルの
+# ディレクトリ内の `.env` を自動ロードする）:
+#
+#   cat > container/.env <<EOF
+#   FLYWHEEL_WORKSPACE_DIR=$(pwd)
+#   HOST_UID=$(id -u)
+#   HOST_GID=$(id -g)
+#   EOF
+#
+# 上記はシェルのヒアドキュメント内でコマンド置換 `$(...)` を評価させる想定（実行時の値がそのまま
+# 書き込まれる）。`HOME` は `.env` に書いても効かないため含めない: compose はシェルの環境変数を
+# `.env` ファイルより優先するため、通常は起動時のシェル `$HOME`（＝マウント元・マウント先として
+# 使いたい値）がそのまま使われる。
+#
+#   docker compose -f container/compose.yml -p <agent> up -d
+#   docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:start-day"
+#
+# 注意（bash/zsh 双方で必須）: `UID` はシェルの読み取り専用変数のため、
+# `UID=$(id -u) docker compose ...` のようにコマンド前置代入すると bash では
+# `readonly variable` エラーになり値が渡らない（`.env` ファイル方式ならこの問題自体を回避できる。
+# コマンド前置で都度渡す場合は別名 `HOST_UID`/`HOST_GID` を使い、`env` コマンド経由
+# ―または `export` 後に実行―で渡すこと）。
+
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # 常駐させる（要件4）。実作業はこのサービスへ `exec` で入る。
+    # Dockerfile の CMD（既定 sleep infinity）と同一だが、compose 単体で意図が読めるよう明示する。
+    command: ["sleep", "infinity"]
+    # PID 1 に init（tini 相当）を使う。sleep 単体は SIGTERM を無視するため
+    # `docker compose down`/`stop` のたびに強制終了待ちになり、かつ run-cycle が
+    # 一日中 spawn する `claude -p` 子プロセスの孤児回収（reaping）役も無いため。
+    init: true
+    # ワークスペースをホストと同一の絶対パスにマウントする（要件1）。
+    working_dir: ${FLYWHEEL_WORKSPACE_DIR:?set FLYWHEEL_WORKSPACE_DIR to the absolute workspace path}
+    volumes:
+      # ワークスペース全体（.flywheel/repos/ を含む）を同一絶対パスでマウントする。
+      - ${FLYWHEEL_WORKSPACE_DIR}:${FLYWHEEL_WORKSPACE_DIR}
+      # ホームディレクトリ全体を共有する（単一ファイルの個別マウントにしない）。理由:
+      #   - 認証情報（~/.claude・~/.claude.json）だけでなく、run-cycle のコミットに要る
+      #     ~/.gitconfig、gh CLI 認証（~/.config/gh）、パッケージキャッシュ等、
+      #     ホームディレクトリ配下への書き込みが実運用で広く必要になる。
+      #   - ~/.claude や ~/.claude.json だけを個別にバインドマウントすると、コンテナ内の
+      #     $HOME 自体が存在せず Docker がその場で root 所有ディレクトリとして作成してしまい、
+      #     非 root ユーザー（要件2）ではその配下に書き込めない・inode 固定で上書き更新に
+      #     失敗する、という問題が起きる。$HOME 全体を同一パスでマウントすれば、
+      #     所有権はホスト側（＝ ${HOST_UID}:${HOST_GID}）のまま維持される。
+      #   - 代償として、ホームディレクトリ配下の他のファイル（SSH 鍵等）もコンテナから
+      #     読み書き可能になる。**同一ホストで fleet の他エージェントを動かしている場合、
+      #     それらのワークスペース（$HOME 配下にあれば台帳・memory・.flywheel/repos/ を含む）や
+      #     共有の ~/.claude.json も同様に読み書き可能になる**（エージェント間の隔離は
+      #     このマウント方式では提供されない。エージェントごとに別ホスト/別 VM、または
+      #     ワークスペースを $HOME 外に置いた上で下記の個別マウントに切り替える必要がある）。
+      #     本設計はワークスペース・プロセスの隔離が主目的であり、ホストユーザー自身の
+      #     ファイル・同一ホスト上の他エージェントに対する境界までは提供しない、という
+      #     トレードオフとして許容する。
+      #     より狭い共有にしたい場合は、この1行を個別のバインドマウント
+      #     （${HOME}/.claude, ${HOME}/.claude.json, ${HOME}/.gitconfig, ${HOME}/.config/gh 等）
+      #     に分割できる。ただしその場合、上記の「コンテナ内の $HOME が存在せず root 所有で
+      #     自動作成される」問題は再発する（マウント元のホスト側 $HOME は既に存在するので
+      #     ホスト側の事前作成は不要。対処が要るのはコンテナ側であり、Dockerfile 側で
+      #     $HOME 相当のディレクトリを事前に作成し所有権を合わせておく等の追加対応が必要）。
+      - ${HOME}:${HOME}
+      # Docker socket は既定では渡さない（ホスト Docker デーモンの完全な制御権を渡すことになり、
+      # 隔離の目的が失われるため）。対象リポジトリの作業自体が Docker を必要とする場合のみ、
+      # 影響を理解した上で明示的に有効化すること:
+      # - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # HOME を明示し、UID/GID 実行時でも ~/.claude 系のパス解決を安定させる。
+      - HOME=${HOME}
+      # macOS ホストの Claude Code はログイン資格情報を OS Keychain に保存し、
+      # ~/.claude 配下にはトークンファイルを作らないことがある（マウントだけでは
+      # 認証が引き継がれないケース）。その場合はホスト側で `claude setup-token` を
+      # 実行して得られる長期トークンを ANTHROPIC_API_KEY 等としてここに渡すか、
+      # コンテナ内で改めて `claude login` を行うこと（詳細は ../runtime/README.md）。
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # 非 root UID（要件2）で実行すると、ビルド時に root で `npm install -g` した
+      # Claude Code の自動アップデータが再インストール用ディレクトリに書き込めず
+      # 失敗ログが出る。コンテナは再ビルドで更新する運用のため既定で自動更新を止める。
+      - DISABLE_AUTOUPDATER=1
+    # バインドマウント先の所有者をホスト側ユーザーと一致させる（要件2）。
+    # `UID`/`GID` はシェルの読み取り専用変数と衝突するため `HOST_UID`/`HOST_GID` を使う
+    # （上記「使い方」参照）。未設定のまま既定値へ静かにフォールバックすると、ホストの実 UID/GID
+    # と異なるまま起動して要件2が満たされなくなるのに気付けない（バインドマウント先が想定と
+    # 違う所有者になる・認証情報ディレクトリを読めない等の形で後から顕在化する）ため、
+    # `${FLYWHEEL_WORKSPACE_DIR}` と同様に未設定はエラーで即座に落とす。
+    user: "${HOST_UID:?set HOST_UID to your host user id (id -u)}:${HOST_GID:?set HOST_GID to your host user group id (id -g)}"
+    # リソース上限（要件3）。ワークスペースの規模・並列度に応じて調整すること。
+    mem_limit: 4g
+    cpus: 2
+    restart: unless-stopped

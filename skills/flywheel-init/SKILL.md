@@ -26,9 +26,10 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
+├── container/                # コンテナ隔離モード雛形（execution_mode: container 用。Dockerfile・compose.yml。テンプレートから生成）
 ├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。実体は run-cycle が生成）
 ├── .flywheel/
-│   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・reflectしきい値。start-day スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
+│   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード・reflectしきい値。start-day スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
 └── .gitignore                # .flywheel/ 配下のローカル実行状態（作業用クローン・ロック・runs.jsonl 等）を除外。cadence.json だけは例外的に追跡
 ```
 
@@ -41,10 +42,11 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ。初期は内部台帳直接記入だけでも可＝生成を省略できる）
    - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
    - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
+   - `${CLAUDE_PLUGIN_ROOT}/templates/container/` → `./container/`（`Dockerfile`・`compose.yml`。コンテナ隔離モード〔`execution_mode: container`〕の雛形。既存ファイルは上書きしない既存方針を踏襲する）
    - `${CLAUDE_PLUGIN_ROOT}/templates/journal/README.md` → `./journal/README.md`
    - `${CLAUDE_PLUGIN_ROOT}/templates/journal/cycle-template.md` → `./journal/cycle-template.md`（run-cycle step 6 が参照する 1 周分 .md の雛形）
    - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/cadence.json` → `./.flywheel/cadence.json`（既存があれば上書きしない。`start-day` スキルが読む拍動設定＝業務時間・run-cycle 間隔・発火分オフセット・reflect しきい値）
+   - `${CLAUDE_PLUGIN_ROOT}/templates/cadence.json` → `./.flywheel/cadence.json`（既存があれば上書きしない。`start-day` スキルが読む拍動設定＝業務時間・run-cycle 間隔・発火分オフセット・実行モード・reflect しきい値）
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
 3. `.gitignore` に**ローカル実行状態**（`.flywheel/` 配下）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）。**`cadence.json` は運用設定として Git 追跡する**ため、ディレクトリ丸ごとの ignore（`.flywheel/`）ではなく `.flywheel/*` ＋個別 unignore の形にする（`dir/` 形式で丸ごと ignore すると Git がディレクトリ内を走査せず `!` の例外が効かないため）:
 
@@ -56,6 +58,13 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    ```
 
    既存の `.gitignore` に旧来の `.flywheel/`（ディレクトリ丸ごと ignore）が既にある場合は、上記の `.flywheel/*` ＋ `!.flywheel/cadence.json` の形へ置き換える（`cadence.json` を Git 追跡させるため）。
+
+   同じ手順で `container/.env` の ignore 行も追記する（コンテナ隔離モードを使う場合に人間が作成するファイル。ホスト固有の絶対パス・UID/GID を含むため Git 追跡しない。詳細は `runtime/README.md`「container モードの前提条件」）:
+
+   ```text
+   # コンテナ隔離モード（execution_mode: container）の環境変数ファイル。ホスト固有のため追跡しない
+   container/.env
+   ```
 
 4. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
