@@ -176,6 +176,7 @@ flowchart TD
 - 構成は 3 レイヤー（詳細は §7）: ①拍動（セッション内 cron。[`start-day`](../skills/start-day/SKILL.md) スキルが起動時に登録）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
 - 配置: 各エージェントのリポジトリの `runtime/`（スケジュール設定・運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
 - 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに `start-day` スキルでセッション内 cron を登録し定期自走。
+- **実行モード（`native` / `container`）**: `.flywheel/cadence.json` の `execution_mode` で宣言する。境界は `start-day`（起動層。その日のエージェントセッション全体をコンテナに入れる）に置き、run-cycle の委譲層（`claude -p` spawn）はコンテナ化しない（理由・不採用案は §7「採用しない選択肢」）。雛形は [`templates/container/`](../templates/container/)（`Dockerfile`・`compose.yml`）、前提条件は [`templates/runtime/README.md`](../templates/runtime/README.md)「container モードの前提条件」（[#54](https://github.com/masanami/claude-flywheel/issues/54)）。
 
 ### 3.9 ツール層（差し替え可能なエグゼキュータ）
 
@@ -286,6 +287,7 @@ claude-flywheel/
 │   ├── flywheel-init/           # 利用先に状態を scaffold
 │   ├── bootstrap-domain-map/    # ドメイン地図づくり
 │   ├── ingest-challenges/       # 外部ソースから課題を正本台帳へ冪等取り込み（pluggable）
+│   ├── start-day/               # 一日の自走を開始（cadence読込→初回run-cycle→cron登録）
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
@@ -299,6 +301,8 @@ claude-flywheel/
 │   ├── position.md
 │   ├── repos.tsv
 │   ├── settings.json            # .claude/settings.json の雛形（自走委譲の権限前提・§3.9.2）
+│   ├── cadence.json             # 拍動設定の雛形（業務時間・run-cycle間隔・実行モード等。start-dayが読む）
+│   ├── container/{Dockerfile,compose.yml}  # コンテナ隔離モード（execution_mode: container）の雛形
 │   ├── runtime/README.md
 │   └── journal/{README.md,cycle-template.md}
 ├── docs/                        # 設計ドキュメント
@@ -316,6 +320,7 @@ claude-flywheel/
 ├── challenge-sources.md         # 課題の取り込み元宣言（任意。外部ソース ingestion 用）
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
 ├── .claude/settings.json        # 自走委譲の権限前提（Bash(claude -p:*) を allow。flywheel-init が scaffold・§3.9.2）
+├── .flywheel/cadence.json       # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード〔execution_mode〕・reflectしきい値。Git追跡＝gitignore対象外）
 ├── .flywheel/repos/             # 関連リポジトリの作業用クローン（.gitignore・編集/ブランチ/コミット可）
 ├── .flywheel/runs.jsonl         # 実行イベントログ（run-cycle・差し込みセッションが append／観測プレーンが読む／.gitignore）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
@@ -325,6 +330,7 @@ claude-flywheel/
 │       ├── INDEX.md
 │       └── {map,tacit,experience,reference}-*.md
 ├── runtime/                     # 自律実行ランタイム設定【成果物(b)】
+├── container/                   # コンテナ隔離モード雛形（execution_mode: container 用。Dockerfile・compose.yml）
 ├── journal/                     # サイクルジャーナル（run-cycle step 6 が書き出し。台帳=現在状態／journal=行動履歴）
 │   ├── README.md                # flywheel-init が scaffold
 │   ├── cycle-template.md        # flywheel-init が scaffold（1周分 .md の雛形）
@@ -444,6 +450,8 @@ flowchart LR
 | **状態管理のライト DB 化**（SQLite 等を正本に） | エージェントのネイティブ操作（Read/Edit/Grep）が CLI 呼び出しに置き換わり全スキルの信頼性が下がる。観測プレーンの fs-watch 契約が壊れる（DB に変更通知は無い）。ロック・append まわりの痛みは**機械処理の scripts 化（[#46](https://github.com/masanami/claude-flywheel/issues/46)）が解く問題**であり、DB でもロック競合として形を変えて残るだけ | Git 追跡外のローカル実行状態（runs.jsonl 系）に肥大・競合の**実痛が観測された**とき（予期では移行しない。設計方針 §1-9 と同じ規律） |
 | **launchd（OS スケジューラ）→ headless `claude -p` で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | スリープ復帰時の追い掛け実行など耐久性は上だが、業務時間内運用（board でセッションを開いたまま自走）では過剰。セッションが無いため**対話承認が使えず**、「人間コミットの `[x]`」経路（§7 承認ゲート）の実運用検証が必要になる。サブスク消費の制御（起動頻度の対話的な調整・即時停止）もしにくい | 夜間・無人時間帯の自走が必要になったとき |
 | **クラウド routine（`/schedule`）で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | 状態正本がローカルファイル（台帳・memory・`.flywheel/`）で、委譲もローカルクローンへの `claude -p` spawn、trust 承認も `~/.claude.json` 依存のため、クラウド実行環境と噛み合わない | ワークスペースごとクラウド常駐へ移す将来フェーズ |
+| **run-cycle の委譲層（`claude -p` spawn）でコンテナ化**（[#54](https://github.com/masanami/claude-flywheel/issues/54)） | 親セッション（台帳読み書き・journal・ingest・コミットを行う）が隔離外に残り、目的の半分しか達成できない。委譲が `docker compose exec ... claude -p ...` になると既存 allow パターン `Bash(claude -p:*)` にマッチせず、`Bash(docker compose exec:*)`（任意コンテナで任意コマンド）というより広い許可が必要になりセーフティ設計が緩む。trust 承認・認証の解決も spawn ごとに再発する | 対象リポジトリ別にツールチェーンを分離する必要が出たとき（親は既にコンテナ内のため、子コンテナへの Docker socket 共有の是非が論点になる） |
+| **ホスト直実行のまま権限で制御**（コンテナ隔離を導入しない。[#54](https://github.com/masanami/claude-flywheel/issues/54)） | 並列度を上げるほど確認プロンプトが増え、#52 の自走と噛み合わない。破壊の影響範囲がホスト全体に及び、並列時の干渉・リソース制御不能という課題が残る | fleet の並列度を上げない小規模運用に限定する場合 |
 
 いずれも「skills（散文）がきつくなってきた」という同じ動機から出た案だが、痛みの正体は**機械的処理の散文化**であり、解は判断と機械の分離（設計方針 §1-9・[#46](https://github.com/masanami/claude-flywheel/issues/46)）にある、というのが判断の要点。
 
