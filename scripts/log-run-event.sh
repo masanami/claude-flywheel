@@ -6,7 +6,7 @@
 # 書くだけ。スキーマの正本は利用先ワークスペースの runtime/README.md「実行イベントログ
 # （runs.jsonl）」セクション（本スクリプトと食い違う場合はそちらが正）。
 #
-# 使い方:
+# 使い方（書き込み）:
 #   scripts/log-run-event.sh <event> [--cycle <name>] [--challenge <id>] [--repo <name>]
 #                            [--session-id <uuid>] [--result <text>] [--id <adhoc-id>]
 #                            [--title <text>] [--dry-run] [--workspace <dir>]
@@ -15,24 +15,56 @@
 #   --cycle      当周の journal ファイル名 basename（cycle_* 用）
 #   --challenge  課題 ID（C-xxx。delegate_* 用）
 #   --repo       repos.tsv の <name>
-#   --session-id 事前採番した子セッションの UUID（delegate_* 用）
+#   --session-id 事前採番した子セッションの UUID（delegate_* 用。" や \ は使用不可＝
+#                check の対応付けキー抽出（extract_field）の前提を守るための入力制約）
 #   --result     結果 1 行（*_end 用。JSON エスケープはスクリプトが行う）
-#   --id         adhoc_start / adhoc_end の対応付けキー
+#   --id         adhoc_start / adhoc_end の対応付けキー（" や \ は使用不可。理由は
+#                --session-id と同じ）
 #   --title      差し込み作業の 1 行タイトル（adhoc_start 用）
 #   --dry-run    何も書かず exit 0（journal と同じパリティ。dry-run は状態を変えないため）
 #   --workspace  ワークスペースのルート（既定: .）。<workspace>/.flywheel/runs.jsonl に書く
+#
+# 使い方（検算・読み取り専用）:
+#   scripts/log-run-event.sh check [--workspace <dir>]
+#
+#   未終了の delegate_start / adhoc_start（対応する *_end がまだ無いもの）を列挙する。
+#   run-cycle step 6 で cycle_end を記録する直前に呼び、未終了があれば実状態に基づく
+#   delegate_end（事後補記）で閉じてから cycle_end を打つ（詳細は skills/run-cycle/SKILL.md
+#   手順6を参照。未終了 adhoc_start は代筆回収しない＝runtime/README.md の既定。しきい値
+#   超過の要確認判定は消費者〔観測プレーン〕側が担い、本スクリプト・run-cycle は毎回
+#   報告する義務を負わない）。対応付けの意味論（キー〔delegate_* は session_id・
+#   adhoc_* は id〕ごとに start/end を ts 順〔＝行順。append-only のため一致〕にペアリング
+#   し、末尾が start のまま残るものを未終了とみなす。resume による同一キーの再登場
+#   〔start→end→start〕にも対応する。cycle_start / cycle_end は対象外）の正本は
+#   利用先ワークスペースの runtime/README.md「実行イベントログ（runs.jsonl）」節。
+#   - runs.jsonl が空 → 未終了なし・exit 0（何も出力しない）。
+#   - runs.jsonl が不在 → 未終了なし・exit 0。ただし初回サイクルとの区別が付かないため
+#     stderr に確認を促す警告を出す（--workspace の指定ミスの可能性があるため。exit code
+#     は 0 のまま＝検算不能を fail-closed〔exit 2〕にはしない設計判断）。
+#   - 未終了が無い → exit 0（何も出力しない）。
+#   - 未終了がある → 該当行を 1 件 1 行で stdout に列挙し、exit 1。
+#   - 引数エラー・環境エラー（不明な引数・値欠落・`--workspace` に不正な値・
+#     ワークスペースディレクトリの不在／ワークスペースか `.flywheel` の走査不可・
+#     runs.jsonl が読み取り不可）→ stderr に警告し exit 2（`.flywheel` 自体の不在は
+#     上記のとおり exit 0＋警告。「未終了あり」= exit 1 と区別するため。
+#     cycle-lock.sh の複数終了コード規約に倣う）。
 #
 # 注意:
 #   - ts は自動付与する（ISO 8601・タイムゾーンオフセットはコロン付き +09:00 形式）。
 #   - 1 イベント＝1 行の JSON を単一の printf で append する（並行 append でも実用上
 #     行が交錯しないため。append 前に mkdir -p .flywheel を行う）。
-#   - best-effort: 常に exit 0。不正なイベント名・引数エラー・書き込み失敗は stderr に
-#     警告し、書かずに正常終了する（観測が制御を阻害しないため）。
+#   - best-effort: 書き込みイベント（上記「使い方（書き込み）」）は常に exit 0。不正な
+#     イベント名・引数エラー・書き込み失敗は stderr に警告し、書かずに正常終了する
+#     （観測が制御を阻害しないため）。
+#   - **例外**: `check` は書き込みを行わない読み取り・検証コマンドであり、exit code
+#     自体が「未終了 start の有無」等のシグナルのため、上記 best-effort 契約（常に exit 0）
+#     の対象外とする（未終了があれば exit 1、引数・環境エラーは exit 2 を返す）。
 #   - 秘密情報のチェックはしない（書き手の規律。本スクリプトは内容を解釈しない機械）。
 
 set -euo pipefail
 
 USAGE="usage: $0 <event> [--cycle <name>] [--challenge <id>] [--repo <name>] [--session-id <uuid>] [--result <text>] [--id <adhoc-id>] [--title <text>] [--dry-run] [--workspace <dir>]"
+USAGE_CHECK="usage: $0 check [--workspace <dir>]"
 
 # 警告を stderr へ出す（best-effort 契約のため、警告してもスクリプトは exit 0 で終える）。
 warn() {
@@ -52,6 +84,166 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# JSON 1 行 ($1) から "<field>":"<value>" の値を抜き出す（本スクリプト自身が書く
+# 単純な平坦フィールドが対象。session_id/id/event は値にエスケープが要る文字を含まない
+# 前提の読み取り専用ヘルパー）。fork を伴う外部プロセス（sed 等）を使わず bash 組み込みの
+# パラメータ展開のみで行う（runs.jsonl は肥大化対策を入れず単調増加する設計〔YAGNI〕のため、
+# 行ごとに fork するとホットパスのコストが行数に比例して悪化するのを避ける）。
+# 戻り値ではなくグローバル変数 FIELD_VALUE への代入で結果を返す（呼び出し側で
+# `x="$(extract_field ...)"` のようにコマンド置換すると、それ自体が1行ごとにサブシェルを
+# fork してしまい fork 除去の意味が無くなるため）。抜き出せなければ空文字を代入する。
+extract_field() {
+  needle="\"$2\":\""
+  rest="${1#*"$needle"}"
+  if [ "$rest" = "$1" ]; then
+    FIELD_VALUE=""
+    return
+  fi
+  FIELD_VALUE="${rest%%\"*}"
+}
+
+# check サブコマンド本体: runs.jsonl を ts 順（＝行順。append-only のため一致）に走査し、
+# delegate_*/adhoc_* をキー（session_id / id）ごとに start/end でペアリングする。
+# 末尾が start のまま閉じられていないキーが残れば、その行を列挙して exit 1（読み取り専用の
+# 検証コマンドにつき、書き込みイベントの best-effort＝常に exit 0 契約の対象外）。
+#
+# ペアリングは「未終了 start のスタック」で行う（同一キーの start を複数回 push しうる。
+# start では既存の未終了 start を上書きしない＝記録漏れで同一キーの start が連続しても
+# 古い未終了 start を握りつぶさない。end は同一キーの**最も新しい**未終了 start だけを
+# 閉じ、それより古い未終了 start は残す）。
+cmd_check() {
+  workspace="."
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --workspace)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          warn "--workspace に値がありません"
+          echo "$USAGE_CHECK" >&2
+          exit 2
+        fi
+        case "$2" in
+          --*)
+            warn "--workspace に値がありません（次の引数もフラグ）: $1 $2"
+            echo "$USAGE_CHECK" >&2
+            exit 2
+            ;;
+        esac
+        workspace="$2"
+        shift 2
+        ;;
+      -h|--help)
+        echo "$USAGE_CHECK"
+        exit 0
+        ;;
+      *)
+        warn "check の不明な引数: $1"
+        echo "$USAGE_CHECK" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  if [ -z "$workspace" ]; then
+    warn "--workspace が空です"
+    exit 2
+  fi
+  if [ ! -d "$workspace" ]; then
+    warn "workspace ディレクトリが存在しません: $workspace"
+    exit 2
+  fi
+  if [ ! -x "$workspace" ]; then
+    # workspace 自体の実行（走査）権限が無いと、配下の .flywheel/runs.jsonl は存在しても
+    # -e/-r が偽になり「ファイル無し」と誤判定しうる（fail-open の温床）。.flywheel と
+    # 同様、workspace 自身でも先に区別して弾く。
+    warn "workspace ディレクトリを走査できません（権限不足の可能性）: $workspace"
+    exit 2
+  fi
+
+  flywheel_dir="$workspace/.flywheel"
+  if [ -d "$flywheel_dir" ] && [ ! -x "$flywheel_dir" ]; then
+    # ディレクトリの実行（走査）権限が無いと、中の runs.jsonl は存在しても -e/-r が
+    # 偽になり「ファイル無し」と誤判定しうる（fail-open の温床）。先に区別して弾く。
+    warn ".flywheel ディレクトリを走査できません（権限不足の可能性）: $flywheel_dir"
+    exit 2
+  fi
+
+  file="$flywheel_dir/runs.jsonl"
+  if [ ! -e "$file" ]; then
+    # .flywheel/runs.jsonl 自体が無い = まだ一度もイベントが書かれていない（初回サイクル等の
+    # 正常な状態）ことが多いが、--workspace の指定ミス（無関係な既存ディレクトリを指した等）
+    # でも同じ状態になりうる。未終了 start は検出できないため、判別の手掛かりとして警告だけ
+    # 出し、契約どおり exit 0 とする（best-effort ではなく検算不能を明示するのみ）。
+    warn "runs.jsonl が見つかりません（初回サイクルなら正常。--workspace の指定に誤りがないか確認）: $file"
+    exit 0
+  fi
+  if [ ! -r "$file" ]; then
+    warn "runs.jsonl を読み取れません（権限不足の可能性）: $file"
+    exit 2
+  fi
+  if [ ! -s "$file" ]; then
+    # 空ファイル = 未終了 start は無い。
+    exit 0
+  fi
+
+  # 未終了 start のスタック（同一キーの多重 start を保持できるよう、start は常に追加する）。
+  open_keys=()
+  open_lines=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    extract_field "$line" "event"
+    event="$FIELD_VALUE"
+    key=""
+    case "$event" in
+      delegate_start|delegate_end)
+        extract_field "$line" "session_id"
+        sid="$FIELD_VALUE"
+        [ -z "$sid" ] && continue
+        key="d:$sid"
+        ;;
+      adhoc_start|adhoc_end)
+        extract_field "$line" "id"
+        aid="$FIELD_VALUE"
+        [ -z "$aid" ] && continue
+        key="a:$aid"
+        ;;
+      *)
+        continue
+        ;;
+    esac
+
+    case "$event" in
+      delegate_start|adhoc_start)
+        # 既存の未終了 start を上書きせず、常に新しいエントリとして積む。
+        open_keys+=("$key")
+        open_lines+=("$line")
+        ;;
+      delegate_end|adhoc_end)
+        # 同一キーの最も新しい（インデックスが最大の）未終了 start だけを閉じる。
+        idx=-1
+        for i in "${!open_keys[@]}"; do
+          if [ "${open_keys[i]}" = "$key" ]; then
+            idx=$i
+          fi
+        done
+        if [ "$idx" -ge 0 ]; then
+          unset 'open_keys[idx]'
+          unset 'open_lines[idx]'
+        fi
+        ;;
+    esac
+  done < "$file"
+
+  if [ "${#open_keys[@]}" -eq 0 ]; then
+    exit 0
+  fi
+
+  for line in "${open_lines[@]+"${open_lines[@]}"}"; do
+    printf '%s\n' "$line"
+  done
+  exit 1
+}
+
 if [ "$#" -ge 1 ]; then
   case "$1" in
     -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^#\{1,\} \{0,1\}//'; exit 0 ;;
@@ -66,6 +258,10 @@ fi
 
 EVENT="$1"
 shift
+
+if [ "$EVENT" = "check" ]; then
+  cmd_check "$@"
+fi
 
 case "$EVENT" in
   cycle_start|cycle_end|delegate_start|delegate_end|adhoc_start|adhoc_end) ;;
@@ -137,6 +333,23 @@ require_nonempty() {
     exit 0
   fi
 }
+
+# --session-id / --id は check サブコマンドの extract_field（"<field>":"<value>" の
+# 未エスケープ " 区切り前提で読む対応付けキー）で読み戻されるため、" や \ を含むと
+# check が誤ったキーとして扱う（json_escape は runs.jsonl 自体は壊さないが、
+# extract_field 側の前提までは救わない）。書き込み時点で拒否する
+# （他の必須フィールド検証と同じ best-effort 契約＝警告して書かずに exit 0）。
+reject_unsafe_key() {
+  case "$1" in
+    *'"'*|*\\*)
+      warn "${2} に \" または \\ を含めることはできません: ${1}（event=${EVENT}）。書かずに終了します（best-effort）"
+      exit 0
+      ;;
+  esac
+}
+
+reject_unsafe_key "$SESSION_ID" "--session-id"
+reject_unsafe_key "$ADHOC_ID" "--id"
 
 case "$EVENT" in
   cycle_start)
