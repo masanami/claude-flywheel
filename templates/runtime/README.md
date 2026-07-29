@@ -48,7 +48,7 @@ flowchart LR
 | `journal/` | 1 周の**事後サマリ**（FR-50 / NFR-02 の正） | Git 追跡・恒久記録 |
 | `.flywheel/runs.jsonl` | **いま何が走っているか**（イベント境界） | ローカルのみ（gitignore）・観測用 |
 
-消費者は**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）。「実行中」は**対応する `*_end` のない `*_start`** として導出する。
+消費者は**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）。「実行中」は**対応する `*_end` のない `*_start`** として導出する。run-cycle 側も同じ導出を `cycle_end` を打つ直前の機械的検算（`log-run-event.sh check`）に使い、**`delegate_start` の記録漏れ**をサイクル境界で自ら検知して閉じる（未終了 `adhoc_start` は下記「未終了 `adhoc_start` の扱い」に従い代筆回収しない。しきい値超過の要確認判定は既定どおり消費者〔観測プレーン〕側が担い、run-cycle 自身が毎周報告する義務は負わない。詳細は `skills/run-cycle/SKILL.md` 手順6）。
 
 ### イベント（6 種）
 
@@ -102,7 +102,7 @@ flowchart LR
 - **再開（`--resume`）の扱い**: 同一サイクル内の `--resume` 往復は 1 委譲とみなしイベントを追加しない。**別サイクルに持ち越した resume は新しい `delegate_start`（同じ `session_id` の再登場可）で挟む**（各サイクルの委譲区間を独立に観測できるようにするため）。対応付けは「同一 `session_id` の**最新の未終了 start**」とする。
 - **`session_id` 不一致時**: 子の返り値の `session_id` が事前採番値と一致しない場合（環境が `--session-id` を尊重しないケース）、書き手は事前採番値の `delegate_start` を `delegate_end`（`result` に不一致の事実と実際の ID を明記）で閉じ、以後は返り値を正として扱う（未終了 start を残さないため。委譲の再実行はしない）。
 - **未終了 `adhoc_start` の扱い**: 中断・クラッシュで `adhoc_end` が残らなかった場合も代筆回収はしない（cycle の `abandoned` と違い、回収の自然な契機〔次サイクルの stale ロック回収〕が無いため）。消費者はしきい値超過の未終了 start を要確認として扱う。作業を再開したら同じ `id` のまま継続し、終了時に `adhoc_end` で閉じる。
-- プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
+- プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝未終了 `*_start` があれば列挙して exit 1）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
 
 ## メモ
 
