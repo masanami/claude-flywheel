@@ -44,10 +44,14 @@ RUN npm install -g @anthropic-ai/claude-code
 #
 # 注意: compose.yml 側で `user: "${HOST_UID}:${HOST_GID}"` を指定し、ホストユーザーと同一の
 # UID/GID でコンテナ内プロセスを実行する（バインドマウント先の所有者一致・root 所有化の回避）。
-# そのため、この Dockerfile では特定の非 root ユーザーを固定作成しない。
-# 同じ理由で、Claude Code の自動アップデータ（ビルド時に root で `npm install -g` したパスへ
-# 非 root ユーザーが書き込めず失敗する）は compose.yml 側で `DISABLE_AUTOUPDATER=1` を設定し
-# 無効化している（コンテナはイメージ再ビルドで更新する運用）。
+# compose.yml の `user:` は本 Dockerfile の `USER` 指定を無条件に上書きするため、下記で設定する
+# 既定 USER（non-root）は compose 経由の通常運用には一切影響しない。既定 USER が効くのは
+# `docker run` 単体起動（compose を介さないフォールバック経路）のみで、その経路を root 既定の
+# ままにする理由はないため、特定の非 root ユーザー（`node` ユーザー、後述）を既定にしている。
+# 同じ理由（compose の `user:` が上書きする前提）で、Claude Code の自動アップデータ
+# （ビルド時に root で `npm install -g` したパスへ非 root ユーザーが書き込めず失敗する）は
+# compose.yml 側で `DISABLE_AUTOUPDATER=1` を設定し無効化している
+# （コンテナはイメージ再ビルドで更新する運用）。
 #
 # 既知の制約: 上記の理由でホスト UID/GID をそのまま使うため、その UID がイメージ内の
 # /etc/passwd に存在しない（getpwuid が引けない）ケースがある。この状態では上記でインストール
@@ -62,6 +66,17 @@ RUN npm install -g @anthropic-ai/claude-code
 # クリティカル設計決定①）が起動時に上書きするため、ここではビルド時の既定値のみ置く
 # （`docker run` 単体でこのイメージを使う場合のフォールバック）。
 WORKDIR /workspace
+
+# 下記 USER 切り替え後も `docker run` 単体起動時に /workspace へ書き込めるよう、
+# node:20-slim に既存の `node` ユーザー（uid 1000）に所有権を付与しておく。
+# compose 経由ではバインドマウント側のディレクトリに置き換わるため、ここでの所有権は無関係。
+RUN chown node:node /workspace
+
+# 既定ユーザーを non-root にする（`docker run` 単体起動時の安全な既定値）。
+# compose.yml 側の `user: "${HOST_UID}:${HOST_GID}"` がこの USER 指定を無条件に上書きするため、
+# compose 経由の通常運用（HOST_UID/HOST_GID 一致・バインドマウント所有権）には影響しない。
+# 新規ユーザーは作成せず、node:20-slim に既存の `node` ユーザー（uid 1000）を流用する。
+USER node
 
 # 常駐させ、実作業は `docker compose exec` で入る（compose.yml 側の `command` と同じ内容。
 # compose 経由で起動する限りは compose.yml 側が優先されるため、ここは `docker run` 単体で

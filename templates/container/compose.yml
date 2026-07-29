@@ -86,14 +86,14 @@ services:
       #     自動作成される」問題は再発する（マウント元のホスト側 $HOME は既に存在するので
       #     ホスト側の事前作成は不要。対処が要るのはコンテナ側であり、Dockerfile 側で
       #     $HOME 相当のディレクトリを事前に作成し所有権を合わせておく等の追加対応が必要）。
-      - ${HOME}:${HOME}
+      - ${HOME:?set HOME to the host home directory}:${HOME:?set HOME to the host home directory}
       # Docker socket は既定では渡さない（ホスト Docker デーモンの完全な制御権を渡すことになり、
       # 隔離の目的が失われるため）。対象リポジトリの作業自体が Docker を必要とする場合のみ、
       # 影響を理解した上で明示的に有効化すること:
       # - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # HOME を明示し、UID/GID 実行時でも ~/.claude 系のパス解決を安定させる。
-      - HOME=${HOME}
+      - HOME=${HOME:?set HOME to the host home directory}
       # macOS ホストの Claude Code はログイン資格情報を OS Keychain に保存し、
       # ~/.claude 配下にはトークンファイルを作らないことがある（マウントだけでは
       # 認証が引き継がれないケース）。その場合はホスト側で `claude setup-token` を
