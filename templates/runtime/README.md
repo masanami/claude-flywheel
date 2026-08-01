@@ -36,17 +36,13 @@ flowchart LR
      | `container` | 事前に `docker compose up -d` でコンテナを起こし、その中で `claude "/claude-flywheel:start-day"` を実行する（コンテナの起動自体は `start-day` スキルの外側＝人間が行う。board からの起動導線は下記「メモ」を参照） |
 
      ```bash
-     # 初回のみ（ワークスペース直下で実行）: 必須環境変数を container/.env に書いておく。
-     # `env FOO=... docker compose ...` の前置は当該コマンド限りで、後続の exec/down/ps に
-     # 引き継がれないため、.env ファイルへ一度書く方式を推奨する（gitignore 対象。
-     # ホスト固有の絶対パス・UID/GID を含み、コミットしないため）。
+     # 初回のみ（ワークスペース直下で実行）: 必須環境変数を container/.env に書く（詳細と理由は
+     # container/compose.yml のコメント参照。gitignore 対象＝コミットしない）。
      cat > container/.env <<EOF
      FLYWHEEL_WORKSPACE_DIR=$(pwd)
      HOST_UID=$(id -u)
      HOST_GID=$(id -g)
      EOF
-     # HOME は .env に書いても効かないため含めない（compose はシェルの環境変数を .env より
-     # 優先するため、常にこのシェルの $HOME がそのまま使われる。詳細は container/compose.yml）。
 
      # 朝一度（container モードの場合）
      docker compose -f container/compose.yml -p <agent> up -d
@@ -55,24 +51,21 @@ flowchart LR
      docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:start-day"
      ```
 
-     container モードの雛形（`Dockerfile`・`compose.yml`）は `flywheel-init` が `templates/container/` から `container/` へ scaffold する。**`UID`/`GID` はシェルの読み取り専用変数のため使わず、`.env` ファイル（または `HOST_UID`/`HOST_GID` を `env` 経由）で渡す**こと（`UID=$(id -u) docker compose ...` は bash では `readonly variable` エラーになり値が渡らない）。前提条件・既知の制約は後述「container モードの前提条件」を参照。
+     container モードの雛形（`Dockerfile`・`compose.yml`）は `flywheel-init` が `templates/container/` から `container/` へ scaffold する。前提条件・設計根拠の**正本は [`container/compose.yml`](../container/compose.yml)・[`container/Dockerfile`](../container/Dockerfile) のコメント**（下記「container モードの前提条件」も参照）。
 3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（通常は上記 `start-day` の締めジョブがしきい値判定で条件付き起動する。手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
 4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認。
 
 ## container モードの前提条件
 
-`execution_mode: container`（`.flywheel/cadence.json`）でエージェント単位のコンテナ隔離を使う場合、`container/compose.yml`（`flywheel-init` が `templates/container/` から scaffold）は次を前提にする（雛形は既にこれらを満たす形で作られている。詳細は雛形内のコメントも参照）:
+`execution_mode: container`（`.flywheel/cadence.json`）でエージェント単位のコンテナ隔離を使う場合の前提条件（要点のみ）。**設計根拠・詳細な理由の正本は [`container/compose.yml`](../container/compose.yml)・[`container/Dockerfile`](../container/Dockerfile) のコメント**（本節と食い違う場合はそちら側が正。runs.jsonl の正本が本 README にあるのと同じレイヤリング規律）:
 
-- **trust 承認は絶対パスがキー**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted`）。ワークスペースをホストと**同一の絶対パス**でコンテナにマウントしないと、ホスト側で済ませた trust 承認がコンテナ内では通らない。
-- **ホームディレクトリ（`$HOME`）全体をコンテナに共有する**（`~/.claude`・`~/.claude.json` だけを個別マウントしない）。理由は次の2点:
-  1. 認証情報・trust 承認状態（`~/.claude`・`~/.claude.json`）に加え、run-cycle のコミットに要る `~/.gitconfig`、`gh` CLI 認証（`~/.config/gh`）など、ホーム配下への読み書きが実運用で広く必要になるため。
-  2. `~/.claude` 等だけを個別にバインドマウントすると、コンテナ内の `$HOME` 自体が存在せず Docker がその場で **root 所有**のディレクトリを自動作成してしまい、非 root ユーザー（`user: "${HOST_UID}:${HOST_GID}"`）ではその配下に書き込めなくなる。`$HOME` 全体を同一パスでマウントすれば所有権はホスト側のまま維持される。
-  - **トレードオフ**: この方式ではホーム配下の他のファイル（SSH 鍵等）もコンテナから読み書き可能になる。**同一ホストで fleet の他エージェントを動かしている場合、それらのワークスペースや共有の `~/.claude.json` も同様に読み書き可能になる**（エージェント間の隔離はこのマウント方式では提供されない）。本設計はワークスペース・プロセスの隔離が目的であり、ホストユーザー自身のファイル・同一ホスト上の他エージェントに対する境界までは提供しない（狭めたい場合は `container/compose.yml` のコメントに従い個別マウントへ分割できるが、その場合は上記 root 所有問題〔コンテナ内の `$HOME` が存在せず root 所有で自動作成される〕が再発するため、コンテナ側で `$HOME` 相当のディレクトリを事前に用意する追加対応が要る）。
-- **macOS ホストでは追加の認証手順が要ることがある**: macOS 版 Claude Code はログイン資格情報を OS の Keychain に保存し、`~/.claude` 配下にトークンファイルを作らない場合がある。この場合は `$HOME` をマウントするだけではコンテナ内へ認証が引き継がれない。ホストで `claude setup-token` を実行して得た長期トークンを環境変数（例: `ANTHROPIC_API_KEY`。`container/compose.yml` にコメントで例示）として渡すか、コンテナ内で改めて `claude login` を行うこと。
-- **git の SSH remote は既定では使えない**: `user: "${HOST_UID}:${HOST_GID}"`（要件2）でホストの UID/GID をそのまま使うため、その UID がイメージ内の `/etc/passwd` に存在せず、OpenSSH クライアントが認証できないことがある。HTTPS + `gh` CLI 認証（イメージに導入済み。`repos.tsv` の既定クローン URL も HTTPS）であれば影響しない。SSH remote が必須の場合は `container/Dockerfile` のコメントに従いエントリポイントの拡張が必要。
-- **`HOST_UID`/`HOST_GID`/`FLYWHEEL_WORKSPACE_DIR` は未設定だとエラーで起動を止める**（`container/compose.yml` が `:?` で必須化。ホストと異なる UID/GID で静かに起動して隔離が効かない事態を避けるため）。上記「初回のみ」の `container/.env` 作成を必ず行うこと。
-- **`.flywheel/repos/`（作業用クローン）はワークスペース全体のマウント範囲に含まれる**。ワークスペース直下を丸ごとマウントするため個別マウントは不要。
-- **Docker socket（`/var/run/docker.sock`）は既定では渡さない**（ホスト Docker デーモンの完全な制御権を渡すことになり、隔離の目的が失われるため）。対象リポジトリの作業自体が Docker を必要とする場合のみ、影響を理解した上で `container/compose.yml` のコメントに従い明示的に追加する。
+- ワークスペースをホストと**同一の絶対パス**でマウントする（`~/.claude.json` の trust 承認は絶対パスがキーのため）。
+- `user: "${HOST_UID}:${HOST_GID}"` でホストユーザーと同一の UID/GID で実行する（`UID`/`GID` はシェルの読み取り専用変数のため使えず、`.env` ファイル経由で渡す）。
+- `$HOME` 全体をコンテナへ共有する（`~/.claude`・`~/.claude.json` だけの個別マウントだと root 所有問題が起きるため）。**エージェント間の隔離はこのマウント方式では提供されない**（同一ホストで fleet の他エージェントを動かしている場合、それらのワークスペースや共有の `~/.claude.json` も読み書き可能になる）。
+- macOS ホストでは Keychain 認証がコンテナに引き継がれないことがある。`claude setup-token` の長期トークンをコンテナへ渡すか、コンテナ内で `claude login` すること。
+- git の SSH remote は既定では使えないことがある（ホスト UID がイメージ内の `/etc/passwd` に存在しないケースがあるため）。HTTPS + `gh` CLI 認証であれば影響しない。SSH remote が必須の場合は `container/Dockerfile` のコメント（回避策）を参照。
+- `HOST_UID`/`HOST_GID`/`FLYWHEEL_WORKSPACE_DIR` は未設定だと `:?` でエラーになり起動を止める（静かなフォールバックによる隔離破れを防ぐため）。上記「初回のみ」の `container/.env` 作成を必ず行うこと。
+- Docker socket（`/var/run/docker.sock`）は既定では渡さない（隔離の目的が失われるため）。必要な場合のみ `container/compose.yml` のコメントに従い明示的に追加する。
 
 ## 状態管理
 
