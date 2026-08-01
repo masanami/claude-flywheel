@@ -77,7 +77,7 @@ run-cycle の実行ステップは、実作業を **cwd＝作業用クローン�
 - 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針）。
 - 多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ allow ルールで通るよう、**`-p` を先頭に置く**呼び出し形にする。
 - 対象 repo 側（`.flywheel/repos/<name>`）にも、子セッションが実装作業できるよう `.claude/settings.json`（lint/test/build/git 等を allow、破壊的操作を deny）を整えておくと安全（各 repo 側の `/init-project` 等で生成）。
-- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行するか、対話的に `claude` を起動して trust ダイアログを承認する（**エージェント自身は実行禁止**。Self-Modification としてブロックされるため）:
+- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行するか、対話的に `claude` を起動して trust ダイアログを承認する（**エージェント自身は実行禁止**。Self-Modification としてブロックされるため）。trust 承認は絶対パスをキーに記録されるため、対話的に承認する場合は**対象クローン自体を起動ディレクトリ**にする必要がある（例: `(cd "./.flywheel/repos/<name>" && claude)`）:
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>
