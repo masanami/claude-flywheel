@@ -111,13 +111,14 @@ flowchart LR
 | `session_id` | string (UUID) | `delegate_*` | **委譲コマンド発行の直前に `uuidgen` で事前採番し、子セッションに `--session-id <uuid>` で指定する**（停止したセッションにも start 時点で resume 用 ID が残るようにするため）。macOS の `uuidgen` は大文字を返すため `uuidgen \| tr '[:upper:]' '[:lower:]'` のように**小文字へ正規化**する（対応付けを大文字小文字差で壊さないため）。`delegate_start` / `delegate_end` の対応付けキー。UUID 前提のため通常は該当しないが、`"` と `\` は使用不可（`check` の対応付けキー抽出が未エスケープの `"` 区切り前提のため） |
 | `result` | string | `*_end` | 結果 1 行。`delegate_end` は【委譲結果の照合】を経た**実状態**に基づく。`cycle_end` は `completed`（正常終了）または `abandoned`（後続サイクルが stale ロック回収時に代筆） |
 | `id` | string | `adhoc_*` | `adhoc_start` / `adhoc_end` の対応付けキー（例: `adhoc-YYYYMMDD-HHMM-<slug>`。start 時に発番）。`"` と `\` は使用不可（`check` の対応付けキー抽出が未エスケープの `"` 区切り前提のため。書き込み時に `log-run-event.sh` が拒否する） |
-| `title` | string | `adhoc_start` | 差し込み作業の 1 行タイトル |
+| `title` | string | `adhoc_start`（`delegate_start` は任意） | `adhoc_start`: 差し込み作業の 1 行タイトル。`delegate_start`: 委譲内容の 1 行要約（例: 「レビューコメント対応の resume 委譲」）。対応付け・対応検算（`check`）には関与しない |
+| `skill` | string | —（必須イベント無し。`delegate_start` 用の任意フィールド） | 子セッションで実行するスキル名（例: `/pr-review-respond`）。journal「委譲」セクションの実行スキルと同じ値。対応付け・対応検算（`check`）には関与しない |
 
 サンプル（1 行ずつ）:
 
 ```json
 {"ts":"2026-07-16T10:00:00+09:00","event":"cycle_start","cycle":"2026-07-16-cycle"}
-{"ts":"2026-07-16T10:05:12+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000"}
+{"ts":"2026-07-16T10:05:12+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","title":"レビューコメント対応の resume 委譲","skill":"/pr-review-respond"}
 {"ts":"2026-07-16T10:42:30+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"実装完了・PR起票（照合済み）"}
 {"ts":"2026-07-16T10:45:00+09:00","event":"cycle_end","cycle":"2026-07-16-cycle","result":"completed"}
 {"ts":"2026-07-16T13:02:00+09:00","event":"adhoc_start","id":"adhoc-20260716-1302-ci-failure","title":"CI 落ちの調査","repo":"net-config"}

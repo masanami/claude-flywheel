@@ -9,7 +9,7 @@
 # 使い方（書き込み）:
 #   scripts/log-run-event.sh <event> [--cycle <name>] [--challenge <id>] [--repo <name>]
 #                            [--session-id <uuid>] [--result <text>] [--id <adhoc-id>]
-#                            [--title <text>] [--dry-run] [--workspace <dir>]
+#                            [--title <text>] [--skill <text>] [--dry-run] [--workspace <dir>]
 #
 #   event        cycle_start | cycle_end | delegate_start | delegate_end | adhoc_start | adhoc_end
 #   --cycle      当周の journal ファイル名 basename（cycle_* 用）
@@ -20,7 +20,10 @@
 #   --result     結果 1 行（*_end 用。JSON エスケープはスクリプトが行う）
 #   --id         adhoc_start / adhoc_end の対応付けキー（" や \ は使用不可。理由は
 #                --session-id と同じ）
-#   --title      差し込み作業の 1 行タイトル（adhoc_start 用）
+#   --title      1 行タイトル（adhoc_start 用は必須。delegate_start 用は任意＝委譲内容の
+#                1 行要約）
+#   --skill      子セッションで実行するスキル名（delegate_start 用。任意。自由テキスト
+#                扱いで json_escape 経由のサニタイズを適用する＝--title と同等）
 #   --dry-run    何も書かず exit 0（journal と同じパリティ。dry-run は状態を変えないため）
 #   --workspace  ワークスペースのルート（既定: .）。<workspace>/.flywheel/runs.jsonl に書く
 #
@@ -63,7 +66,7 @@
 
 set -euo pipefail
 
-USAGE="usage: $0 <event> [--cycle <name>] [--challenge <id>] [--repo <name>] [--session-id <uuid>] [--result <text>] [--id <adhoc-id>] [--title <text>] [--dry-run] [--workspace <dir>]"
+USAGE="usage: $0 <event> [--cycle <name>] [--challenge <id>] [--repo <name>] [--session-id <uuid>] [--result <text>] [--id <adhoc-id>] [--title <text>] [--skill <text>] [--dry-run] [--workspace <dir>]"
 USAGE_CHECK="usage: $0 check [--workspace <dir>]"
 
 # 警告を stderr へ出す（best-effort 契約のため、警告してもスクリプトは exit 0 で終える）。
@@ -278,6 +281,7 @@ SESSION_ID=""
 RESULT=""
 ADHOC_ID=""
 TITLE=""
+SKILL=""
 DRY_RUN=0
 WORKSPACE="."
 
@@ -288,7 +292,7 @@ while [ "$#" -gt 0 ]; do
       shift
       continue
       ;;
-    --cycle|--challenge|--repo|--session-id|--result|--id|--title|--workspace)
+    --cycle|--challenge|--repo|--session-id|--result|--id|--title|--skill|--workspace)
       if [ "$#" -lt 2 ]; then
         warn "オプションに値がありません: ${1}。書かずに終了します（best-effort）"
         exit 0
@@ -314,6 +318,7 @@ while [ "$#" -gt 0 ]; do
     --result)     RESULT="$2" ;;
     --id)         ADHOC_ID="$2" ;;
     --title)      TITLE="$2" ;;
+    --skill)      SKILL="$2" ;;
     --workspace)  WORKSPACE="$2" ;;
   esac
   shift 2
@@ -383,7 +388,7 @@ fi
 TS="${ts_raw%??}:${ts_raw#"${ts_raw%??}"}"
 
 # 1 行 JSON を組み立てる。フィールド順は ts, event, cycle, challenge, repo,
-# session_id, id, title, result（与えられたものだけ出力する）。
+# session_id, id, title, skill, result（与えられたものだけ出力する）。
 json="{\"ts\":\"$(json_escape "$TS")\",\"event\":\"$(json_escape "$EVENT")\""
 if [ -n "$CYCLE" ]; then      json="${json},\"cycle\":\"$(json_escape "$CYCLE")\""; fi
 if [ -n "$CHALLENGE" ]; then  json="${json},\"challenge\":\"$(json_escape "$CHALLENGE")\""; fi
@@ -391,6 +396,7 @@ if [ -n "$REPO" ]; then       json="${json},\"repo\":\"$(json_escape "$REPO")\""
 if [ -n "$SESSION_ID" ]; then json="${json},\"session_id\":\"$(json_escape "$SESSION_ID")\""; fi
 if [ -n "$ADHOC_ID" ]; then   json="${json},\"id\":\"$(json_escape "$ADHOC_ID")\""; fi
 if [ -n "$TITLE" ]; then      json="${json},\"title\":\"$(json_escape "$TITLE")\""; fi
+if [ -n "$SKILL" ]; then      json="${json},\"skill\":\"$(json_escape "$SKILL")\""; fi
 if [ -n "$RESULT" ]; then     json="${json},\"result\":\"$(json_escape "$RESULT")\""; fi
 json="${json}}"
 
