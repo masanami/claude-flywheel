@@ -42,18 +42,10 @@ RUN npm install -g @anthropic-ai/claude-code
 #       && rm -rf /var/lib/apt/lists/*
 #   RUN corepack enable && corepack prepare pnpm@latest --activate
 #
-# 注意: compose.yml 側で `user: "${HOST_UID}:${HOST_GID}"` を指定し、ホストユーザーと同一の
-# UID/GID でコンテナ内プロセスを実行する（バインドマウント先の所有者一致・root 所有化の回避）。
-# compose.yml の `user:` は本 Dockerfile の `USER` 指定を無条件に上書きするため、下記で設定する
-# 既定 USER（non-root）は compose 経由の通常運用には一切影響しない。既定 USER が効くのは
-# `docker run` 単体起動（compose を介さないフォールバック経路）のみで、その経路を root 既定の
-# ままにする理由はないため、特定の非 root ユーザー（`node` ユーザー、後述）を既定にしている。
-# 同じ理由（compose の `user:` が上書きする前提）で、Claude Code の自動アップデータ
-# （ビルド時に root で `npm install -g` したパスへ非 root ユーザーが書き込めず失敗する）は
-# compose.yml 側で `DISABLE_AUTOUPDATER=1` を設定し無効化している
-# （コンテナはイメージ再ビルドで更新する運用）。
+# 注意: compose.yml 側の `user:` が本イメージの既定 USER にどう影響するかは下記 USER 指定直前の
+# コメントを、`DISABLE_AUTOUPDATER` の理由は compose.yml 内のコメントを参照。
 #
-# 既知の制約: 上記の理由でホスト UID/GID をそのまま使うため、その UID がイメージ内の
+# 既知の制約: ホスト UID/GID をそのまま使う（後述）ため、その UID がイメージ内の
 # /etc/passwd に存在しない（getpwuid が引けない）ケースがある。この状態では上記でインストール
 # した OpenSSH クライアント（openssh-client パッケージ）が「No user exists for uid <n>」等で
 # 失敗し、git の SSH remote は使えない。
@@ -78,7 +70,5 @@ RUN chown node:node /workspace
 # 新規ユーザーは作成せず、node:20-slim に既存の `node` ユーザー（uid 1000）を流用する。
 USER node
 
-# 常駐させ、実作業は `docker compose exec` で入る（compose.yml 側の `command` と同じ内容。
-# compose 経由で起動する限りは compose.yml 側が優先されるため、ここは `docker run` 単体で
-# このイメージを使う場合のフォールバック）。
+# 常駐用フォールバック（compose 経由では compose.yml の command が優先される。docker run 単体時のみ有効）。
 CMD ["sleep", "infinity"]

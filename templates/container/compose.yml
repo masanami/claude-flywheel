@@ -10,9 +10,10 @@
 #   4) 常駐サービスとして `up -d` し、実作業は `exec` で入る（セッションが落ちてもコンテナは生存し、
 #      再 exec で作業環境が残る）。
 #
-# 前提条件（trust 承認・認証情報共有・マウント範囲・既知の制約）の詳細は
-# ../runtime/README.md「container モードの前提条件」を参照
-#（プラグインリポジトリ内では templates/runtime/README.md。本ファイルは scaffold 後、
+# 前提条件（trust 承認・認証情報共有・マウント範囲）の**正本は本ファイルのコメント**（イメージ内部の
+# 既知の制約〔SSH remote 等〕は同ディレクトリの Dockerfile のコメントが正本）。
+# ../runtime/README.md「container モードの前提条件」は要約であり、食い違う場合は本ファイル・
+# Dockerfile が正（プラグインリポジトリ内では templates/runtime/README.md。本ファイルは scaffold 後、
 #  利用先ワークスペースの `container/compose.yml` に配置され、README は `runtime/README.md` になる）。
 #
 # 使い方（1 エージェント = 1 プロジェクト名 `-p` を使う想定。fleet で複数エージェントを分離するため）:
@@ -98,7 +99,7 @@ services:
       # ~/.claude 配下にはトークンファイルを作らないことがある（マウントだけでは
       # 認証が引き継がれないケース）。その場合はホスト側で `claude setup-token` を
       # 実行して得られる長期トークンを ANTHROPIC_API_KEY 等としてここに渡すか、
-      # コンテナ内で改めて `claude login` を行うこと（詳細は ../runtime/README.md）。
+      # コンテナ内で改めて `claude login` を行うこと。
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       # 非 root UID（要件2）で実行すると、ビルド時に root で `npm install -g` した
       # Claude Code の自動アップデータが再インストール用ディレクトリに書き込めず
