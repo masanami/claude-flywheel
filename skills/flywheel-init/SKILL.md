@@ -27,7 +27,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
 ├── container/                # コンテナ隔離モード雛形（execution_mode: container 用。Dockerfile・compose.yml。テンプレートから生成）
-├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。実体は run-cycle が生成）
+├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。cycle-template.md は run-cycle step 6 が参照。実体は run-cycle が生成）
 ├── .flywheel/
 │   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード・reflectしきい値。start-day スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
 └── .gitignore                # .flywheel/ 配下のローカル実行状態（作業用クローン・ロック・runs.jsonl 等）を除外。cadence.json だけは例外的に追跡
@@ -36,17 +36,11 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ## 手順
 
 1. カレントワークスペースを確認する（既存ファイルを上書きしない。あれば差分を提示して承認を得る）。
-2. プラグインの雛形（`${CLAUDE_PLUGIN_ROOT}/templates/`）を読み込み、カレントワークスペースに生成する:
-   - `${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md` → `./CLAUDE.md`（既存 CLAUDE.md があれば追記/マージ。上書きしない）。テンプレート内のプレースホルダのうち**エージェント名はワークスペース名またはユーザーへの確認で埋める**。ポジション概要など bootstrap 後に決まる項目はプレースホルダのまま残し、手順4で bootstrap-domain-map の実行を案内する。
-   - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-ledger.md` → `./challenge-ledger.md`
-   - `${CLAUDE_PLUGIN_ROOT}/templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ。初期は内部台帳直接記入だけでも可＝生成を省略できる）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/repos.tsv` → `./repos.tsv`（関連リポジトリのマニフェスト）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/runtime/README.md` → `./runtime/README.md`
-   - `${CLAUDE_PLUGIN_ROOT}/templates/container/` → `./container/`（`Dockerfile`・`compose.yml`。コンテナ隔離モード〔`execution_mode: container`〕の雛形。既存ファイルは上書きしない既存方針を踏襲する）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/journal/README.md` → `./journal/README.md`
-   - `${CLAUDE_PLUGIN_ROOT}/templates/journal/cycle-template.md` → `./journal/cycle-template.md`（run-cycle step 6 が参照する 1 周分 .md の雛形）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/settings.json` → `./.claude/settings.json`（既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージ。上書きしない）
-   - `${CLAUDE_PLUGIN_ROOT}/templates/cadence.json` → `./.flywheel/cadence.json`（既存があれば上書きしない。`start-day` スキルが読む拍動設定＝業務時間・run-cycle 間隔・発火分オフセット・実行モード・reflect しきい値）
+2. `${CLAUDE_PLUGIN_ROOT}/templates/` 配下のうち、**上記ツリーに列挙したファイル/ディレクトリのみ**を対応パスへ生成する（既存ファイルは上書きしない）。`templates/position.md` はここでは生成しない（利用先へコピーする雛形ではなく、手順4で bootstrap 時にその場で参照する雛形）。**特別扱いが必要な項目のみ**:
+   - `templates/CLAUDE.md` → `./CLAUDE.md`: 既存があれば追記/マージ。テンプレート内のプレースホルダのうち**エージェント名はワークスペース名またはユーザーへの確認で埋める**。ポジション概要など bootstrap 後に決まる項目はプレースホルダのまま残し、手順4で bootstrap-domain-map の実行を案内する。
+   - `templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ生成。初期は内部台帳直接記入だけでも可）。
+   - `templates/settings.json` → `./.claude/settings.json`（非自明なパス対応）。既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージする。
+   - `templates/cadence.json` → `./.flywheel/cadence.json`（非自明なパス対応）。
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
 3. `.gitignore` に**ローカル実行状態**（`.flywheel/` 配下）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）。**`cadence.json` は運用設定として Git 追跡する**ため、ディレクトリ丸ごとの ignore（`.flywheel/`）ではなく `.flywheel/*` ＋個別 unignore の形にする（`dir/` 形式で丸ごと ignore すると Git がディレクトリ内を走査せず `!` の例外が効かないため）:
 
@@ -71,7 +65,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
    - 定期自走を始めるには `/claude-flywheel:start-day` を実行する（`.flywheel/cadence.json` を読み込み、初回 `run-cycle` の実行とセッション内 cron の登録までを行う。詳細は `runtime/README.md`）。
-   - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。**新規クローンは trust 未承認から始まる**ため、`sync-repos.sh` が出す未承認クローンの警告に対応する `${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>`（下記「自走委譲の権限前提」）を人間に案内する。
+   - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。新規クローンは trust 承認が必要（下記「自走委譲の権限前提」参照）。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
 
 ## 自走委譲の権限前提（`.claude/settings.json`）
@@ -83,15 +77,14 @@ run-cycle の実行ステップは、実作業を **cwd＝作業用クローン�
 - 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針）。
 - 多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ allow ルールで通るよう、**`-p` を先頭に置く**呼び出し形にする。
 - 対象 repo 側（`.flywheel/repos/<name>`）にも、子セッションが実装作業できるよう `.claude/settings.json`（lint/test/build/git 等を allow、破壊的操作を deny）を整えておくと安全（各 repo 側の `/init-project` 等で生成）。
-- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行して trust 承認する必要がある（対話的に `claude` を起動して trust ダイアログを承認しても良い。**エージェント自身がこのコマンドを実行してはならない**。エージェントによる自動書き込みは Self-Modification としてブロックされるため行わない。あくまで人間向けの提示に留める）:
+- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行するか、対話的に `claude` を起動して trust ダイアログを承認する（**エージェント自身は実行禁止**。Self-Modification としてブロックされるため）。trust 承認は絶対パスをキーに記録されるため、対話的に承認する場合は**対象クローン自体を起動ディレクトリ**にする必要がある（例: `(cd "./.flywheel/repos/<name>" && claude)`）:
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>
   ```
 
-  `<name>` は `repos.tsv` に定義したクローン名（`.flywheel/repos/<name>` の実体を指す）。内部で `~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted` を `true` に設定する（詳細は `scripts/trust-clone.sh -h`）。
-
-- **trust 承認は当該パスの「将来の変更」にも及ぶ**: 承認後も `sync-repos.sh` の同期で対象 repo の `.claude/settings.json`・`CLAUDE.md` は更新され続け、再承認なしにそのまま子セッションへ効く。**委譲先リポジトリへの書き込み権を持つ者は、実質このエージェントの権限・指示の定義者になる**。委譲先の既定ブランチには branch protection を設定し、`.claude/settings.json`・`CLAUDE.md` の変更はレビュー必須とする運用を前提にすること。
+  `<name>` は `repos.tsv` に定義したクローン名（`.flywheel/repos/<name>` の実体を指す）。詳細は `scripts/trust-clone.sh -h` を参照。
+- **trust 承認は当該パスの将来の変更にも及ぶ**（再承認なしに対象 repo の `.claude/settings.json`・`CLAUDE.md` の更新が子セッションへ効き続けるため、書き込み権を持つ者が実質このエージェントの権限定義者になる）。委譲先の既定ブランチには branch protection を設定し、`.claude/settings.json`・`CLAUDE.md` の変更はレビュー必須とする運用を前提にする。
 
 ## 注意
 
