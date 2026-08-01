@@ -36,9 +36,9 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ## 手順
 
 1. カレントワークスペースを確認する（既存ファイルを上書きしない。あれば差分を提示して承認を得る）。
-2. `${CLAUDE_PLUGIN_ROOT}/templates/` 配下を、上記ツリーの対応パスへ生成する（既存ファイルは上書きしない）。**特別扱いが必要な項目のみ**:
+2. `${CLAUDE_PLUGIN_ROOT}/templates/` 配下のうち、**上記ツリーに列挙したファイル/ディレクトリのみ**を対応パスへ生成する（既存ファイルは上書きしない）。`templates/position.md` はここでは生成しない（利用先へコピーする雛形ではなく、手順4で bootstrap 時にその場で参照する雛形）。**特別扱いが必要な項目のみ**:
    - `templates/CLAUDE.md` → `./CLAUDE.md`: 既存があれば追記/マージ。テンプレート内のプレースホルダのうち**エージェント名はワークスペース名またはユーザーへの確認で埋める**。ポジション概要など bootstrap 後に決まる項目はプレースホルダのまま残し、手順4で bootstrap-domain-map の実行を案内する。
-   - `templates/challenge-sources.md` → `./challenge-sources.md`（**省略可**。外部ソースから取り込む場合のみ生成。初期は内部台帳直接記入だけでも可）。
+   - `templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ生成。初期は内部台帳直接記入だけでも可）。
    - `templates/settings.json` → `./.claude/settings.json`（非自明なパス対応）。既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージする。
    - `templates/cadence.json` → `./.flywheel/cadence.json`（非自明なパス対応）。
    - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
@@ -77,14 +77,14 @@ run-cycle の実行ステップは、実作業を **cwd＝作業用クローン�
 - 委譲の子セッションには **`--allowedTools Bash` のような“無制限 Bash”を渡さない**。子の権限は **cwd の対象 repo が持つ `.claude/settings.json`（allow/ask/deny）に統治させる**（“広範 Bash”警戒を避けつつ設計どおり委譲するための指針）。
 - 多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ allow ルールで通るよう、**`-p` を先頭に置く**呼び出し形にする。
 - 対象 repo 側（`.flywheel/repos/<name>`）にも、子セッションが実装作業できるよう `.claude/settings.json`（lint/test/build/git 等を allow、破壊的操作を deny）を整えておくと安全（各 repo 側の `/init-project` 等で生成）。
-- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行して trust 承認する（**エージェント自身は実行禁止**。Self-Modification としてブロックされるため）:
+- **もう一つの前提: クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。委譲先クローンの `.claude/settings.json` の allow リストは、そのクローンの絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まる（同スクリプトが未承認クローンを検出し警告する）。**人間が一度だけ**、以下のコマンドを実行するか、対話的に `claude` を起動して trust ダイアログを承認する（**エージェント自身は実行禁止**。Self-Modification としてブロックされるため）:
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>
   ```
 
   `<name>` は `repos.tsv` に定義したクローン名（`.flywheel/repos/<name>` の実体を指す）。詳細は `scripts/trust-clone.sh -h` を参照。
-- **trust 承認は当該パスの将来の変更にも及ぶ**（再承認なしに対象 repo の `.claude/settings.json`・`CLAUDE.md` の更新が子セッションへ効き続けるため、書き込み権を持つ者が実質このエージェントの権限定義者になる。委譲先の既定ブランチは branch protection・レビュー必須運用を前提にする）。
+- **trust 承認は当該パスの将来の変更にも及ぶ**（再承認なしに対象 repo の `.claude/settings.json`・`CLAUDE.md` の更新が子セッションへ効き続けるため、書き込み権を持つ者が実質このエージェントの権限定義者になる）。委譲先の既定ブランチには branch protection を設定し、`.claude/settings.json`・`CLAUDE.md` の変更はレビュー必須とする運用を前提にする。
 
 ## 注意
 
