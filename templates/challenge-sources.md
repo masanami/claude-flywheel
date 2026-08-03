@@ -19,9 +19,11 @@
 - **id**: `<source-id>`  <!-- 例: shared-repo / product-notion / ops-slack。マーカーに使うので後から変えない -->
 - **type**: `repo-file` | `mcp-doc` | `mcp-chat` | `github-issue`
 - **locator**: `<場所>`  <!-- repo-file: repos.tsv の <name> とパス / mcp-doc: ドキュメント URL か page id / mcp-chat: チャンネル / github-issue: owner/name（複数列挙可） -->
-- **access**: `<読み取り方式>`  <!-- repo-file: ローカルクローンを Read / mcp-doc: 接続済み Google Drive MCP / mcp-chat: 接続済み Slack MCP。ツールは実行者の接続済みサーバから discover / github-issue: gh issue list --repo <owner/name> --state open --json number,title,body,author,createdAt,labels,url --limit 200（認証は実行者の gh 認証に委ねる。PR は対象外。--limit は既定30件のため明示） -->
+- **access**: `<読み取り方式>`  <!-- repo-file: ローカルクローンを Read / mcp-doc: 接続済み Google Drive MCP / mcp-chat: 接続済み Slack MCP。ツールは実行者の接続済みサーバから discover / github-issue: gh issue list --repo <owner/name> --state open --json number,title,body,author,assignees,createdAt,labels,url --limit 200（認証は実行者の gh 認証に委ねる。PR は対象外。--limit は既定30件のため明示） -->
 - **filter**（任意）: `<関心キーワード / ラベル / セクション>`  <!-- 自ポジションに関係する分だけ取り込むための絞り込み -->
 - **external-key**（冪等の要）: `<外部キーの取り方>`  <!-- 安定 ID を最優先。例 Notion page id / Slack ts / 見出し ID / github-issue は <repo>#<number>。無ければ見出しテキスト -->
+- **assignee_policy**（任意・`github-issue` のみ有効）: `exclude-others` | `self-only`  <!-- 省略時 exclude-others。exclude-others = unassigned＋自分宛を取り込み他人 assign を除外／self-only = 自分宛のみ取り込み（unassigned 含め除外）。他 type は assignee 概念が無いため宣言しても無視される -->
+- **self_assignees**（任意・`github-issue` のみ有効）: `[<GitHub アカウント>, ...]`  <!-- 自分とみなす GitHub ログイン名。省略時は実行時に gh api user --jq .login を解決して既定にする（解決失敗時は安全側＝exclude-othersはunassignedのみ許可、self-onlyは全除外） -->
 - **mapping**（任意・既定から変える場合のみ）:
   - 起票者/起票日 ← `<外部フィールド>`
   - 説明 ← `<外部フィールド>`
@@ -47,8 +49,10 @@
 - id: core-repo-issues
 - type: github-issue
 - locator: owner-a/repo-a, owner-b/repo-b  <!-- 複数リポジトリを列挙可。読めない/権限不足のリポジトリはスキップ -->
-- access: gh issue list --repo <repo> --state open --json number,title,body,author,createdAt,labels,url --limit 200
+- access: gh issue list --repo <repo> --state open --json number,title,body,author,assignees,createdAt,labels,url --limit 200
 - filter: 自ポジションの関心範囲（open Issue 全件を候補にし関連度で判定）
+- assignee_policy: exclude-others  <!-- 省略可（既定）。厳格運用なら self-only -->
+- self_assignees: [<GitHub アカウント>]  <!-- 省略可。省略時は実行時に gh api user --jq .login で解決 -->
 - external-key: <repo>#<number>
 - mapping: 起票者←author.login / 起票日←createdAt / 説明←body / 緊急度←ラベル（例: `priority:*` → 高/中/低）
 ```
@@ -57,4 +61,5 @@
 
 - **正規化の既定**: 作成者→起票者、作成日→起票日、本文→説明、明示があれば完了条件・緊急度。取れない欄は空にし、判断が要る箇所は台帳の「備考」に**仮定として明記**する（推測で埋めない）。
 - **冪等**: 同じ課題を再取り込みしても二重登録しない。既存エントリの `fp`（フィンガープリント）が変われば**人間記入欄だけ**更新し、分類・ステータスは保持する（台帳の記入形式は `challenge-ledger.md` の記入例を参照）。
+- **assignee フィルタ**（`github-issue` のみ）: 既定 `exclude-others` は unassigned＋自分宛のみ取り込み、他人 assign（co-assign 含む）は取り込まず共有ソースに残す。取り込み済みの Issue が後からポリシーに合わなくなった場合（他人が assign された等）は次回取り込み時に検出され、着手前なら台帳から取り込み解除、着手中以降なら要対応として報告される（削除は台帳から丸ごと行い、アーカイブへは移動しない。判定基準・分類欄を書き換えない点も含め詳細は `skills/ingest-challenges/SKILL.md` 手順2「assignee フィルタ」・手順4「ポリシー不適合エントリの取り込み解除」）。
 - **頻度**: 手動（`/ingest-challenges`）／`run-cycle` の観測ステップから自動／routine 連動のいずれでもよい。
