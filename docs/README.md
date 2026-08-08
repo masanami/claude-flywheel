@@ -43,6 +43,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [challenge-sources.md](../templates/challenge-sources.md) | 課題の取り込み元宣言の雛形（任意・外部ソース ingestion 用） |
+| [priority-policy.md](../templates/priority-policy.md) | タスク優先度の決定方針の雛形（正本・人間編集専用。run-cycle が手順1/2で参照。不在時は現状どおりエージェント裁量） |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
