@@ -94,6 +94,10 @@
 - **マーカー無しの手書きエントリは ingestion の対象外**（触らない）。手書き運用と取り込み運用は共存できる。
 - **ポリシー不適合エントリの取り込み解除**（`github-issue` ソースのみ）: マーカー一致で台帳に「キー既登録」のエントリについて、最新の `assignees` が現在の `assignee_policy` / `self_assignees` に合致しなくなった場合（他人が新たに assign された・`self-only` で unassigned になった等）、**人間承認前・実作業が未着手**（未分類／分類済／計画承認待ち〔未承認〕）のエントリはアーカイブへ移動せず**台帳から丸ごと削除**する（マーカーごと消える。アーカイブに残すと assign 解除後の再取り込みが「既登録」と誤判定されるため）。**着手中以降（承認済み含む）**のエントリは自動削除せず、ingest-challenges のレポートへ「要対応」として残す（台帳・分類欄は変更しない）。アーカイブ側でマーカーが一致した場合はこの判定の対象外（アーカイブは完了フローの正本のため変更しない）。詳細・判定基準は [ingest-challenges §4](../skills/ingest-challenges/SKILL.md) 参照。
 
+## 優先度判定の基準（外出し先）
+
+分類欄の `優先度: P0 | P1 | P2` 欄自体のフォーマットは変更しない。**判定基準・着手順の選択基準**は各エージェントの `priority-policy.md`（雛形 [`templates/priority-policy.md`](../templates/priority-policy.md)）に外出しする。`run-cycle` 手順1・手順2 がこれを参照する（不在時は現状どおりエージェント裁量）。詳細は [`skills/run-cycle/SKILL.md`](../skills/run-cycle/SKILL.md) を参照。
+
 ## 運用メモ
 
 - 人間は**共有ソース**に書き、各エージェントが自分に関係する分だけ取り込む。共有ソースの実体は差し替え可能で、外部ドキュメント（Notion/Doc/Slack 等）化は [ingest-challenges](../skills/ingest-challenges/SKILL.md) が担う（[requirements.md OQ-01](./requirements.md) / architecture AO-06）。取り込み元の宣言は `challenge-sources.md`（雛形 [`templates/challenge-sources.md`](../templates/challenge-sources.md)）。

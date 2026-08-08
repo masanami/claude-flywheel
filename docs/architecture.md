@@ -298,6 +298,7 @@ claude-flywheel/
 │   ├── CLAUDE.md                # エージェント repo のベースライン（CLAUDE.md）の雛形
 │   ├── challenge-ledger.md
 │   ├── challenge-sources.md     # 課題の取り込み元宣言（任意）
+│   ├── priority-policy.md       # タスク優先度の決定方針（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycleが読む）
 │   ├── position.md
 │   ├── repos.tsv
 │   ├── settings.json            # .claude/settings.json の雛形（自走委譲の権限前提・§3.9.2）
@@ -318,6 +319,7 @@ claude-flywheel/
 ├── CLAUDE.md                    # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md          # このエージェントの課題台帳（正本。共有ソースから取り込み）
 ├── challenge-sources.md         # 課題の取り込み元宣言（任意。外部ソース ingestion 用）
+├── priority-policy.md           # タスク優先度の決定方針（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycleが手順1/2で読む。不在時は現状どおりエージェント裁量）
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
 ├── .claude/settings.json        # 自走委譲の権限前提（Bash(claude -p:*) を allow。flywheel-init が scaffold・§3.9.2）
 ├── .flywheel/cadence.json       # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード〔execution_mode〕・reflectしきい値。Git追跡＝gitignore対象外）
