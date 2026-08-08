@@ -21,7 +21,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── CLAUDE.md                 # ベースライン（ポジション要約・記憶INDEX参照・recall手順。自動ロード）
 ├── challenge-ledger.md       # 課題台帳（正本・テンプレートから生成）
 ├── challenge-sources.md      # 課題の取り込み元宣言（任意・外部ソースを使うとき。テンプレートから生成）
-├── priority-policy.md        # タスク優先度の決定方針（正本・人間編集専用。テンプレートから生成。run-cycleが読む）
+├── priority-policy.md        # タスク優先度の決定方針（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。テンプレートから生成。run-cycleが読む）
 ├── repos.tsv                 # 関連リポジトリのマニフェスト（テンプレートから生成）
 ├── .claude/settings.json     # 自走委譲の権限（Bash(claude -p:*) を allow。§権限前提）
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
@@ -65,7 +65,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
    - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
-   - タスクの優先度判定・着手順の方針を状況に応じて切り替えたい場合は、生成された `priority-policy.md` の「現在のモード」（`active:` 行）を編集してコミットする（既定は `normal`）。**このファイルは人間のみが編集し、エージェントは読むだけ**（run-cycle 手順1・手順2が毎周参照する）。
+   - タスクの優先度判定・着手順の方針を状況に応じて切り替えたい場合は、生成された `priority-policy.md` の「現在のモード」（`active:` 行）を編集してコミットする（既定は `normal`）。**切り替えの意思決定は人間のみ**が行う（run-cycle 手順1・手順2が毎周参照する）。編集は人間が直接行うか、対話セッションで人間から明示指示を受けたエージェントが代行してよい（自律実行〔cron〕中のエージェントは読むだけで自分の判断では書き換えない）。
    - 定期自走を始めるには `/claude-flywheel:start-day` を実行する（`.flywheel/cadence.json` を読み込み、初回 `run-cycle` の実行とセッション内 cron の登録までを行う。詳細は `runtime/README.md`）。
    - 関連リポジトリを clone したくなったら `${CLAUDE_PLUGIN_ROOT}/scripts/sync-repos.sh` で `.flywheel/repos/`（作業用＝編集・ブランチ・コミット可）に clone/fetch する。新規クローンは trust 承認が必要（下記「自走委譲の権限前提」参照）。
 5. 生成物を Git コミットする（秘密情報は含めない。`.flywheel/repos/` はコミットしない）。
