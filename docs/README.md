@@ -11,6 +11,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
+| [gdd-drift-integration.md](./gdd-drift-integration.md) | GDD 意味ドリフト検知（`/guarantee-audit drift`）の run-cycle 接続設計（[#81](https://github.com/masanami/claude-flywheel/issues/81)） | 検討（未決あり・決定は人間） |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
