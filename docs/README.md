@@ -11,7 +11,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
-| [gdd-drift-integration.md](./gdd-drift-integration.md) | GDD 意味ドリフト検知（`/guarantee-audit drift`）の run-cycle 接続設計（[#81](https://github.com/masanami/claude-flywheel/issues/81)） | 検討（未決あり・決定は人間） |
+| [gdd-drift-integration.md](./gdd-drift-integration.md) | GDD 意味ドリフト検知（`/guarantee-audit drift`）の run-cycle 接続設計（[#81](https://github.com/masanami/claude-flywheel/issues/81)） | 確定 |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
@@ -36,6 +36,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
 | [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
+| [audit-drift](../skills/audit-drift/SKILL.md) | 保証台帳（GDD）の意味ドリフト検知1周（対象 repo へ監査を委譲→課題台帳へ冪等に起票、低頻度） |
 
 ## テンプレート（`templates/` ＝利用先に scaffold する雛形）
 
