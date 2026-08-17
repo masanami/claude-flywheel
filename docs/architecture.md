@@ -291,7 +291,7 @@ claude-flywheel/
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   ├── reflect/                 # 自己改善（内省）ループ1周
-│   └── audit-drift/             # 保証台帳(GDD)の意味ドリフト検知1周（低頻度・run-cycle手順0から起動）
+│   └── periodic-audit/          # 宣言された監査ジョブを低頻度で1周（低頻度・run-cycle手順0から起動。監査の意味は接続ツール側）
 ├── scripts/                     # 機械的処理の純シェル
 │   ├── sync-repos.sh            # 関連リポジトリ（作業用クローン）の冪等な clone/fetch
 │   └── trust-clone.sh           # クローンの trust 承認（人間が一度だけ手動実行）
