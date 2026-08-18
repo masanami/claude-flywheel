@@ -12,6 +12,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
 | [gdd-drift-integration.md](./gdd-drift-integration.md) | periodic-audit の**最初の利用例**: GDD 意味ドリフト検知（`/guarantee-audit drift`）の接続設計と経緯（[#81](https://github.com/masanami/claude-flywheel/issues/81)）。汎用機構そのものの正本は [periodic-audit SKILL.md](../skills/periodic-audit/SKILL.md) | 確定 |
+| [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: 実装済みの最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較（採否は人間判断・未決） | ドラフト |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
@@ -49,7 +50,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
-| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・reflect しきい値。`start-day` が読む） |
+| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・reflect しきい値・拍動停止検知しきい値 `heartbeat.stale_after_business_days`。`start-day` / `run-cycle` が読む） |
 | [container/{Dockerfile,compose.yml}](../templates/container/) | コンテナ隔離モード（`execution_mode: container`）の雛形。start-day 層をコンテナに閉じ込める |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形（実行イベントログ `runs.jsonl` の仕様の正本を含む） |
 | [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |
@@ -61,3 +62,6 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | --- | --- |
 | [sync-repos.sh](../scripts/sync-repos.sh) | `repos.tsv` を読み、関連リポジトリを `.flywheel/repos/` へ冪等に clone/fetch（作業用・ローカル作業を壊さない安全同期） |
 | [trust-clone.sh](../scripts/trust-clone.sh) | 作業用クローンを Claude Code の trust 承認済みにする（`~/.claude.json` を更新。人間が一度だけ手動実行） |
+| [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱） |
+| [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
+| [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start` とともに警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |

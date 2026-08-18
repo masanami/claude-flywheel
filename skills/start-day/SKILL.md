@@ -28,12 +28,13 @@ description: 一日の自走を開始する。cadence 設定（業務時間・ru
   - 業務時間: `10:00`–`18:00`
   - run-cycle 間隔: 90 分
   - 発火分オフセット: **未指定（`null` を含む）が既定**。その場合は**ワークスペース名（ディレクトリ名）から決定的に導出**した値を使う（例: 名前の文字コード和を 59 で割った剰余 + 1。結果が `0`/`30` なら 1 ずらす）。導出した値は `.flywheel/cadence.json` の `cron_minute_offset` に**書き戻して固定**する（fleet 内の他エージェントと発火分が重なりにくく、かつ翌日以降も同じ値で安定させるため。テンプレートが全ワークスペースに同一の固定値を配ると、ずらす目的自体が無効になるので既定値は持たない）
+  - 拍動停止検知のしきい値: 営業日 1 日（`heartbeat.stale_after_business_days`。runs.jsonl の最終 `cycle_end` の日付と本日の間に、拍動の無い営業日がこの日数以上挟まっていたら run-cycle 手順0 の heartbeat 検査が警告する。検査の実行主体は run-cycle 側＝本スキルは値の検証のみ）
   - reflect しきい値: 10 周ごと（`reflect.every_n_cycles`。同種 bad の再発しきい値は reflect スキル既定の `recurrence ≥ 2` をそのまま使い、cadence.json には持たせない＝二重定義を避ける）
   - 定期監査ジョブ: **既定なし＝未宣言（`audit` ブロック不在、または `audit.jobs` が空なら定期監査を行わない）**。他フィールドと違い既定値で補完しない**opt-in 設定**であり、雛形（`${CLAUDE_PLUGIN_ROOT}/templates/cadence.json`）にも含めない。監査を回したいワークスペースだけが `{"audit": {"jobs": [{"id": "...", "title": "...", "skill": "...", "skill_label": "...", "every_n_cycles": 30}]}}` を明示的に足す（監査は対象 repo ごとの LLM fan-out でコストが大きく、宣言していないワークスペースで勝手に発生させないため）。**`skill` が指す監査の意味を flywheel は解釈しない**（ジョブ宣言は接続ツールへの委譲内容そのもの）。ブロックがある場合の判定・起動は run-cycle 手順0 が行う（本スキルは値の検証のみ）
   - 実行モード: `native`（`execution_mode`。ホスト直実行。コンテナ隔離モード `container` を使う場合の意味は本手順末尾を参照）
 - ファイルは存在するが一部フィールドのみ欠けている場合は、その項目だけ既定値で補い、欠落したフィールド名を報告に含める（全欠落と部分欠落を区別して報告する）。
 - **値の妥当性検証**: 存在するフィールドについても値そのものを検証する。妥当条件は次の通り:
-  - `run_cycle_interval_minutes` / `reflect.every_n_cycles`: 正の整数
+  - `run_cycle_interval_minutes` / `reflect.every_n_cycles` / `heartbeat.stale_after_business_days`: 正の整数
   - `audit.jobs[]`（`audit` ブロックがある場合のみ検証。**不在は不正値ではなく「未宣言＝OFF」**なので欠落フィールドとして報告しない）: **検証規則の正本は periodic-audit の §ジョブ宣言の検証**（`${CLAUDE_PLUGIN_ROOT}/skills/periodic-audit/SKILL.md`）であり、本スキルは同じ規則を適用する — `id` は **`^[A-Za-z0-9._-]{1,64}$` に一致**しジョブ間で一意、`title` は 1〜200 文字、`skill` は 1〜500 文字（いずれも制御文字・改行を含まない）、`skill_label` は省略可で **`^[A-Za-z0-9._/-]{1,64}$`**、`every_n_cycles` は正の整数、`adapter` は省略可の文字列。**`id` は台帳の監査元マーカー `<!-- audit:<id>:<repo名> ... -->` に焼き付く永続識別子**であり、改行・制御文字・`-->` 等が入るとマーカーの境界が壊れて冪等判定が失敗するため、**エスケープではなく許可文字リストで弾く**。**本ブロックは他フィールドと違い不正値を既定値へ補正せず**（`every_n_cycles` も含む）、違反したジョブを**無効化して `id` と理由を報告**する（台帳という永続データへの書き込みを駆動する設定のため安全側に倒す）。`audit` が非オブジェクト・`jobs` が非配列の場合は**ブロック全体を無効**にする。**本スキルの検証は必須の前提にならない**（`/run-cycle` の直接実行・既存 cron・start-day 後の cadence 編集は本スキルを経由しない）ため、**run-cycle 手順0 と periodic-audit も委譲前に同じ検証を自分で実行する**
   - `business_start` / `business_end`: `HH:MM` 形式（`HH` は `00`–`23`、`MM` は `00`–`59` の数値範囲）かつ `business_start < business_end`
   - `cron_minute_offset`: `null`、または 0–59 の整数
@@ -49,6 +50,7 @@ description: 一日の自走を開始する。cadence 設定（業務時間・ru
 - `run-cycle` スキル（`${CLAUDE_PLUGIN_ROOT}/skills/run-cycle/SKILL.md`。Skill ツールがあれば `claude-flywheel:run-cycle` として呼び出してよい）を通常モード（`--dry-run` なし）で 1 周実行する。
 - cron 登録前に必ず 1 回実行する（設定ミス・権限不備の早期検知、および「起動したら動き出す」体感のため）。
 - 実行結果（サイクルレポート）はこのスキルの最終出力にそのまま含める。
+- **拍動停止の警告は最終報告の冒頭へ**: 初回 run-cycle の手順0（heartbeat 検査）が「拍動停止の疑い」（前回 `cycle_end` からの空白期間・未終了 `*_start`）または「検査不能」を報告した場合、サイクルレポート内に埋めず**本スキルの最終報告の冒頭にも掲げる**（start-day の起動忘れによる空白期間は、次に人間が start-day を起動したこの瞬間が唯一の気づきの機会のため。Issue #83）。
 
 ### 3. run-cycle 定期便（起動日の日付固定 one-shot cron 群）の登録
 
