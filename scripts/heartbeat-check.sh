@@ -276,6 +276,15 @@ else
   now_epoch="$(date +%s)"
 fi
 
+# 最終 cycle_end が未来時刻の場合は検査不能とする（ホスト時計の補正後・壊れたイベント等。
+# そのまま進めると gap_days=0 → exit 0〔空白なし〕にフォールスルーし、拍動喪失が記録日時に
+# 追いつくまでマスクされる＝「検査不能≠0件」の規律違反になるため fail-closed に倒す）。
+if [ "$last_epoch" -gt "$now_epoch" ]; then
+  warn "最終 cycle_end の ts が現在時刻より未来です（時計補正・壊れたイベントの可能性）: ${last_ts}"
+  warn "経過時間は検査不能です（「空白なし・正常」とは扱わないこと）"
+  exit 2
+fi
+
 # ---- 空白営業日の算出（最終 cycle_end の日付と本日の間・両端の日付は含まない）----
 
 last_date="$(fmt_epoch "$last_epoch" %F)"

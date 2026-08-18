@@ -68,6 +68,12 @@ assert_case "ts が解析不能な cycle_end は exit 2" 2 - -- --workspace "$ws
 
 assert_case "workspace 不在は exit 2" 2 - -- --workspace "$tmp/no-such-dir"
 
+# 未来時刻の cycle_end（時計補正・壊れたイベント）: gap_days=0 → exit 0 への
+# フォールスルーで拍動喪失がマスクされないこと（「検査不能≠0件」の回帰テスト）
+printf '%s\n' '{"ts":"2026-08-12T10:00:00+09:00","event":"cycle_end","cycle":"future","result":"completed"}' > "$ws/.flywheel/runs.jsonl"
+assert_case "未来時刻の cycle_end は exit 2（空白なしと誤判定しない）" 2 - -- --workspace "$ws" --now 2026-08-11T10:00:00+09:00
+assert_case "現在時刻と同時刻の cycle_end は fresh（未来扱いしない）" 0 - -- --workspace "$ws" --now 2026-08-12T10:00:00+09:00
+
 if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' '{"ts":"2026-08-06T10:30:00+09:00","event":"cycle_end","cycle":"x","result":"completed"}' > "$ws/.flywheel/runs.jsonl"
   chmod 000 "$ws/.flywheel/runs.jsonl"
