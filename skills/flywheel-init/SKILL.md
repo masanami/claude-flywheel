@@ -30,7 +30,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── container/                # コンテナ隔離モード雛形（execution_mode: container 用。Dockerfile・compose.yml。テンプレートから生成）
 ├── journal/                  # サイクルジャーナル（README/雛形をテンプレートから生成。cycle-template.md は run-cycle step 6 が参照。実体は run-cycle が生成）
 ├── .flywheel/
-│   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード・reflectしきい値。start-day スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
+│   └── cadence.json          # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード・reflectしきい値・拍動停止検知しきい値。start-day / run-cycle スキルが読む。運用設定のため Git 追跡＝gitignore 対象外）
 └── .gitignore                # .flywheel/ 配下のローカル実行状態（作業用クローン・ロック・runs.jsonl 等）を除外。cadence.json だけは例外的に追跡
 ```
 

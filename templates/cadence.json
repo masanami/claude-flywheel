@@ -7,5 +7,8 @@
   "execution_mode": "native",
   "reflect": {
     "every_n_cycles": 10
+  },
+  "heartbeat": {
+    "stale_after_business_days": 1
   }
 }

@@ -140,6 +140,7 @@ flowchart LR
 - **`session_id` 不一致時**: 子の返り値の `session_id` が事前採番値と一致しない場合（環境が `--session-id` を尊重しないケース）、書き手は事前採番値の `delegate_start` を `delegate_end`（`result` に不一致の事実と実際の ID を明記）で閉じ、以後は返り値を正として扱う（未終了 start を残さないため。委譲の再実行はしない）。
 - **未終了 `adhoc_start` の扱い**: 中断・クラッシュで `adhoc_end` が残らなかった場合も代筆回収はしない（cycle の `abandoned` と違い、回収の自然な契機〔次サイクルの stale ロック回収〕が無いため）。消費者はしきい値超過の未終了 start を要確認として扱う。作業を再開したら同じ `id` のまま継続し、終了時に `adhoc_end` で閉じる。
 - プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝未終了 `*_start` があれば列挙して exit 1）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
+- **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start` の件数とともにサイクルレポートへ警告を出す（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
 
 ## メモ
 
