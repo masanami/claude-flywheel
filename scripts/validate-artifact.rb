@@ -13,7 +13,9 @@
 #
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
-#     archive        challenge-archive.md（アーカイブ。検査内容は ledger と同一）
+#     archive        challenge-archive.md（アーカイブ。検査は ledger とほぼ同一だが、
+#                    **結合切れ・参照フィールドの値の形の 2 検査は ledger 限定**＝アーカイブは
+#                    「ステータス行以外は原文のまま」の履歴で修復が禁じられているため）
 #     journal-md     journal/YYYY-MM-DD-cycle.md（サイクルジャーナル）
 #     journal-index  journal/index.jsonl
 #     runs           .flywheel/runs.jsonl
@@ -415,10 +417,29 @@ LEDGER_REQUIRED_LINES = [
   ["備考", /^- 備考:/],
 ].freeze
 
-# エントリ固有のフィールド行（必須行＋マーカー行）。見出しが破損・削除されると本文が
-# 「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
+# 参照フィールド（任意・複数可。docs/challenge-ledger-format.md §関連リポジトリ・関連Issue・関連PR）。
+# **必須にはしない**（このフィールドを持たない既存エントリはそのまま正規）。値を書いた場合だけ
+# 形を検査する: 消費側（board 等）が `<owner>/<repo>` / `<repo>#<番号>` からリンクを組み立てる
+# 前提のため、自由記述・URL・プレースホルダ（`（未作成）` 等）が入ると機械処理が静かに壊れる
+# （journal-index の `touched_issues.to` に自由記述が入って集計不能になった事故と同型）。
+# 要素は `\A`/`\z` でアンカーする（Ruby の `^`/`$` は行アンカーのため）。
+LEDGER_REF_FIELDS = [
+  ["関連リポジトリ", /^- 関連リポジトリ:(.*)$/,
+   %r{\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\z},
+   "`<owner>/<repo>` のカンマ区切り"],
+  ["関連Issue", /^- 関連Issue:(.*)$/,
+   %r{\A(?:[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\#\d+\z},
+   "`<owner>/<repo>#<番号>`（同一 owner なら `<repo>#<番号>`）のカンマ区切り"],
+  ["関連PR", /^- 関連PR:(.*)$/,
+   %r{\A(?:[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\#\d+\z},
+   "`<owner>/<repo>#<番号>`（同一 owner なら `<repo>#<番号>`）のカンマ区切り"],
+].freeze
+
+# エントリ固有のフィールド行（必須行＋マーカー行＋参照フィールド行）。見出しが破損・削除されると
+# 本文が「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
 # エントリの外に現れたら見出し破損の兆候として違反にする。
 LEDGER_FIELD_LINES = (LEDGER_REQUIRED_LINES.map { |_, re| re } +
+                      LEDGER_REF_FIELDS.map { |_, re, _, _| re } +
                       [/^- 取り込み元:/, /^- 監査元:/]).freeze
 
 # 破損した見出し候補（`## [C-` への降格・`###[C-` の空白欠落等）。正規見出し `### [` に
@@ -429,7 +450,7 @@ def broken_heading_candidate?(line)
   line =~ /\A#+/ && line.include?("[C-") && line !~ /\A### \[/
 end
 
-def check_ledger(file, expect_ids = nil)
+def check_ledger(file, expect_ids = nil, live: true)
   lines = read_lines(file)
   annotated = annotate_exclusions(lines)
   errors = []
@@ -524,6 +545,72 @@ def check_ledger(file, expect_ids = nil)
       c = body.count { |l| re =~ l }
       if c > 1
         errors << "#{lineno}: 「#{label}」行が #{c} 回出現しています（見出し行の削除による別エントリの吸収の可能性）: #{heading[0, 60]}"
+      end
+    end
+
+    # (6) 分類欄における**結合切れ**（continuation break）＝複数行フィールドのネスト項目が
+    #     フィールド行と結びつかなくなる形の集合（docs/challenge-ledger-format.md
+    #     §複数行フィールドの記入形式の形 F）。GitHub 上は独立したリスト／別ブロックになり、
+    #     消費側の「フィールド行の直下に連続する継続行」収集からも外れて値ごと欠落する
+    #     （board で "-" 表示になった実事故と同型: Issue #87）。
+    #     規定が「違反」と宣言する形と検査を一致させるため、**インデント欠落の 3 形（番号付き・
+    #     ハイフン・アスタリスク）とネスト項目群の途中の空行**をまとめて検出する。
+    #     **検査範囲は分類欄のみ**（エージェントが書く領域に限定する）。人間記入欄は人間の自由記述と
+    #     外部本文の転記（ブロック引用）が入るため、行頭の箇条書きを違反にしない（規定側も
+    #     「人間記入欄は機械検査の対象外」と明記している）。
+    #     **type=ledger のときだけ検査する**（archive は対象外）: アーカイブは「ステータス行以外は
+    #     原文のまま」保存する履歴であり、規定が修復を禁じている。契約導入前の形 F エントリを
+    #     アーカイブへ移すときに修復を強いると原文保存の規律と衝突するため（移行猶予）。
+    #     新規に壊れた形が混入する経路は台帳側の全体検証が塞ぐ（アーカイブへは台帳から移す）。
+    #     実測: 実運用ワークスペース 3 エージェント分の台帳・アーカイブ・全正例フィクスチャ・
+    #     テンプレートで、下記いずれの候補も 0 件（誤検出なし）。
+    in_classification = false
+    prev_blank = false
+    body.each do |l|
+      next unless live
+      if l =~ /^\*\*分類欄/
+        in_classification = true
+        prev_blank = false
+        next
+      end
+      unless in_classification
+        prev_blank = l.strip.empty?
+        next
+      end
+      # 行頭（インデントなし）の番号付きリスト。`1.5 倍` のような小数は除外する。
+      if l =~ /^\d+[.)](?![0-9])/
+        errors << "#{lineno}: 分類欄にインデントされていない番号付きリスト行があります（複数行フィールドのネスト項目は半角スペース 2 個でインデントする。フィールドとの結びつきが切れて消費側で欠落する）: #{l[0, 50]}"
+      end
+      # 行頭のハイフン箇条書きのうち、フィールド行（`- <ラベル>: <値>`）でないもの。
+      if l =~ /^-[ \t]/ && l !~ /^- [^:]+:/
+        errors << "#{lineno}: 分類欄にフィールド行でない行頭の箇条書きがあります（ネスト項目は半角スペース 2 個でインデントする。フィールド行なら `- <ラベル>: <値>` の形にする）: #{l[0, 50]}"
+      end
+      # 行頭のアスタリスク箇条書き（`**分類欄**` のような強調行は `*` 直後が空白でないため一致しない）。
+      if l =~ /^\*[ \t]/
+        errors << "#{lineno}: 分類欄にインデントされていない箇条書き行（`*`）があります（ネスト項目は半角スペース 2 個でインデントする）: #{l[0, 50]}"
+      end
+      # ネスト項目群の途中の空行（GitHub 上でリストが分断され、消費側の連続ブロック収集も切れる）。
+      if prev_blank && l =~ /^[ \t]+\S/
+        errors << "#{lineno}: 分類欄で空行の直後にインデント行があります（複数行フィールドの途中に空行を入れない。リストが分断されて値が欠落する）: #{l[0, 50]}"
+      end
+      prev_blank = l.strip.empty?
+    end
+
+    # (7) 参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形。空欄は「該当なし」で正規。
+    #     (6) と同じく live（台帳）限定。
+    LEDGER_REF_FIELDS.each do |label, line_re, elem_re, hint|
+      next unless live
+      body.each do |l|
+        m = line_re.match(l)
+        next unless m
+        value = m[1].strip
+        next if value.empty?
+        elems = value.split(",").map(&:strip).reject(&:empty?)
+        bad = elems.reject { |e| elem_re =~ e }
+        if elems.empty? || !bad.empty?
+          shown = elems.empty? ? value : bad.join(", ")
+          errors << "#{lineno}: 「#{label}」の値の形が不正です（#{hint}。URL・自由記述・プレースホルダは書かない。不正: #{shown}）: #{heading[0, 60]}"
+        end
       end
     end
   end
@@ -830,7 +917,9 @@ errors =
   begin
     case type
     when "ledger", "archive"
-      check_ledger(file, expect_ids)
+      # live: 台帳（現在状態・修復が正規の運用）だけが新形式の検査対象。アーカイブは
+      # 「ステータス行以外は原文のまま」の履歴で修復が禁じられているため対象外にする。
+      check_ledger(file, expect_ids, live: type == "ledger")
     when "journal-md"
       check_journal_md(file)
     when "journal-index"

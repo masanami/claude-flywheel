@@ -531,6 +531,218 @@ for pkg in ruby perl; do
   fi
 done
 
+# --- 台帳フォーマットの拡張（Issue #87 / #89）: 複数行形式・参照フィールド ---
+#
+# 散文仕様には型検査が効かないため、規定（docs）・記入指示（SKILL）・雛形（templates）・
+# 検査（validate-artifact.rb）の 4 者を **逐語照合** で固定する。否定検査（旧い緩い記述が
+# 残っていないこと）も併せて置く。
+
+# assert_contains <名前> <ファイル> <固定文字列>: 逐語で含まれること
+assert_contains() {
+  name="$1"; file="$2"; needle="$3"
+  if grep -qF -- "$needle" "$file"; then
+    PASS=$((PASS + 1))
+    echo "ok   - ${name}"
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL - ${name} / 見つからない: ${needle}"
+  fi
+}
+
+# assert_absent <名前> <ファイル> <固定文字列>: 逐語で含まれないこと（旧い記述の残存検出）
+assert_absent() {
+  name="$1"; file="$2"; needle="$3"
+  if grep -qF -- "$needle" "$file"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL - ${name} / 残存している: ${needle}"
+  else
+    PASS=$((PASS + 1))
+    echo "ok   - ${name}"
+  fi
+}
+
+FORMAT_DOC="$REPO_ROOT/docs/challenge-ledger-format.md"
+LEDGER_TPL="$REPO_ROOT/templates/challenge-ledger.md"
+INGEST_MD="$REPO_ROOT/skills/ingest-challenges/SKILL.md"
+VALIDATOR="$REPO_ROOT/scripts/validate-artifact.rb"
+AUDIT_MD="$REPO_ROOT/skills/periodic-audit/SKILL.md"
+CONTRACTS_MD="$REPO_ROOT/contracts/README.md"
+
+# 参照フィールド 3 種のラベルが 規定・雛形・検査 の 3 者で一致する（改名・取りこぼしの検出）
+# 掃引範囲は「台帳エントリを書く 4 者」の雛形すべて（人間＝雛形／run-cycle／ingest／periodic-audit）。
+# periodic-audit の雛形が漏れていて旧ラベルのまま残った実績があるため、掃引範囲自体をテストで固定する。
+for label in "関連リポジトリ" "関連Issue" "関連PR"; do
+  assert_contains "規定に参照フィールド「${label}」がある" "$FORMAT_DOC" "- ${label}:"
+  assert_contains "雛形に参照フィールド「${label}」がある" "$LEDGER_TPL" "- ${label}:"
+  assert_contains "periodic-audit の雛形に参照フィールド「${label}」がある" "$AUDIT_MD" "- ${label}:"
+  assert_contains "バリデータが参照フィールド「${label}」を検査対象にしている" "$VALIDATOR" "- ${label}:"
+done
+
+# 承認チェック行は承認対象を自分で名乗る（FR-13 の承認対象の明示・Issue #87）
+APPROVE_LABEL="- [ ] 計画を承認（FR-13・承認対象＝タスク案）"
+assert_contains "規定の承認チェック行が承認対象を名乗る" "$FORMAT_DOC" "$APPROVE_LABEL"
+assert_contains "雛形の承認チェック行が承認対象を名乗る" "$LEDGER_TPL" "$APPROVE_LABEL"
+assert_contains "periodic-audit の雛形の承認チェック行が承認対象を名乗る" "$AUDIT_MD" "$APPROVE_LABEL"
+assert_absent "雛形に旧い承認ラベルが残っていない" "$LEDGER_TPL" "- [ ] 計画を承認（FR-13）"
+assert_absent "periodic-audit の雛形に旧い承認ラベルが残っていない" "$AUDIT_MD" "- [ ] 計画を承認（FR-13）"
+# 承認の検出条件の記述は実形（2 スペースインデント・`[x]` が成立条件）と一致していること
+assert_contains "規定の承認検出の記述が実形（インデント・[x]）と一致する" "$FORMAT_DOC" "2 スペースインデントのチェックボックス行"
+# 規定側は記入例が複数箇所にあるため「1 箇所でも新表記があること」では乖離を検出できない。
+# 旧表記のチェック行が 1 つも残っていないことを否定検査で固定する（後方互換の言及は
+# 行頭の `- [ ] ` を伴わない引用のため、この検査に一致しない）。
+assert_absent "規定に旧い承認ラベルのチェック行が残っていない" "$FORMAT_DOC" "- [ ] 計画を承認（FR-13）"
+assert_contains "規定に FR-13 の承認対象の節がある" "$FORMAT_DOC" "### FR-13 の承認対象"
+assert_contains "SKILL 手順2: FR-13 の承認対象がタスク案であることを明記している" "$SKILL_MD" "承認対象は「タスク案」＝タスク分解・方向性であり、詳細な実行計画（委譲ブリーフ）ではない"
+
+# 複数行形式の規定と記入指示（docs が正本・SKILL は記入指示）
+assert_contains "規定に複数行フィールドの節がある" "$FORMAT_DOC" "## 複数行フィールドの記入形式（タスク案・完了条件）"
+assert_contains "規定に消費側（board 等）の読み取り規則がある" "$FORMAT_DOC" "### 消費側（board 等）の読み取り規則"
+assert_absent "規定から旧い緩い記述（1 行か複数行か不明）が消えている" "$FORMAT_DOC" "番号付きリストで複数可"
+assert_contains "SKILL 手順2: 関連リポジトリの記入責務がある" "$SKILL_MD" "分類欄の「関連リポジトリ」に \`<owner>/<repo>\` を記入する"
+assert_contains "SKILL 手順3: PR 作成時に関連PRへ追記する責務がある" "$SKILL_MD" "台帳の分類欄「関連PR」へ"
+assert_contains "ingest: 新規追記時に関連Issue を記載する規定がある" "$INGEST_MD" "関連Issue の記載（\`github-issue\` ソースのみ・新規追記時のみ）"
+
+# --- 順序制約（移行フェーズ）: 生成側だけを新形式へ切り替えて消費者が読めなくなる事故の防止 ---
+# 規定は形 A を正規形として定義してよいが、**書き手が形 A で書き始めるのは board 追随後**。
+# 規定・記入指示の両方に順序制約が書かれていること、記入指示が形 A を指示していないことを固定する。
+assert_contains "規定に移行フェーズ（順序制約）の節がある" "$FORMAT_DOC" "### 移行フェーズ（順序制約・**書き手はまだ形 A で書かない**）"
+assert_contains "規定: フェーズ 1 の書き方は形 B 既定・形 D 併用" "$FORMAT_DOC" "**形 B（1 行）** を既定とし、1 行に収まらない場合は **形 D**"
+assert_contains "規定: 切り替え条件に board#151 と受理方向の確認が入っている" "$FORMAT_DOC" "から \`taskPlan\` と \`completionCriteria\` の値を取得できる"
+assert_contains "規定: 受理はフェーズに関係なく形 A〜D すべてを通す" "$FORMAT_DOC" "**受理（バリデータ）は最初から形 A・B・C・D のすべてを通す**"
+assert_contains "SKILL 手順2: 現在はフェーズ 1（形 B 既定）と明記している" "$SKILL_MD" "**現在はフェーズ 1** ＝ **1 行形式（形 B）を既定**"
+assert_contains "SKILL 手順2: 形 A への切り替えは board 追随後と明記している" "$SKILL_MD" "board 側の追随（claude-flywheel-board#151）完了後"
+assert_absent "SKILL 手順2: 形 A（値を空にする）を今書けと指示していない" "$SKILL_MD" "フィールド行の値は空にし"
+assert_contains "ingest: 完了条件は形 D で転記し 1 行に潰さない" "$INGEST_MD" "**元が複数項目でも 1 行に潰さない**"
+assert_contains "ingest: 形 A への切り替えは board 追随後と明記している" "$INGEST_MD" "**形 A（フィールド行の値を空にする複数行形式）へ切り替えるのは board の追随後**"
+assert_absent "ingest: 形 A（値を空にする）を今書けと指示していない" "$INGEST_MD" "フィールド行の値は空にし"
+
+# --- fp 正規化が ingest 自身の出力形（ブロック引用の説明）を対象に含むこと ---
+assert_contains "ingest: fp 正規化が継続行（インデント行＋引用行）を対象にする" "$INGEST_MD" "引用マーカー（\`> \`）を除去"
+assert_contains "ingest: 引用行を値に含める理由（更新検知が死ぬ）が明記されている" "$INGEST_MD" "永久にスキップされて人間記入欄が更新されない"
+assert_contains "規定: 消費側読み取り規則が引用行を継続行に含める" "$FORMAT_DOC" "**引用行**（行頭が \`>\`）"
+assert_case "受理方向: ingest の説明形（（原文引用）＋ブロック引用）を含む台帳を受理" 0 - \
+  -- ledger "$FIXTURES/ledger/valid/handwritten-and-ingested.md"
+
+# --- 参照フィールドの記入手順が実データ（repos.tsv）と整合していること ---
+assert_contains "規定: repos.tsv の <name> をそのまま書かないと明記している" "$FORMAT_DOC" "**\`<name>\` 列には owner が無い**"
+assert_contains "規定: <url> 列から <owner>/<repo> を導く手順がある" "$FORMAT_DOC" "github\\.com[:\\/]"
+assert_absent "規定: 消費側に repos.tsv の参照を要求していない" "$FORMAT_DOC" "次にワークスペースの \`repos.tsv\` を参照する"
+
+# --- 消費者向けの契約（contracts/README）と雛形も掃引範囲に含める ---
+# 掃引範囲から漏れたファイルは変異が素通りする（periodic-audit の雛形で実際に起きた）。
+# 消費者が実装の根拠にする記述と、書き手が最初に読む雛形の記入指示を逐語で固定する。
+assert_contains "契約README: 消費者向けに引用行を継続行として明記している" "$CONTRACTS_MD" "**引用行（行頭 \`>\`）**"
+assert_contains "契約README: 消費者の必読に移行フェーズが含まれている" "$CONTRACTS_MD" "同 §移行フェーズ"
+assert_contains "契約README: 受理表の値列が現行 board の挙動ではないと注記している" "$CONTRACTS_MD" "現行 board の挙動ではない"
+assert_contains "雛形: フェーズ 1 の記入指示（1 行要約＋ネスト）になっている" "$LEDGER_TPL" "フィールド行に**1 行要約**を置き"
+assert_contains "雛形: 形 A への切り替えは表示側の対応後と案内している" "$LEDGER_TPL" "表示側（board）の対応が済むまでは"
+
+# --- 散文正本の実質ルールを逐語で固定する（節タイトルだけでは変異が素通りするため） ---
+assert_contains "規定: ネストのインデント幅は半角スペース 2 個" "$FORMAT_DOC" "**直下に半角スペース 2 個でインデント**"
+assert_contains "規定: タスク案は番号付き・完了条件は中黒" "$FORMAT_DOC" "**タスク案は番号付き**"
+assert_contains "規定: 継続行のインデント判定はスペース 1 個以上" "$FORMAT_DOC" "（スペース 1 個以上で始まる行）"
+assert_contains "規定: 途中に空行を入れない" "$FORMAT_DOC" "**途中に空行を入れない**"
+# 受理表の各行は「例 → 判定」の対応まで逐語で固定する（判定の反転を検出する）
+assert_contains "規定: 受理表 形 A＝正規形" "$FORMAT_DOC" "\`- タスク案:\` ＋ \`  1. …\` | **正規形**"
+assert_contains "規定: 受理表 形 B＝受理（後方互換）" "$FORMAT_DOC" "\`- タスク案: (1) … (2) …\` | **受理**（後方互換"
+assert_contains "規定: 受理表 形 C＝受理（未記入）" "$FORMAT_DOC" "\`- タスク案:\` のみ | **受理**"
+assert_contains "規定: 受理表 形 D＝受理（非推奨）" "$FORMAT_DOC" "\`- タスク案: 概要\` ＋ \`  1. …\` | **受理**（非推奨"
+assert_contains "規定: 受理表 形 E＝違反" "$FORMAT_DOC" "\`**タスク案（承認済み）**\` ＋ 箇条書き | **違反**"
+assert_contains "規定: 受理表 形 F＝違反" "$FORMAT_DOC" "\`- タスク案:\` ＋ 行頭の \`1. …\` | **違反**"
+# 検査範囲（分類欄のみ／人間記入欄は対象外）が規定と検査で一致していること
+assert_contains "規定: 人間記入欄は機械検査の対象外と明記している" "$FORMAT_DOC" "人間記入欄は人間の自由記述"
+assert_contains "規定: 形 F は修復対象・形 B は書き換え不要（移行猶予の区別）" "$FORMAT_DOC" "**F は「修復」対象であり、B の「書き換え不要」とは別物**"
+
+# 事故型ごとの検出内容
+assert_case "複数行フィールドのインデント欠落を指摘する" 1 "インデントされていない番号付きリスト" \
+  -- ledger "$FIXTURES/ledger/invalid/task-plan-dedented.md"
+assert_case "結合切れ: 行頭のハイフン箇条書き（フィールド行でない）を指摘する" 1 "フィールド行でない行頭の箇条書き" \
+  -- ledger "$FIXTURES/ledger/invalid/continuation-break-variants.md"
+assert_case "結合切れ: 行頭のアスタリスク箇条書きを指摘する" 1 "箇条書き行（\`*\`）" \
+  -- ledger "$FIXTURES/ledger/invalid/continuation-break-variants.md"
+assert_case "結合切れ: ネスト項目群の途中の空行を指摘する" 1 "空行の直後にインデント行" \
+  -- ledger "$FIXTURES/ledger/invalid/continuation-break-variants.md"
+# 移行猶予: アーカイブ（原文保存の履歴・修復が禁じられている）では新検査を適用しない。
+# #88 の移行前でも、形 F のレガシーエントリをそのままアーカイブへ移せること。
+assert_case "移行猶予: archive では結合切れを検査しない（原文保存を壊さない）" 0 - \
+  -- archive "$FIXTURES/ledger/invalid/continuation-break-variants.md"
+assert_case "移行猶予: archive では参照フィールドの値の形を検査しない" 0 - \
+  -- archive "$FIXTURES/ledger/invalid/related-refs-freetext.md"
+assert_case "archive でも従来の検査（必須フィールド行）は効き続ける" 1 "必須フィールド行がありません" \
+  -- archive "$FIXTURES/ledger/invalid/task-plan-bold-heading.md"
+assert_contains "規定: アーカイブでは形 F を検査しない（移行猶予）と明記している" "$FORMAT_DOC" "**アーカイブ（原文保存の履歴）では形 F を検査しない**"
+assert_case "タスク案の太字見出しブロック（独自形式）を必須フィールド行の欠落として指摘する" 1 "必須フィールド行がありません: 「タスク案」" \
+  -- ledger "$FIXTURES/ledger/invalid/task-plan-bold-heading.md"
+assert_case "参照フィールドの自由記述を指摘する（関連リポジトリ）" 1 "「関連リポジトリ」の値の形が不正" \
+  -- ledger "$FIXTURES/ledger/invalid/related-refs-freetext.md"
+assert_case "参照フィールドの URL を指摘する（関連PR）" 1 "「関連PR」の値の形が不正" \
+  -- ledger "$FIXTURES/ledger/invalid/related-refs-freetext.md"
+
+# 受理方向: 後方互換（旧形式の台帳が一括書き換えなしで通り続ける）
+cat > "$tmp/legacy-ledger.md" <<'LEGACY'
+# 課題台帳（Challenge Ledger）
+
+---
+
+### [C-900] 旧形式のエントリ（1 行タスク案・参照フィールド無し・旧承認ラベル）
+
+**人間記入欄**
+- 起票者 / 起票日: yamada / 2026-07-01
+- 説明: 契約導入前に書かれたエントリ。
+- 完了条件（任意）: 一括書き換えなしで受理され続けること
+- 体感の緊急度（任意）:
+
+**分類欄（エージェントが記入）**
+- 担当ポジション: harness
+- 関連サービス:
+- 優先度: P2
+- ステータス: 計画承認待ち
+- タスク案: (1) 調査する (2) 実装する
+- 承認（人間がチェック）:
+  - [ ] 計画を承認（FR-13）
+  - [ ] 完了を承認（FR-32）
+- 取り込み元:
+- 備考:
+LEGACY
+assert_case "後方互換: 1 行タスク案・参照フィールド無し・旧承認ラベルの台帳を受理" 0 - \
+  -- ledger "$tmp/legacy-ledger.md"
+
+# 受理方向: インデント検査の範囲は分類欄のみ（人間記入欄の自由記述を違反にしない）
+cat > "$tmp/human-freetext-ledger.md" <<'FREETEXT'
+# 課題台帳（Challenge Ledger）
+
+---
+
+### [C-901] 人間記入欄に行頭の番号付きリストがあるエントリ
+
+**人間記入欄**
+- 起票者 / 起票日: yamada / 2026-08-19
+- 説明: 人間が説明欄に手で書いた箇条書き。
+1. 起きていること
+2. 期待する状態
+- 完了条件（任意）:
+  - 人間の自由記述を違反にしないこと
+- 体感の緊急度（任意）: 中
+
+**分類欄（エージェントが記入）**
+- 担当ポジション: harness
+- 関連サービス:
+- 関連リポジトリ: masanami/claude-flywheel
+- 関連Issue: claude-flywheel#87
+- 関連PR:
+- 優先度: P1
+- ステータス: 分類済
+- タスク案:
+  1. 調査する
+- 承認（人間がチェック）:
+  - [ ] 計画を承認（FR-13・承認対象＝タスク案）
+  - [ ] 完了を承認（FR-32）
+- 取り込み元:
+- 備考:
+FREETEXT
+assert_case "人間記入欄の行頭番号付きリストは違反にしない（検査範囲は分類欄のみ）" 0 - \
+  -- ledger "$tmp/human-freetext-ledger.md"
+
 # --- 空ファイル・空行の扱い ---
 
 : > "$tmp/empty.md"
