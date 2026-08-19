@@ -22,12 +22,11 @@
 #   --apply          実際に書き込む。**省略時は dry-run**（何をどう変えるかを提示するだけで
 #                    1 バイトも書かない）。ライブデータの構造変換のため既定を安全側に置く
 #   --backup-dir     変更前ファイルのバックアップ先（既定: <workspace>/.flywheel/migration-backup/<timestamp>）。
-#                    `--apply` 時のみ作成する
+#                    `--apply` 時のみ作成する。**既存ファイルは上書きしない**（世代を失わせない）
 #
 # exit code:
 #   0 = 追従済み（変更不要）／`--apply` で適用完了
-#   1 = 失敗（検算で違反を検出・書き込み失敗）。**部分適用は残さない**（一時ファイルに書き、
-#       検算に通ったものだけを置換する。元ファイルは検算失敗時に一度も書き換えられない）
+#   1 = 失敗（検算で違反を検出・書き込み失敗）。**部分適用も一時ファイルも残さない**
 #   2 = 検査不能（引数不正・テンプレート/バリデータ不在・対象が UTF-8 として読めない 等）
 #   3 = 要移行（dry-run で変更が必要）。`--apply` では返さない
 #
@@ -39,21 +38,30 @@
 #     テンプレート版マーカーを埋めていないため「テンプレートが更新された」と「利用先が
 #     カスタマイズした」を機械が区別できず、自動上書きは利用先の編集を静かに壊すため。
 #
-# 非破壊の担保（台帳の機械編集は事故の実績があるため多重化する）:
-#   1. **一時ファイル方式**: 元ファイルを直接書き換えない（docs/challenge-ledger-format.md
-#      §台帳を機械で編集するときの規律）。検算に通った一時ファイルだけを `File.rename` で置換する。
-#   2. **エントリ単位の差分検算**: 各エントリについて「消えた行」「増えた行」を多重集合で求め、
-#      **計画した操作で説明できる行だけ**であることを要求する。操作対象外のエントリは
-#      差分ゼロでなければ失敗にする（隣接エントリの巻き添えを構造的に検出する）。
-#   3. **バリデータによる前後比較**: `validate-artifact.rb` を移行前・移行後の両方に掛け、
-#      **移行後の違反集合が移行前の部分集合であること**（新しい違反を作っていないこと）を要求する。
-#   4. **バックアップ**: 置換の直前に元ファイルを `--backup-dir` へコピーする。
-#   5. **冪等**: 2 回目の実行は差分 0（バイト一致）になる。
+# ## 非破壊の設計（台帳の機械編集は事故の実績があるため多重化する）
+#
+# **要**: 「削除してよい行」を**出所（provenance）で証明**する。範囲判定のヒューリスティックを
+# 検算の期待値にも使うと、範囲を誤認したときに検算が**空虚に真**になる（誤って消した行が
+# 「消す予定だった行」に化ける）。そこで削除は次の 2 つを両方満たす行だけに限る:
+#
+#   1. **既知テンプレート由来であること**（KNOWN_EXAMPLE_LINES＝現行テンプレートの記入例
+#      ブロック ∪ 過去テンプレートの記入例ブロック〔本ファイル末尾の DATA〕に含まれる行）。
+#      人間が書き足した行・別セクションは 1 行でも混じっていれば**削除せず人間判断へ倒す**。
+#   2. エントリ本文の変更は、**計画した操作で説明できる差分**であること（多重集合で照合）。
+#
+# さらに:
+#   3. **バリデータによる前後比較**: `validate-artifact.rb` を移行前・移行後（候補）に掛け、
+#      **移行後の違反が移行前より増えていないこと**（多重集合の差）を要求する。dry-run でも実行する。
+#   4. **一時ファイル方式**: 元ファイルを直接書き換えず、検算に通った候補だけを `rename` で置換
+#      （docs/challenge-ledger-format.md §台帳を機械で編集するときの規律）。検算用の候補は
+#      ワークスペース**外**（TMPDIR）に置き、置換用の一時ファイルは `ensure` で必ず後始末する。
+#   5. **バックアップ**（`cp`）と**冪等**（2 回実行しても変化しない）。
 #
 # 実装言語は /usr/bin/ruby（macOS 標準搭載）。選定根拠と ruby 未導入環境の扱いは
 # contracts/README.md §実装言語の選定根拠 / §実行環境の前提。
 
 require "fileutils"
+require "tmpdir"
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -73,23 +81,36 @@ def failed(msg)
 end
 
 # ---------------------------------------------------------------------------
-# 読み込み
+# 読み込み（改行コードを保存する）
 # ---------------------------------------------------------------------------
 
+# 戻り値: { lines: [改行・CR を含まない行], eol: "\n" | "\r\n", error: nil | 理由 }
+# CRLF と LF が混在するファイルは**触らない**（どちらへ寄せても人間の意図を壊しうるため）。
 def read_lines(file)
-  content = File.read(file, encoding: "UTF-8")
+  begin
+    content = File.read(file, encoding: "UTF-8")
+  rescue SystemCallError => e
+    uncheckable("読み取れません: #{file}（#{e.message}）")
+  end
   uncheckable("UTF-8 として解釈できません: #{file}") unless content.valid_encoding?
   lines = content.split("\n", -1)
   lines.pop if lines.last == "" # 末尾改行によるダミー要素を除く
-  lines
-rescue SystemCallError => e
-  uncheckable("読み取れません: #{file}（#{e.message}）")
+  crlf = lines.count { |l| l.end_with?("\r") }
+  if crlf.zero?
+    { lines: lines, eol: "\n", error: nil }
+  elsif crlf == lines.size
+    { lines: lines.map { |l| l[0..-2] }, eol: "\r\n", error: nil }
+  else
+    { lines: lines, eol: "\n",
+      error: "改行コードが CRLF と LF で混在している（#{crlf}/#{lines.size} 行が CRLF）。" \
+             "どちらへ寄せても人間の意図を壊しうるため移行しない。改行を揃えてから再実行すること" }
+  end
 end
 
 # フェンス・複数行 HTML コメントを除外して「検査対象か」を各行に付ける。
 # **`validate-artifact.rb` の annotate_exclusions と同じ意味論**（台帳のどこがデータで
 # どこが記入例かの判定は 1 つでなければならない）。両者の一致は、移行後のファイルを
-# 実際に `validate-artifact.rb` へ通す検算（§非破壊の担保 3）で固定する。
+# 実際に `validate-artifact.rb` へ通す検算で固定する。
 def annotate_exclusions(lines)
   in_fence = false
   in_comment = false
@@ -136,6 +157,39 @@ def entry_heading_indexes(lines)
 end
 
 # ---------------------------------------------------------------------------
+# 既知テンプレート（削除してよい行の出所）
+# ---------------------------------------------------------------------------
+
+# 過去テンプレートの記入例ブロックに現れた行（本ファイル末尾 DATA）。
+# **テンプレートの記入例を変更したら、変更前の行をここへ追記すること**（追記漏れは
+# `scripts/tests/migrate-workspace.test.sh` の「現行テンプレートの記入例行が既知集合に含まれる」
+# テストが検出する）。この集合が「機械が削除してよい行」の唯一の根拠になる。
+def legacy_example_lines
+  @legacy_example_lines ||= begin
+    body = DATA.read.split("\n", -1)
+    body.map { |l| l.sub(/\r\z/, "") }.reject { |l| l.strip.empty? }
+  end
+end
+
+# テンプレートから記入例ブロック（マーカーコメント〜末尾の `---`）を切り出す。
+def canonical_example_block(template_path)
+  uncheckable("テンプレートがありません: #{template_path}") unless File.exist?(template_path)
+  r = read_lines(template_path)
+  uncheckable("テンプレートの改行コードが混在しています: #{template_path}") if r[:error]
+  lines = r[:lines]
+  start = lines.index { |l| l.start_with?(EXAMPLE_MARKER_PREFIX) }
+  uncheckable("テンプレートに記入例のマーカー（`#{EXAMPLE_MARKER_PREFIX}…`）がありません: #{template_path}") if start.nil?
+  last = nil
+  (start...lines.size).each { |i| last = i if lines[i] == "---" }
+  uncheckable("テンプレートの記入例ブロックの終端（`---`）が見つかりません: #{template_path}") if last.nil?
+  lines[start..last]
+end
+
+EXAMPLE_MARKER_PREFIX = "<!-- 新しい課題は"
+EXAMPLE_HEADING_LINE = "## 記入例（コピーして使う）"
+EXAMPLE_COMMENT_OPEN = "<!-- 記入例（コピーして使う）"
+
+# ---------------------------------------------------------------------------
 # エントリの構造マイグレーション
 # ---------------------------------------------------------------------------
 
@@ -174,14 +228,25 @@ LEDGER_ONLY_INSERTS = [
   ["関連PR", ["- 関連PR:"]],
 ].freeze
 
+# 承認チェックボックス。**strict** は正規形（消費側・バリデータが同定に使う形）、
+# **loose** は「人間が書いた承認チェックらしき行」を広く拾うための検出用。
+# loose に一致するが strict に一致しない行があるエントリでは、機械は**何も足さない**
+# （足すと未チェック行が並んで既存の `[x]` が実質無効化されるため。承認の状態を変えうる
+# 操作は必ず人間へ見せる＝ docs/challenge-ledger-format.md §承認プロトコル §真正性）。
+APPROVAL_BOXES = [
+  ["計画を承認", /^ {2}- \[[ xX]\] 計画を承認/, /\A\s*[-*+]\s*\[[ xX]\]\s*計画/,
+   "  - [ ] 計画を承認（FR-13・承認対象＝タスク案）"],
+  ["完了を承認", /^ {2}- \[[ xX]\] 完了を承認/, /\A\s*[-*+]\s*\[[ xX]\]\s*完了/,
+   "  - [ ] 完了を承認（FR-32）"],
+].freeze
+
 def field_line_re(label)
   /^- #{Regexp.escape(label)}:/
 end
 
-# 多重集合（行 → 出現回数）
-#
-# **空行は数えない**: 空行の位置の正しさ（見出し直前の空行・分類欄のネスト項目の途中の空行）は
-# バリデータ（検算 3）が専門に検査するため、こちらは「内容の行が保存されているか」に絞る。
+# 多重集合（行 → 出現回数）。**空行は数えない**: 空行の位置の正しさ（見出し直前の空行・
+# 分類欄のネスト項目の途中の空行）はバリデータが専門に検査するため、こちらは
+# 「内容の行が保存されているか」に絞る。
 def multiset(lines)
   lines.each_with_object(Hash.new(0)) do |l, h|
     next if l.strip.empty?
@@ -190,17 +255,60 @@ def multiset(lines)
 end
 
 def multiset_diff(a, b)
-  ma = multiset(a)
-  mb = multiset(b)
+  ma = a.is_a?(Hash) ? a : multiset(a)
+  mb = b.is_a?(Hash) ? b : multiset(b)
   out = Hash.new(0)
   ma.each { |k, v| d = v - mb[k]; out[k] = d if d > 0 }
   out
 end
 
-# フィールド行に続く継続行（インデント行・引用行）の末尾位置を返す。
-def field_block_end(lines, idx)
+def multiset_merge(a, b)
+  out = a.dup
+  b.each { |k, v| out[k] = out[k].to_i + v }
+  out
+end
+
+def fmt_ms(ms)
+  return "なし" if ms.empty?
+  ms.map { |k, v| "#{k[0, 40]}×#{v}" }.join(" / ")
+end
+
+# 本文を「人間記入欄 / 分類欄 / いずれでもない」に区分する（**位置関係を仮定しない**。
+# 分類欄が先・人間記入欄が後という構成でも人間の欄を機械が触らないため）。
+# フェンス・HTML コメントの中（記入例のサンプル）は区分の切り替えに使わない。
+def section_flags(body, inc = nil)
+  inc ||= annotate_exclusions(body)
+  cur = nil
+  body.each_with_index.map do |l, i|
+    if inc[i]
+      cur = :human if l =~ HUMAN_HEADING_RE
+      cur = :classify if l =~ CLASSIFY_HEADING_RE
+    end
+    cur
+  end
+end
+
+# 本文中の「実データの行」だけを対象にした存在判定・計数（記入例のサンプル行を実フィールドと
+# 誤認しないため。台帳末尾の記入例が最終エントリの本文に含まれる形が実在する）。
+def any_line?(body, re, inc = nil)
+  inc ||= annotate_exclusions(body)
+  body.each_with_index.any? { |l, i| inc[i] && l =~ re }
+end
+
+def count_lines(body, re, inc = nil)
+  inc ||= annotate_exclusions(body)
+  body.each_with_index.count { |l, i| inc[i] && l =~ re }
+end
+
+def find_line_index(body, re, inc = nil)
+  inc ||= annotate_exclusions(body)
+  body.each_index.find { |i| inc[i] && body[i] =~ re }
+end
+
+# フィールド行に続く継続行（インデント行・引用行）の末尾位置を返す（上限つき）。
+def field_block_end(lines, idx, limit)
   j = idx
-  while j + 1 < lines.size
+  while j + 1 <= limit
     nxt = lines[j + 1]
     break unless nxt =~ /^[ \t]+\S/ || nxt.start_with?(">")
     j += 1
@@ -208,9 +316,40 @@ def field_block_end(lines, idx)
   j
 end
 
+# 分類欄見出し直後の**連続するフィールド行の並び**の末尾位置（挿入位置の探索範囲）。
+# 空行・フィールドでも継続行でもない行（記入例の残骸・太字見出し等）で打ち切る。
+def classify_field_run_end(lines, ci)
+  last = ci
+  i = ci + 1
+  while i < lines.size
+    l = lines[i]
+    break if l.strip.empty?
+    if l =~ /^- [^:]+:/ || l =~ /^[ \t]+\S/ || l.start_with?(">")
+      last = i
+      i += 1
+    else
+      break
+    end
+  end
+  last
+end
+
+# 正規順序に照らした挿入位置（**分類欄の連続フィールド並びの中**に限る）。
+def classify_insert_position(lines, ci, label)
+  want = CLASSIFY_FIELD_ORDER.index(label)
+  run_end = classify_field_run_end(lines, ci)
+  at = ci + 1
+  (ci + 1..run_end).each do |i|
+    m = /^- ([^:]+):/.match(lines[i])
+    next unless m
+    pos = CLASSIFY_FIELD_ORDER.index(m[1])
+    next if pos.nil? || pos >= want
+    at = field_block_end(lines, i, run_end) + 1
+  end
+  at
+end
+
 # 1 エントリ分の変換。戻り値は変換後の body と、検算に使う「計画した差分」。
-#
-#   { body:, ops: [説明], removed: [期待して消える行], added: [期待して増える行], manual: [人間判断] }
 def migrate_entry(heading, body, kind)
   ops = []
   removed = []
@@ -219,7 +358,9 @@ def migrate_entry(heading, body, kind)
   work = body.dup
   label = heading[/\A### \[([^\]]*)\]/, 1] || heading[0, 40]
 
-  ci = work.index { |l| l =~ CLASSIFY_HEADING_RE }
+  # 判定はすべて**実データの行**に限る（フェンス・HTML コメント内の記入例サンプルを
+  # 実フィールドと誤認すると、存在するはずの行を「無い」と誤判定して二重に足してしまう）。
+  ci = find_line_index(work, CLASSIFY_HEADING_RE)
   if ci.nil?
     manual << "#{label}: 分類欄（`**分類欄…**`）が見つからないため自動変換を行わない"
     return { body: work, ops: ops, removed: removed, added: added, manual: manual }
@@ -227,11 +368,17 @@ def migrate_entry(heading, body, kind)
 
   # (1) 旧ラベル `- 承認:` を現行の `- 承認（人間がチェック）:` へ改名する。
   #     チェック状態（`[x]`）は直下のネスト行にあり、この改名では一切触れない。
-  #     **分類欄より後ろだけを対象にする**（人間記入欄は人間の領域＝機械が触らない）。
+  #     **分類欄セクションの実データ行だけ**を対象にする（人間記入欄の自由記述を書き換えない）。
+  inc = annotate_exclusions(work)
+  sections = section_flags(work, inc)
   work.each_index do |i|
-    next if i <= ci
+    next unless inc[i] && sections[i] == :classify
     m = /^- 承認:(.*)$/.match(work[i])
     next unless m
+    if any_line?(work, field_line_re("承認（人間がチェック）"))
+      manual << "#{label}: `- 承認:` と `- 承認（人間がチェック）:` が同居しているため改名しない（人間が整理すること）"
+      next
+    end
     renamed = "- 承認（人間がチェック）:#{m[1]}"
     removed << work[i]
     added << renamed
@@ -240,41 +387,56 @@ def migrate_entry(heading, body, kind)
   end
 
   # (2) 形 E（フィールド行を持たない太字見出しブロック）を `- タスク案:` ＋ネスト項目へ正規化する。
+  #     **収集はブロックの全項目を尽くすことを要求**し、尽くせない形（項目以外の行が混じる）は
+  #     **一切変換しない**（部分変換を「変換した」と報告すると、承認対象の中身が欠落する）。
   task_items = nil
   task_provenance = nil
-  if work.none? { |l| l =~ field_line_re("タスク案") }
-    # 分類欄より後ろだけを探す（実測形では備考行の後ろに置かれている）。
-    bi = ((ci + 1)...work.size).find { |i| work[i] =~ BOLD_TASK_PLAN_RE }
+  bold_unconverted = false
+  unless any_line?(work, field_line_re("タスク案"))
+    inc = annotate_exclusions(work)
+    sections = section_flags(work, inc)
+    bi = (0...work.size).find { |i| inc[i] && sections[i] == :classify && work[i] =~ BOLD_TASK_PLAN_RE }
     if bi
-      items = []
-      j = bi + 1
-      while j < work.size
-        l = work[j]
-        break if l.strip.empty?
-        break if l =~ ENTRY_HEADING_RE || l =~ /^\*\*/ || l =~ /^- / || l.start_with?("<!--")
-        items << l
-        j += 1
-      end
-      if items.empty? || items.none? { |l| l =~ /^\d+[.)]\s/ }
-        manual << "#{label}: 太字見出しのタスク案ブロックの直下に番号付きリストが見つからないため自動変換を行わない（#{work[bi][0, 40]}）"
+      last = work.size - 1
+      last -= 1 while last > bi && work[last].strip.empty?
+      body_lines = ((bi + 1)..last).map { |i| work[i] }
+      non_blank = body_lines.reject { |l| l.strip.empty? }
+      stray = non_blank.reject { |l| l =~ /^\d+[.)]\s/ || l =~ /^[ \t]+\S/ }
+      if non_blank.empty? || non_blank.none? { |l| l =~ /^\d+[.)]\s/ }
+        bold_unconverted = true
+        manual << "#{label}: 太字見出しのタスク案ブロックの直下に番号付きリストが見つからないため変換しない（#{work[bi][0, 40]}）"
+      elsif !stray.empty?
+        bold_unconverted = true
+        manual << "#{label}: 太字見出しのタスク案ブロックに項目以外の行が混じっており、どこまでがタスク案か機械では決められないため**一切変換しない**" \
+                  "（該当: #{stray.first[0, 40]}）。人間がブロックを整理してから再実行すること"
       elsif work[bi].include?("-->")
-        # 見出し文言をそのまま HTML コメントへ収められない（コメントの境界を壊す）。
-        manual << "#{label}: 太字見出しに `-->` を含むため自動変換を行わない（#{work[bi][0, 40]}）"
+        bold_unconverted = true
+        manual << "#{label}: 太字見出しに `-->` を含むため変換しない（HTML コメントとして保全できない）: #{work[bi][0, 40]}"
       else
-        task_items = items.map { |l| "  #{l}" }
+        task_items = non_blank.map { |l| "  #{l}" }
         task_provenance = "<!-- 移行前の記載（#88）: #{work[bi]} -->"
-        removed.concat(work[bi..j - 1])
-        # 直前の空行も一緒に落とす（ブロックだけ消すと空行が 2 つ並ぶため）。
+        removed.concat(work[bi..last])
         drop_from = bi
-        if bi > 0 && work[bi - 1].strip.empty?
-          drop_from = bi - 1
-          removed << work[bi - 1]
-        end
-        work.slice!(drop_from, j - drop_from)
-        ops << "#{label}: 太字見出しのタスク案ブロックを `- タスク案:` ＋ネスト項目へ変換（#{items.size} 項目）"
-        ci = work.index { |l| l =~ CLASSIFY_HEADING_RE }
+        drop_from = bi - 1 if bi > 0 && work[bi - 1].strip.empty?
+        work.slice!(drop_from, last - drop_from + 1)
+        ops << "#{label}: 太字見出しのタスク案ブロックを `- タスク案:` ＋ネスト項目へ変換（#{task_items.size} 項目）"
+        ci = find_line_index(work, CLASSIFY_HEADING_RE)
       end
     end
+  end
+
+  # (2b) 承認チェック行の状態を調べる。loose に一致するが strict でない行があれば
+  #      **承認まわりには一切手を出さない**（重複追加による `[x]` の無効化を禁止する）。
+  approval_ambiguous = []
+  APPROVAL_BOXES.each do |name, strict, loose, _|
+    next if any_line?(work, strict)
+    inc2 = annotate_exclusions(work)
+    hit = work.each_index.find { |i| inc2[i] && work[i] =~ loose }
+    approval_ambiguous << [name, work[hit]] if hit
+  end
+  approval_ambiguous.each do |name, hit|
+    manual << "#{label}: 「#{name}」のチェック行が正規形（行頭に半角スペース 2 個＋`- [ ] #{name}…`）でないため" \
+              "**承認欄には一切手を出さない**（未チェック行を足すと既存のチェックが実質無効化されるため）。該当行: #{hit.strip[0, 40]}"
   end
 
   # (3) 欠落している分類欄フィールド行を正規順序の位置へ挿入する。
@@ -284,12 +446,15 @@ def migrate_entry(heading, body, kind)
 
   inserted_approval = false
   inserts.each do |lbl, template_lines|
-    next if work.any? { |l| l =~ field_line_re(lbl) }
+    next if any_line?(work, field_line_re(lbl))
+    # 変換できなかった太字ブロックが残っている間は空の `- タスク案:` を足さない
+    # （実体は下のブロックにあるのに「未記入」と読める行を作らない）。
+    next if lbl == "タスク案" && bold_unconverted
+    # 承認の形が判定できないエントリには足さない（(2b)）。
+    next if lbl == "承認（人間がチェック）" && !approval_ambiguous.empty?
     inserted_approval = true if lbl == "承認（人間がチェック）"
     new_lines = template_lines.dup
-    if lbl == "タスク案" && task_items
-      new_lines = [task_provenance, "- タスク案:"] + task_items
-    end
+    new_lines = [task_provenance, "- タスク案:"] + task_items if lbl == "タスク案" && task_items
     at = classify_insert_position(work, ci, lbl)
     work.insert(at, *new_lines)
     added.concat(new_lines)
@@ -298,102 +463,73 @@ def migrate_entry(heading, body, kind)
            else
              "#{label}: 欠落フィールド行を挿入: #{lbl}"
            end
-    ci = work.index { |l| l =~ CLASSIFY_HEADING_RE }
+    ci = find_line_index(work, CLASSIFY_HEADING_RE)
   end
 
-  # (3b) 承認フィールドはあるがチェックボックス行が欠けている場合の補完。
-  ai = work.index { |l| l =~ field_line_re("承認（人間がチェック）") }
-  if ai
-    [["計画を承認", "  - [ ] 計画を承認（FR-13・承認対象＝タスク案）"],
-     ["完了を承認", "  - [ ] 完了を承認（FR-32）"]].each do |name, line|
-      next if work.any? { |l| l =~ /^ {2}- \[[ xX]\] #{Regexp.escape(name)}/ }
-      at = field_block_end(work, ai) + 1
+  # (3b) 承認フィールドはあるがチェックボックス行が欠けている場合の補完
+  #      （形が判定できるエントリに限る）。
+  ai = find_line_index(work, field_line_re("承認（人間がチェック）"))
+  if ai && approval_ambiguous.empty?
+    APPROVAL_BOXES.each do |name, strict, _, line|
+      next if any_line?(work, strict)
+      run_end = classify_field_run_end(work, find_line_index(work, CLASSIFY_HEADING_RE))
+      at = field_block_end(work, ai, run_end) + 1
       work.insert(at, line)
       added << line
+      inserted_approval = true
       ops << "#{label}: 承認チェックボックス行を補完: #{name}"
-      ai = work.index { |l| l =~ field_line_re("承認（人間がチェック）") }
+      ai = find_line_index(work, field_line_re("承認（人間がチェック）"))
     end
   end
 
   # (4) 機械で決められないもの（人間判断へ倒す）
-  # 承認は**機械が代筆してはならない**（承認プロトコルの真正性。docs/challenge-ledger-format.md
-  # §承認プロトコル）。旧形式では承認事実が見出し文言（`**タスク案（FR-13・承認済み …）**`）や
-  # 「アーカイブ済み＝完了承認を経ている」という文脈にしか無いことがあるが、**移行では常に
-  # 未チェックで新設し、チェックは人間に委ねる**。付けなかった事実はここで必ず報告する。
-  if inserted_approval && work.none? { |l| l =~ /^ {2}- \[[xX]\] 計画を承認/ }
+  # 承認は**機械が代筆してはならない**（承認プロトコルの真正性）。旧形式では承認事実が
+  # 見出し文言（`**タスク案（FR-13・承認済み …）**`）や「アーカイブ済み＝完了承認を経ている」
+  # という文脈にしか無いことがあるが、**移行では常に未チェックで新設し、チェックは人間に委ねる**。
+  if inserted_approval && !any_line?(work, /^ {2}- \[[xX]\] 計画を承認/)
     status = (work.find { |l| l =~ /^- ステータス:/ } || "- ステータス:").sub(/^- ステータス:\s*/, "").strip
     src = task_provenance ? "旧見出しの文言（#{task_provenance}）" : "ステータス「#{status.empty? ? '（空欄）' : status}」"
     manual << "#{label}: 承認チェックボックスを**未チェックで新設**した（過去の承認の手がかり: #{src}）。" \
               "**`[x]` は自動で付けない**——人間が内容を確認してチェックすること"
   end
   REQUIRED_CLASSIFY_INSERTS.each do |lbl, _|
-    c = work.count { |l| l =~ field_line_re(lbl) }
+    c = count_lines(work, field_line_re(lbl))
     manual << "#{label}: 「#{lbl}」行が #{c} 回出現している（見出し破損・記入例の残骸の可能性。自動では直さない）" if c > 1
   end
-  unless work.any? { |l| l =~ HUMAN_HEADING_RE }
+  unless any_line?(work, HUMAN_HEADING_RE)
     manual << "#{label}: 人間記入欄（`**人間記入欄**`）が無い（機械は人間の欄を捏造しない）"
   end
 
   { body: work, ops: ops, removed: removed, added: added, manual: manual }
 end
 
-# 正規順序に照らした挿入位置（分類欄の中）。
-# 直前に来るべきフィールドの**ブロック末尾（継続行を含む）**の次に挿入する。
-# 該当が無ければ分類欄見出しの直後。
-def classify_insert_position(lines, classify_idx, label)
-  want = CLASSIFY_FIELD_ORDER.index(label)
-  at = classify_idx + 1
-  (classify_idx + 1...lines.size).each do |i|
-    m = /^- ([^:]+):/.match(lines[i])
-    next unless m
-    pos = CLASSIFY_FIELD_ORDER.index(m[1])
-    next if pos.nil? || pos >= want
-    at = field_block_end(lines, i) + 1
-  end
-  at
-end
-
 # ---------------------------------------------------------------------------
 # 記入例ブロックの現行化（台帳のみ）
 # ---------------------------------------------------------------------------
 
-EXAMPLE_MARKER_RE = /^<!-- 新しい課題は/.freeze
-EXAMPLE_HEADING_RE = /^## 記入例/.freeze
-EXAMPLE_COMMENT_RE = /^<!-- 記入例/.freeze
-
-# テンプレートから記入例ブロック（マーカーコメント〜末尾の `---`）を切り出す。
-def canonical_example_block(template_path)
-  uncheckable("テンプレートがありません: #{template_path}") unless File.exist?(template_path)
-  lines = read_lines(template_path)
-  start = lines.index { |l| l =~ EXAMPLE_MARKER_RE }
-  uncheckable("テンプレートに記入例のマーカー（`<!-- 新しい課題は…`）がありません: #{template_path}") if start.nil?
-  last = nil
-  (start...lines.size).each { |i| last = i if lines[i] == "---" }
-  uncheckable("テンプレートの記入例ブロックの終端（`---`）が見つかりません: #{template_path}") if last.nil?
-  lines[start..last]
-end
-
-# 既存ファイル内の記入例ブロックの範囲（[start, end] の配列。マーカー行と本体を別々に返す）。
-# 実在する 3 形すべてを扱う:
-#   - `## 記入例（コピーして使う）` ＋ フェンス（現行・Emma 形）
-#   - `<!-- 記入例（コピーして使う）` … `-->`（旧・Rupert 形。入れ子コメントで途中閉じしていてもよい）
-#   - マーカーコメント行（`<!-- 新しい課題は…`）が本体と離れた位置にある形
-def find_example_regions(lines)
+# 既存ファイル内の記入例ブロックの範囲（[start, end] の配列）。
+# **アンカーは完全一致**（前方一致にすると `## 記入例の運用メモ` のような人間のセクションを
+# 巻き込む）。実在する 3 形すべてを扱う:
+#   - `## 記入例（コピーして使う）` ＋ フェンス
+#   - `<!-- 記入例（コピーして使う）` … `-->`（入れ子コメントで途中閉じしていてもよい）
+#   - マーカーコメント行（`<!-- 新しい課題は…`。既知テンプレートに現れた文言に限る）
+def find_example_regions(lines, known)
   included = annotate_exclusions(lines)
   fenced = fence_flags(lines)
   regions = []
   i = 0
   while i < lines.size
-    if !fenced[i] && lines[i] =~ EXAMPLE_MARKER_RE
+    line = lines[i]
+    if !fenced[i] && line.start_with?(EXAMPLE_MARKER_PREFIX) && known.include?(line)
       regions << [i, i]
       i += 1
       next
     end
-    if !fenced[i] && (lines[i] =~ EXAMPLE_HEADING_RE || lines[i] =~ EXAMPLE_COMMENT_RE)
+    if !fenced[i] && (line == EXAMPLE_HEADING_LINE || line == EXAMPLE_COMMENT_OPEN)
       j = i
       k = i + 1
       while k < lines.size
-        break if included[k] && (lines[k] =~ ENTRY_HEADING_RE || lines[k] =~ /^## /)
+        break if included[k] && (lines[k] =~ ENTRY_HEADING_RE || lines[k].start_with?("## "))
         j = k
         k += 1
       end
@@ -409,17 +545,13 @@ end
 
 # 記入例ブロックの現行化。台帳（ledger）専用。
 #   { lines:, ops:, manual:, dropped: 実際に削除した範囲 }
-def migrate_example_block(lines, canonical)
+def migrate_example_block(lines, canonical, known)
   ops = []
   manual = []
-  regions = find_example_regions(lines)
+  regions = find_example_regions(lines, known)
   included = annotate_exclusions(lines)
 
-  # 安全ガード: 記入例と判定した範囲に**実エントリ**が紛れていたら手を出さない（削除範囲の
-  # 誤認は課題の消失に直結する）。旧形式では記入例が閉じられていない HTML コメントに
-  # なっていることがあり、その場合は後続の実エントリまでコメント内＝「検査対象外」に
-  # 落ちるため、`included` だけを根拠にしない。記入例の見出しは必ずプレースホルダ
-  # （`### [C-001] <タイトル>`）であり、かつ 1 エントリ分しか無いことを併せて要求する。
+  # 安全ガード 1: 記入例と判定した範囲に**実エントリ**が紛れていたら手を出さない。
   regions.each do |s, e|
     heads = (s..e).select { |i| lines[i] =~ ENTRY_HEADING_RE }
     bad = heads.find { |i| lines[i] !~ /</ }
@@ -428,12 +560,23 @@ def migrate_example_block(lines, canonical)
     next if bad.nil?
     manual << "記入例ブロックと判定した範囲（#{s + 1}〜#{e + 1} 行）に実エントリらしい行があるため、" \
               "記入例の現行化を行わない（記入例の閉じ忘れ等。人間が範囲を直してから再実行する）: #{lines[bad][0, 40]}"
-    return { lines: lines, ops: ops, manual: manual, dropped: [] }
+    return { lines: lines, ops: ops, manual: manual, dropped: [], applied: false }
   end
 
-  kept = []
+  # 安全ガード 2（**削除の出所を証明する**）: 削除しようとする行がすべて既知テンプレート由来
+  # であること。人間が書き足した行・別セクションが 1 行でも混じっていたら削除しない。
+  regions.each do |s, e|
+    unknown = (s..e).select { |i| !lines[i].strip.empty? && !known.include?(lines[i]) }
+    next if unknown.empty?
+    shown = unknown.first(3).map { |i| "#{i + 1} 行目: #{lines[i][0, 50]}" }.join(" / ")
+    manual << "記入例ブロック（#{s + 1}〜#{e + 1} 行）に既知テンプレートに無い行が #{unknown.size} 行あるため、" \
+              "記入例の現行化を行わない（人間が書き足した内容を機械が消さないため。人間が現行テンプレートの" \
+              "記入例へ差し替えるか、独自の記述を別の見出しへ移してから再実行する）: #{shown}"
+    return { lines: lines, ops: ops, manual: manual, dropped: [], applied: false }
+  end
+
   drop = regions.each_with_object({}) { |(s, e), h| (s..e).each { |i| h[i] = true } }
-  (0...lines.size).each { |i| kept << lines[i] unless drop[i] }
+  kept = (0...lines.size).reject { |i| drop[i] }.map { |i| lines[i] }
 
   # 挿入位置: 前文の区切り（最初の `---`）の直後。無ければ最初のエントリ見出しの直前。
   kept_included = annotate_exclusions(kept)
@@ -461,20 +604,24 @@ def migrate_example_block(lines, canonical)
              "記入例ブロックを現行テンプレートへ差し替えた"
            end
   end
-  { lines: rebuilt, ops: ops, manual: manual, dropped: regions }
+  { lines: rebuilt, ops: ops, manual: manual, dropped: regions,
+    applied: !(regions.empty? && rebuilt == lines) }
 end
 
 # ---------------------------------------------------------------------------
 # ファイル単位の移行（台帳・アーカイブ）
 # ---------------------------------------------------------------------------
 
-# テスト専用の故障注入。検算（§非破壊の担保 2）が本当に部分適用を止めることを固定するために
-# 使う。運用では設定しない（未設定なら何もしない）。
+# テスト専用の故障注入。検算が本当に部分適用を止めることを固定するために使う。
+# 運用では設定しない（未設定なら何もしない）。
 FAULT = ENV["MIGRATE_WORKSPACE_INJECT_FAULT"]
 
 def inject_fault!(lines)
   case FAULT
   when nil, ""
+    lines
+  when "fail-after-stage"
+    # 行は変えない。置換直前（一時ファイル作成後）に中断させ、`ensure` の後始末を固定する。
     lines
   when "drop-note"
     # エントリ本文の「触るべきでない行」を 1 行落とす（巻き添え削除の再現）。
@@ -488,15 +635,18 @@ def inject_fault!(lines)
     lines.delete_at(i) if i
     lines
   when "drop-preamble-line"
-    # 記入例ブロック（前文）側の行を 1 行落とす。エントリ検算の範囲外なので、
-    # 記入例段の検算（検算 2a）だけが検出できる。
+    # 記入例ブロック（前文）側の行を 1 行落とす。
     i = lines.index { |l| l =~ /^- 担当ポジション:/ }
     lines.delete_at(i) if i
     lines
+  when "steal-human-line"
+    # **記入例ブロックの範囲を誤認して人間の行を消した**状況の再現（出所の検証だけが検出できる）。
+    i = lines.index { |l| l.start_with?("> ") && !l.include?("記入形式") }
+    lines.delete_at(i) if i
+    lines
   when "move-blank-into-nest"
-    # 同一エントリ内での**空行の移動**（多重集合は不変＝検算 2 をすり抜ける）。
-    # ネスト項目の直前に空行が入ると分類欄の結合切れになり、検算 3（バリデータの
-    # 前後比較）だけが検出できる。層が独立に効いていることを固定するための注入。
+    # 同一エントリ内での**空行の移動**（多重集合は不変＝差分検算をすり抜ける）。
+    # ネスト項目の直前に空行が入ると分類欄の結合切れになり、バリデータ前後比較だけが検出できる。
     k = lines.index { |l| l =~ /^ {2}\d+[.)] / }
     return lines if k.nil?
     h = (0...k).to_a.reverse.find { |i| lines[i] =~ ENTRY_HEADING_RE } || 0
@@ -510,19 +660,49 @@ def inject_fault!(lines)
   end
 end
 
-def migrate_file(path, kind, canonical)
-  lines = read_lines(path)
+def strip_ranges(lines, ranges)
+  drop = ranges.each_with_object({}) { |(s, e), h| (s..e).each { |i| h[i] = true } }
+  (0...lines.size).reject { |i| drop[i] }.map { |i| lines[i] }
+end
+
+# `needle` が `haystack` の連続部分列として現れる先頭位置（無ければ nil）。
+def find_subsequence(haystack, needle)
+  return nil if needle.empty?
+  (0..(haystack.size - needle.size)).each do |i|
+    return i if haystack[i, needle.size] == needle
+  end
+  nil
+end
+
+# 見出しで切ったエントリ（行番号演算ではなく見出しパターンで切る）。
+def split_entries(lines)
+  idxs = entry_heading_indexes(lines)
+  idxs.each_with_index.map do |at, n|
+    stop = idxs[n + 1] || lines.size
+    { at: at, heading: lines[at], body: lines[(at + 1)...stop] }
+  end
+end
+
+def migrate_file(path, kind, canonical, known)
+  r = read_lines(path)
+  if r[:error]
+    return { path: path, kind: kind, before: r[:lines], after: r[:lines], eol: r[:eol],
+             ops: [], manual: ["#{File.basename(path)}: #{r[:error]}"], errors: [] }
+  end
+  lines = r[:lines]
   ops = []
   manual = []
 
   base = lines
   dropped = []
+  example_applied = false
   if kind == "ledger"
-    r = migrate_example_block(lines, canonical)
-    base = r[:lines]
-    dropped = r[:dropped]
-    ops.concat(r[:ops])
-    manual.concat(r[:manual])
+    ex = migrate_example_block(lines, canonical, known)
+    base = ex[:lines]
+    dropped = ex[:dropped]
+    example_applied = ex[:applied]
+    ops.concat(ex[:ops])
+    manual.concat(ex[:manual])
   end
 
   base_entries = split_entries(base)
@@ -540,68 +720,61 @@ def migrate_file(path, kind, canonical)
 
   new_lines = inject_fault!(new_lines) if FAULT && !FAULT.empty?
 
-  # --- 検算 (2): 元ファイルから独立に再計算した期待値と突き合わせる ---
-  #
-  # 記入例ブロックの差し替えとエントリ変換という 2 種類の変更が混ざらないよう、
-  # **記入例ブロックを両側から取り除いた像**（orig_wo / final_wo）を作ってから比較する。
-  # 期待値は new_lines ではなく**元ファイル `lines`** から計算するため、変換後に加えられた
-  # 変更（バグ・故障注入）は検出される。
-  orig_wo = strip_ranges(lines, dropped)
-  final_wo = new_lines
-  if kind == "ledger"
-    at = find_subsequence(new_lines, canonical)
-    if at.nil?
-      errors = ["記入例ブロックが現行テンプレートどおりに挿入されていない（検算できないため適用しない）"]
-      return { path: path, kind: kind, before: lines, after: new_lines, ops: ops, manual: manual, errors: errors }
-    end
-    final_wo = new_lines[0, at] + (new_lines[(at + canonical.size)..-1] || [])
-  end
+  errors = verify(lines, new_lines, plans, dropped, canonical, known, example_applied)
 
-  errors = verify_preamble(orig_wo, final_wo)
-  errors.concat(verify_entries(orig_wo, final_wo, plans))
-
-  { path: path, kind: kind, before: lines, after: new_lines, ops: ops, manual: manual, errors: errors }
+  { path: path, kind: kind, before: lines, after: new_lines, eol: r[:eol],
+    ops: ops, manual: manual, errors: errors }
 end
 
-def strip_ranges(lines, ranges)
-  drop = ranges.each_with_object({}) { |(s, e), h| (s..e).each { |i| h[i] = true } }
-  (0...lines.size).reject { |i| drop[i] }.map { |i| lines[i] }
-end
+# ---------------------------------------------------------------------------
+# 検算（元ファイルから独立に再計算した期待値と突き合わせる）
+# ---------------------------------------------------------------------------
 
-# `needle` が `haystack` の連続部分列として現れる先頭位置（無ければ nil）。
-def find_subsequence(haystack, needle)
-  return nil if needle.empty?
-  (0..(haystack.size - needle.size)).each do |i|
-    return i if haystack[i, needle.size] == needle
-  end
-  nil
-end
-
-# 最初のエントリ見出しより前（前文）が保存されていること。空行の増減は許容する
-# （記入例ブロックの前後で空行を正規化するため）。
-def verify_preamble(before, after)
-  a = entry_heading_indexes(before).first || before.size
-  b = entry_heading_indexes(after).first || after.size
-  pre_a = before[0, a].reject { |l| l.strip.empty? }
-  pre_b = after[0, b].reject { |l| l.strip.empty? }
-  return [] if pre_a == pre_b
-  ["前文（最初のエントリ見出しより前）が計画外に変化した: " \
-   "消えた行=#{fmt_ms(multiset_diff(pre_a, pre_b))} / 増えた行=#{fmt_ms(multiset_diff(pre_b, pre_a))}"]
-end
-
-# 見出しで切ったエントリ（行番号演算ではなく見出しパターンで切る）。
-def split_entries(lines)
-  idxs = entry_heading_indexes(lines)
-  idxs.each_with_index.map do |at, n|
-    stop = idxs[n + 1] || lines.size
-    { at: at, heading: lines[at], body: lines[(at + 1)...stop] }
-  end
-end
-
-def verify_entries(before, after, plans)
+def verify(orig, final, plans, dropped, canonical, known, example_applied)
   errors = []
-  a = split_entries(before)
-  b = split_entries(after)
+
+  # (a) **出所の検証**: 記入例の差し替えで消えた行は、すべて既知テンプレート由来でなければ
+  #     ならない。範囲判定のヒューリスティックを期待値に使わない唯一の防波堤。
+  dropped_lines = dropped.flat_map { |s, e| (s..e).map { |i| orig[i] } }
+  unproven = dropped_lines.reject { |l| l.strip.empty? || known.include?(l) }
+  unless unproven.empty?
+    errors << "記入例として削除した行に既知テンプレート由来でない行がある（削除範囲の誤認）: #{unproven.first(3).map { |l| l[0, 40] }.join(' / ')}"
+  end
+
+  # (b) **全行の多重集合照合**: 消えた行・増えた行の総体が「計画した操作」で説明できること。
+  #     削除範囲を両側から除外しないので、範囲誤認・想定外の欠落がここに現れる。
+  plan_removed = plans.each_with_object(Hash.new(0)) { |p, h| multiset(p[:removed]).each { |k, v| h[k] += v } }
+  plan_added = plans.each_with_object(Hash.new(0)) { |p, h| multiset(p[:added]).each { |k, v| h[k] += v } }
+  expect_removed = multiset_merge(plan_removed, multiset(dropped_lines))
+  canonical_added = example_applied ? multiset(canonical) : Hash.new(0)
+  expect_added = multiset_merge(plan_added, canonical_added)
+  # 実際には出入りが相殺される行があるため、両方向を打ち消してから比べる。
+  actual_removed = multiset_diff(orig, final)
+  actual_added = multiset_diff(final, orig)
+  net_removed = multiset_diff(expect_removed, expect_added)
+  net_added = multiset_diff(expect_added, expect_removed)
+  if actual_removed != net_removed
+    errors << "計画外の行が消えている/消えるはずの行が残っている（ファイル全体）: " \
+              "実際=#{fmt_ms(multiset_diff(actual_removed, net_removed))} 期待にあって実際に無い=#{fmt_ms(multiset_diff(net_removed, actual_removed))}"
+  end
+  if actual_added != net_added
+    errors << "計画外の行が増えている/増えるはずの行が無い（ファイル全体）: " \
+              "実際=#{fmt_ms(multiset_diff(actual_added, net_added))} 期待にあって実際に無い=#{fmt_ms(multiset_diff(net_added, actual_added))}"
+  end
+
+  # (c) **エントリ単位の照合**（誤りの局在を出す）。記入例ブロックを両側から取り除いた像で比べる。
+  orig_wo = strip_ranges(orig, dropped)
+  final_wo = final
+  if example_applied
+    at = find_subsequence(final, canonical)
+    if at.nil?
+      errors << "記入例ブロックが現行テンプレートどおりに挿入されていない（検算できないため適用しない）"
+      return errors
+    end
+    final_wo = final[0, at] + (final[(at + canonical.size)..-1] || [])
+  end
+  a = split_entries(orig_wo)
+  b = split_entries(final_wo)
   if a.map { |e| e[:heading] } != b.map { |e| e[:heading] }
     errors << "エントリ見出しの並びが変化した（移行はエントリの追加・削除・並べ替えを行わない）: " \
               "移行前 #{a.size} 件 / 移行後 #{b.size} 件"
@@ -609,53 +782,65 @@ def verify_entries(before, after, plans)
   end
   a.each_with_index do |ent, i|
     plan = plans[i]
-    actual_removed = multiset_diff(ent[:body], b[i][:body])
-    actual_added = multiset_diff(b[i][:body], ent[:body])
-    expect_removed = multiset_diff(plan[:removed], plan[:added])
-    expect_added = multiset_diff(plan[:added], plan[:removed])
-    if actual_removed != expect_removed
+    actual_rm = multiset_diff(ent[:body], b[i][:body])
+    actual_ad = multiset_diff(b[i][:body], ent[:body])
+    expect_rm = multiset_diff(plan[:removed], plan[:added])
+    expect_ad = multiset_diff(plan[:added], plan[:removed])
+    if actual_rm != expect_rm
       errors << "#{ent[:heading][0, 50]}: 計画外の行が消えている/消えるはずの行が残っている: " \
-                "実際=#{fmt_ms(actual_removed)} 期待=#{fmt_ms(expect_removed)}"
+                "実際=#{fmt_ms(actual_rm)} 期待=#{fmt_ms(expect_rm)}"
     end
-    if actual_added != expect_added
+    if actual_ad != expect_ad
       errors << "#{ent[:heading][0, 50]}: 計画外の行が増えている/増えるはずの行が無い: " \
-                "実際=#{fmt_ms(actual_added)} 期待=#{fmt_ms(expect_added)}"
+                "実際=#{fmt_ms(actual_ad)} 期待=#{fmt_ms(expect_ad)}"
     end
   end
   errors
 end
 
-def fmt_ms(ms)
-  return "なし" if ms.empty?
-  ms.map { |k, v| "#{k.strip.empty? ? '(空行)' : k[0, 40]}×#{v}" }.join(" / ")
-end
-
 # ---------------------------------------------------------------------------
-# バリデータによる前後比較（検算 3）
+# バリデータによる前後比較
 # ---------------------------------------------------------------------------
 
 def validator_path
   File.expand_path("validate-artifact.rb", __dir__)
 end
 
-# 違反メッセージの集合を返す（行番号は移行でずれるため落とす）。nil は検査不能。
+# 違反メッセージの多重集合を返す（行番号は移行でずれるため落とす）。nil は検査不能。
 def validator_violations(kind, file)
   out = IO.popen(["/usr/bin/ruby", validator_path, kind, file], err: File::NULL, &:read)
   case $?.exitstatus
-  when 0 then []
-  when 1 then out.split("\n").map { |l| l.sub(/\A#{Regexp.escape(file)}:\d+: /, "") }.sort
+  when 0 then Hash.new(0)
+  when 1 then multiset(out.split("\n").map { |l| l.sub(/\A#{Regexp.escape(file)}:\d+: /, "") })
   else nil
   end
 rescue SystemCallError => e
   uncheckable("バリデータを起動できません: #{validator_path}（#{e.message}）")
 end
 
+# 移行後の候補（まだ書いていない内容）をワークスペース外の一時ファイルで検証し、
+# **移行前より違反が増えていないこと**を多重集合で確認する。dry-run でも実行する。
+def validator_check(result)
+  before = validator_violations(result[:kind], result[:path])
+  after = nil
+  Dir.mktmpdir("flywheel-migrate") do |dir|
+    cand = File.join(dir, File.basename(result[:path]))
+    File.open(cand, "w:UTF-8") { |f| f.write(result[:after].join(result[:eol]) + result[:eol]) }
+    after = validator_violations(result[:kind], cand)
+  end
+  if before.nil? || after.nil?
+    return { errors: ["バリデータが検査不能を返した（`#{validator_path} #{result[:kind]} <file>` を手で実行して原因を確認）"],
+             before: nil, after: nil }
+  end
+  introduced = multiset_diff(after, before)
+  errors = introduced.empty? ? [] : introduced.map { |k, v| "移行後に増えた違反（×#{v}）: #{k}" }
+  { errors: errors, before: before.values.inject(0) { |s, v| s + v }, after: after.values.inject(0) { |s, v| s + v } }
+end
+
 # ---------------------------------------------------------------------------
 # scaffold 追従レポート（検出のみ・書き換えない）
 # ---------------------------------------------------------------------------
 
-# テンプレートとの差分を報告する「純粋なコピー物」。利用先固有の記入欄を持たないため
-# 差分＝テンプレート更新の可能性が高いが、カスタマイズと区別できないので**自動再生成はしない**。
 DOC_COPIES = {
   "runtime/README.md" => "runtime/README.md",
   "journal/README.md" => "journal/README.md",
@@ -664,8 +849,6 @@ DOC_COPIES = {
   "container/compose.yml" => "container/compose.yml",
 }.freeze
 
-# 生成されるべき scaffold 物（skills/flywheel-init/SKILL.md のツリー。任意の
-# challenge-sources.md は含めない）。不足は flywheel-init の scaffold 手順が埋める。
 SCAFFOLD_PATHS = [
   "CLAUDE.md", "challenge-ledger.md", "priority-policy.md", "repos.tsv",
   ".claude/settings.json", ".flywheel/cadence.json", ".gitignore",
@@ -691,12 +874,12 @@ def scaffold_report(ws, templates)
 
   gitignore = File.join(ws, ".gitignore")
   if File.exist?(gitignore)
-    body = File.read(gitignore, encoding: "UTF-8")
-    lines = body.split("\n")
+    lines = File.read(gitignore, encoding: "UTF-8").split("\n").map { |l| l.sub(/\r\z/, "") }
     notes << "`.gitignore`: `.flywheel/*` の行が無い（`.flywheel/` 丸ごと ignore だと cadence.json を追跡できない）" unless lines.include?(".flywheel/*")
     notes << "`.gitignore`: `!.flywheel/cadence.json` の行が無い（cadence.json は運用設定として Git 追跡する）" unless lines.include?("!.flywheel/cadence.json")
     notes << "`.gitignore`: 旧形式の `.flywheel/`（ディレクトリ丸ごと ignore）が残っている（`.flywheel/*` ＋ unignore へ置き換える）" if lines.include?(".flywheel/")
     notes << "`.gitignore`: `container/.env` の行が無い（ホスト固有のため追跡しない）" unless lines.include?("container/.env")
+    notes << "`.gitignore`: `*.migrate-tmp` の行が無い（移行の一時ファイルが万一残ってもコミットされないようにする）" unless lines.include?("*.migrate-tmp")
   end
 
   settings = File.join(ws, ".claude/settings.json")
@@ -708,7 +891,7 @@ def scaffold_report(ws, templates)
   dockerfile = File.join(ws, "container/Dockerfile")
   if File.exist?(dockerfile)
     body = File.read(dockerfile, encoding: "UTF-8")
-    notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" unless body =~ /\bruby\b/
+    notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" unless body =~ /^\s*(RUN|ARG|ENV)?.*\bruby\b/
   end
 
   notes
@@ -751,6 +934,8 @@ uncheckable("テンプレートのディレクトリがありません: #{templa
 uncheckable("バリデータがありません（検算できないため適用しない）: #{validator_path}") unless File.exist?(validator_path)
 
 canonical = canonical_example_block(File.join(templates, "challenge-ledger.md"))
+known = {}
+(legacy_example_lines + canonical).each { |l| known[l] = true unless l.strip.empty? }
 
 targets = [["challenge-ledger.md", "ledger"], ["challenge-archive.md", "archive"]]
 results = []
@@ -758,7 +943,7 @@ missing = []
 targets.each do |name, kind|
   path = File.join(ws, name)
   if File.exist?(path)
-    results << migrate_file(path, kind, canonical)
+    results << migrate_file(path, kind, canonical, known)
   else
     missing << name
   end
@@ -768,6 +953,14 @@ changed = results.select { |r| r[:before] != r[:after] }
 errors = results.flat_map { |r| r[:errors].map { |e| "#{r[:path]}: #{e}" } }
 manual = results.flat_map { |r| r[:manual] }
 notes = scaffold_report(ws, templates)
+
+# バリデータ前後比較は dry-run でも実行する（「dry-run が通ったのに --apply で失敗」を無くす）。
+changed.each do |r|
+  next unless r[:errors].empty?
+  check = validator_check(r)
+  r[:validator] = [check[:before], check[:after]]
+  errors.concat(check[:errors].map { |e| "#{r[:path]}: #{e}" })
+end
 
 puts "== 台帳・アーカイブの構造マイグレーション（自動適用の対象）"
 if results.empty?
@@ -800,7 +993,7 @@ unless errors.empty?
   puts
   puts "== 検算エラー（適用しない）"
   errors.each { |e| puts "  - #{e}" }
-  failed("構造の差分検算に失敗したため 1 バイトも書き込んでいません（#{errors.size} 件）")
+  failed("検算に失敗したため適用しません（#{errors.size} 件）。元ファイルは書き換えていません")
 end
 
 if changed.empty?
@@ -809,55 +1002,96 @@ if changed.empty?
   exit EXIT_OK
 end
 
+puts
+puts "== 検算（バリデータの前後比較・dry-run でも実行）"
+changed.each do |r|
+  b, a = r[:validator]
+  puts "  - #{r[:path]}: 違反 #{b} 件 → #{a} 件（増加なし）"
+end
+
 unless apply
   puts
   puts "dry-run（既定）です。適用するには --apply を付けて再実行してください。"
   exit EXIT_PENDING
 end
 
-# --- 適用: 一時ファイル → 検算 → バックアップ → 置換 ---
+# --- 適用: バックアップ → 一時ファイル → rename（一時ファイルは ensure で必ず後始末） ---
+
+if backup_dir.nil?
+  base = File.join(ws, ".flywheel", "migration-backup")
+  stamp = Time.now.strftime("%Y%m%d-%H%M%S")
+  backup_dir = File.join(base, stamp)
+  n = 2
+  while File.exist?(backup_dir)
+    backup_dir = File.join(base, "#{stamp}-#{n}")
+    n += 1
+  end
+end
 
 staged = []
 begin
   changed.each do |r|
-    tmp = "#{r[:path]}.migrate-tmp"
-    File.open(tmp, "w:UTF-8") { |f| f.write("#{r[:after].join("\n")}\n") }
-    staged << [r, tmp]
+    dest = File.join(backup_dir, File.basename(r[:path]))
+    failed("バックアップ先に同名ファイルが既にあります（世代を失わないため上書きしません）: #{dest}") if File.exist?(dest)
   end
-
-  staged.each do |r, tmp|
-    before_v = validator_violations(r[:kind], r[:path])
-    after_v = validator_violations(r[:kind], tmp)
-    if before_v.nil? || after_v.nil?
-      failed("バリデータが検査不能を返したため適用しません: #{r[:path]}（`#{validator_path} #{r[:kind]} <file>` を手で実行して原因を確認）")
-    end
-    introduced = after_v - before_v
-    unless introduced.empty?
-      puts "== バリデータ検算エラー（適用しない）: #{r[:path]}"
-      introduced.each { |v| puts "  - #{v}" }
-      failed("移行後に新しい違反が出たため 1 バイトも書き込んでいません: #{r[:path]}")
-    end
-    r[:validator] = [before_v.size, after_v.size]
-  end
-
-  backup_dir ||= File.join(ws, ".flywheel", "migration-backup", Time.now.strftime("%Y%m%d-%H%M%S"))
   FileUtils.mkdir_p(backup_dir)
-  staged.each do |r, _|
-    FileUtils.cp(r[:path], File.join(backup_dir, File.basename(r[:path])))
-  end
+  changed.each { |r| FileUtils.cp(r[:path], File.join(backup_dir, File.basename(r[:path]))) }
 
-  staged.each { |r, tmp| File.rename(tmp, r[:path]) }
+  changed.each do |r|
+    tmp = "#{r[:path]}.migrate-tmp"
+    staged << tmp
+    File.open(tmp, "w:UTF-8") { |f| f.write(r[:after].join(r[:eol]) + r[:eol]) }
+  end
+  failed("故障注入（テスト専用）: 一時ファイル作成後に中断した") if FAULT == "fail-after-stage"
+  changed.each_with_index { |r, i| File.rename(staged[i], r[:path]) }
 rescue SystemCallError => e
-  staged.each { |_, tmp| File.unlink(tmp) if File.exist?(tmp) }
-  failed("書き込みに失敗しました（一時ファイルは削除済み・元ファイルは無傷）: #{e.message}")
+  failed("書き込みに失敗しました（元ファイルは無傷です）: #{e.message}")
+ensure
+  # `failed` は SystemExit を投げる（SystemCallError では捕まらない）。どの経路で抜けても
+  # ワークスペースに一時ファイルを残さない。
+  staged.each { |t| File.unlink(t) if File.exist?(t) }
 end
 
 puts
 puts "== 適用しました"
 puts "  バックアップ: #{backup_dir}"
-changed.each do |r|
-  b, a = r[:validator]
-  puts "  - #{r[:path]}: バリデータ違反 #{b} 件 → #{a} 件"
-end
+changed.each { |r| puts "  - #{r[:path]}" }
 puts "  ※ 変更内容は `git diff` で確認し、コミットは人間/エージェントが行ってください。"
 exit EXIT_OK
+
+__END__
+<!-- 新しい課題は下に追記。テンプレートは docs/templates/challenge-ledger-format.md -->
+<!-- 新しい課題は下に追記。テンプレートは claude-flywheel の docs/challenge-ledger-format.md -->
+<!-- 新しい課題は下に追記。記入例（下記コメント）をコピーして使う -->
+<!-- 記入例（コピーして使う）
+### [C-001] <タイトル>
+**人間記入欄**
+- 起票者 / 起票日: <name> / <YYYY-MM-DD>
+- 説明: <背景・困っていること・期待する状態>
+- 完了条件（任意）: <こうなれば完了>
+- 体感の緊急度（任意）: 高 | 中 | 低
+**分類欄（エージェントが記入）**
+**分類欄（オーケストレーターが記入）**
+- 担当ポジション:
+- 関連サービス:
+- 優先度: P0 | P1 | P2
+- ステータス: 未分類
+- 取り込み元:  <!-- 外部ソースから取り込んだ場合のみ。ingest-challenges が付与。手書き課題は空でよい -->
+- 備考:
+- 分類: 単一ドメイン | 横断 | 要相談
+- 関連ドメイン:
+- 担当:
+- 分解（横断時のみ）:
+- 判定根拠:
+-->
+## 記入例（コピーして使う）
+```markdown
+- ステータス: 未分類（未分類 → 分類済 → 計画承認待ち → 着手中 → 検証中 → 完了確認待ち → 完了）
+- タスク案: （run-cycle の計画ステップが記入）
+- 承認（人間がチェック）:
+  - [ ] 計画を承認（FR-13）
+  - [ ] 完了を承認（FR-32）
+- 取り込み元: （外部ソースから取り込んだ場合のみ ingest-challenges が付与。手書き課題は空でよい）
+```
+> **人間の承認方法**: ステータスが `計画承認待ち` / `完了確認待ち` になったら、上の「承認」行の該当チェックボックスを `[x]` にするだけ（GitHub のモバイル / Web でタップするとその場でコミットされる）。ステータスの前進はエージェントが次サイクルで代行する。差し戻しはチェックを付けず、理由を人間記入欄か備考に書く。
+---
