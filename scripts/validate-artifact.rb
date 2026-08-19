@@ -156,7 +156,10 @@ def type_match?(type, value)
   when "object"  then value.is_a?(Hash)
   when "array"   then value.is_a?(Array)
   when "string"  then value.is_a?(String)
-  when "integer" then value.is_a?(Integer) || (value.is_a?(Float) && value == value.to_i)
+  # Float は有限値のみ整数とみなす（1e999 は JSON として構文的に妥当だが Ruby では
+  # Float::INFINITY にパースされ、finite? ガード無しの to_i が FloatDomainError →
+  # トップレベル rescue で exit 2 に化ける＝本来 exit 1 のスキーマ違反が warn-only に丸まる）。
+  when "integer" then value.is_a?(Integer) || (value.is_a?(Float) && value.finite? && value == value.to_i)
   when "number"  then value.is_a?(Numeric)
   when "boolean" then value == true || value == false
   when "null"    then value.nil?
@@ -231,14 +234,22 @@ def validate_value(schema, value, path, errors)
     end
     if schema.key?("format")
       # 暦日・時刻・オフセットの意味的検証。DateTime/Date.iso8601 は存在しない日付
-      # （2026-02-31・13 月・非閏年の 02-29）を拒否し、閏年の 02-29・うるう秒 :60 は受理する
+      # （2026-02-31・13 月・非閏年の 02-29）を拒否し、閏年の 02-29 は受理する
       # （Time.iso8601 は不正日を繰り上げ正規化してしまうため使わない）。
       case schema["format"]
       when "date-time"
-        begin
-          DateTime.iso8601(value)
-        rescue ArgumentError
-          errors << "#{loc}: ISO 8601 の日時として不正です（暦日・時刻・オフセットの意味検証。実際: #{value.inspect}）"
+        # うるう秒 :60 は一律違反にする（ISO 8601 としては正規だが、既知の消費者
+        # heartbeat-check.sh が委譲する GNU date -d は :60 を拒否し心拍検知が検査不能に
+        # なる〔BSD date は受理＝環境依存〕。契約は全サポート環境の消費者が読める値だけを
+        # 受理する。DateTime.iso8601 は :60 を受理・正規化するため明示的に検査する）。
+        if value =~ /T[0-9]{2}:[0-9]{2}:60/
+          errors << "#{loc}: うるう秒 :60 は不許可です（消費者 heartbeat-check の GNU date が解析できないため。実際: #{value.inspect}）"
+        else
+          begin
+            DateTime.iso8601(value)
+          rescue ArgumentError
+            errors << "#{loc}: ISO 8601 の日時として不正です（暦日・時刻・オフセットの意味検証。実際: #{value.inspect}）"
+          end
         end
       when "date"
         begin

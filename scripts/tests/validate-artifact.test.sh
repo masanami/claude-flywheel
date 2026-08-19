@@ -99,6 +99,12 @@ assert_case "runs: 暦日として存在しない ts（2026-02-31・値域は妥
   -- runs "$FIXTURES/runs/invalid/bad-ts.jsonl"
 assert_case "journal-index: 暦日として存在しない date（2026-02-30）を意味検証で指摘する" 1 "ISO 8601 の日付として不正" \
   -- journal-index "$FIXTURES/journal-index/invalid/date-invalid.jsonl"
+assert_case "journal-index: seq が 1e999（Infinity へオーバーフロー）は違反（exit 2 に丸めない）" 1 "integer" \
+  -- journal-index "$FIXTURES/journal-index/invalid/seq-infinity.jsonl"
+assert_case "runs: うるう秒 :60 の ts を指摘する（消費者 heartbeat の GNU date と整合）" 1 ":7:" \
+  -- runs "$FIXTURES/runs/invalid/bad-ts.jsonl"
+assert_case "runs: session_id/id の \" と \\\\ を指摘する（log-run-event check の対応付けキー前提）" 1 "session_id" \
+  -- runs "$FIXTURES/runs/invalid/key-unsafe-chars.jsonl"
 
 # --- テンプレート自体がバリデータを通る（正本＝実行可能なシステム、の固定） ---
 
@@ -174,6 +180,14 @@ malformed_schema_case "additionalProperties がサブスキーマ" '{"type":"obj
 malformed_schema_case "minLength が文字列" '{"type":"object","properties":{"date":{"type":"string","minLength":"1"}}}'
 malformed_schema_case "type が配列" '{"type":["string","null"]}'
 malformed_schema_case "format が未対応の値" '{"type":"object","properties":{"date":{"type":"string","format":"email"}}}'
+
+# うるう秒 :60 は format 層単独でも違反にする（pattern 層が無いスキーマでも消費者
+# heartbeat-check（GNU date が :60 を拒否）と整合する値だけを受理する）
+mkdir -p "$tmp/fmt-only"
+printf '%s\n' '{"type":"object","properties":{"ts":{"type":"string","format":"date-time"}}}' > "$tmp/fmt-only/journal-index.schema.json"
+printf '%s\n' '{"ts":"2026-01-01T12:00:60Z"}' > "$tmp/leap.jsonl"
+assert_case "うるう秒 :60 は format 層単独でも違反（DateTime の受理を明示検査で上書き）" 1 "うるう秒" \
+  -- journal-index "$tmp/leap.jsonl" --schema-dir "$tmp/fmt-only"
 
 if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' '# empty' > "$tmp/unreadable.md"
