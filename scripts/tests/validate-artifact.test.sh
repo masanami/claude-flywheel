@@ -222,6 +222,21 @@ assert_case "--tail 1 でも末尾行が不正なら exit 1（当周の違反は
 assert_case "--tail がファイル行数を超えても全行を検証して動く" 1 - \
   -- journal-index "$tmp/legacy-index.jsonl" --tail 99
 
+# --tail は非空レコード基準で数える（物理行基準だと末尾空行で実レコードが検証範囲から漏れ、
+# 不正な当周成果物が exit 0 でコミットされる）
+bad='{"date":"bad"}'
+printf '%s\n\n' "$bad" > "$tmp/trailing-blank.jsonl"
+assert_case "不正レコード＋末尾空行でも --tail 1 は実レコードを検証して exit 1" 1 ":1:" \
+  -- journal-index "$tmp/trailing-blank.jsonl" --tail 1
+printf '%s\n\n' "$good" > "$tmp/trailing-blank-good.jsonl"
+assert_case "正常レコード＋末尾空行の --tail 1 は exit 0" 0 - \
+  -- journal-index "$tmp/trailing-blank-good.jsonl" --tail 1
+printf '%s\n\n%s\n\n\n' "$legacy" "$good" > "$tmp/interleaved-blank.jsonl"
+assert_case "空行介在＋末尾空行複数でも --tail 1 は最後の実レコードだけを見て exit 0" 0 - \
+  -- journal-index "$tmp/interleaved-blank.jsonl" --tail 1
+assert_case "空行介在でも --tail 2 はレガシー不正レコードまで遡って exit 1" 1 ":1:" \
+  -- journal-index "$tmp/interleaved-blank.jsonl" --tail 2
+
 # runs: 最後の cycle_start 以降だけを検証する（1 周の追記行数が可変のため tail でなく範囲指定）
 cat > "$tmp/legacy-runs.jsonl" <<'EOF'
 {"ts":"2026-08-01T10:00:00+09:00","event":"cycle_begin","cycle":"legacy-broken"}
@@ -237,6 +252,9 @@ assert_case "runs --since-last-cycle-start（run-cycle の呼び出し形）は�
   -- runs "$tmp/legacy-runs.jsonl" --since-last-cycle-start
 printf '%s\n' '{"ts":"2026-08-19T10:06:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle"}' >> "$tmp/legacy-runs.jsonl"
 assert_case "runs --since-last-cycle-start は当周の違反（result 欠落）を絶対行番号で検出" 1 ":7:" \
+  -- runs "$tmp/legacy-runs.jsonl" --since-last-cycle-start
+printf '\n\n' >> "$tmp/legacy-runs.jsonl"
+assert_case "runs --since-last-cycle-start は末尾空行があっても当周の違反を検出（範囲漏れなし）" 1 ":7:" \
   -- runs "$tmp/legacy-runs.jsonl" --since-last-cycle-start
 
 printf '%s\n' '{"ts":"2026-08-19T10:00:00+09:00","event":"cycle_end","cycle":"x","result":"completed"}' > "$tmp/no-start-runs.jsonl"

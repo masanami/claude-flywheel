@@ -18,7 +18,8 @@
 #     runs           .flywheel/runs.jsonl
 #   --schema-dir   JSON Schema の置き場（既定: 本スクリプトからの相対
 #                  ../contracts/schemas。vendoring 先で層構成が変わる場合に指定）
-#   --tail <n>     jsonl（journal-index / runs）専用: 末尾 n 行だけを検証する。
+#   --tail <n>     jsonl（journal-index / runs）専用: 末尾 n レコード（**非空行基準**。
+#                  末尾に空行が続いても実レコードが検証範囲から漏れない）だけを検証する。
 #                  append-only の恒久記録には契約導入前の不正行が残っていることがあり
 #                  （既存行の正しさは正本が保証しない・履歴は書き換えない）、全行検証だと
 #                  過去行の違反で以後の全周が恒久失敗する。run-cycle 手順6 は「1 周 1 行
@@ -445,6 +446,8 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
   if since_cycle_start
     # 最後の cycle_start 行を探す。他フィールドが壊れた行でも拾えるよう単純な部分一致で判定する
     # （JSON 解析に依存すると、壊れ方によって当周の開始点そのものを見失うため）。
+    # 空行は部分一致しえないためアンカーに選ばれず、アンカー以降のレコードは空行の有無に
+    # かかわらず全て検証対象になる（下記 --tail のような物理行/論理レコードのずれは生じない）。
     last = nil
     lines.each_with_index { |l, i| last = i if l.include?('"event":"cycle_start"') }
     if last.nil?
@@ -452,7 +455,12 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
     end
     start_idx = last
   elsif tail
-    start_idx = lines.size > tail ? lines.size - tail : 0
+    # 末尾 n は**非空の JSONL レコード基準**で数える（物理行基準にすると、末尾に空行が
+    # 続くファイルで start_idx が空行を指し、検証ループの空行スキップと合わさって実レコードが
+    # 一度も検証されずに exit 0 になる＝範囲計算と検証が同じ入力を 2 規則で読むずれ）。
+    record_idxs = []
+    lines.each_with_index { |l, i| record_idxs << i unless l.strip.empty? }
+    start_idx = record_idxs.size > tail ? record_idxs[-tail] : 0
   end
 
   errors = []
