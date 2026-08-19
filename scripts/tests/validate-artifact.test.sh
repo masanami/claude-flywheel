@@ -439,6 +439,29 @@ assert_case "--anchor-after-line は runs の --since-last-cycle-start 専用（
 assert_case "--anchor-after-line 非整数は exit 2" 2 - \
   -- runs "$tmp/reused-name-ok-runs.jsonl" --since-last-cycle-start --anchor-after-line abc
 
+# 位置アンカー以降に同名 cycle_start が 2 回ある場合（ログコマンドの再試行等）は、
+# **最初の**一致をアンカーにする（最後を採ると 2 つの start の間の不正イベントが
+# 検証範囲から漏れ、完全形呼び出しが exit 0 で誤証明する）
+cat > "$tmp/dup-start-runs.jsonl" <<'EOF'
+{"ts":"2026-08-19T08:00:00+09:00","event":"cycle_start","cycle":"2026-08-18-cycle"}
+{"ts":"2026-08-19T08:30:00+09:00","event":"cycle_end","cycle":"2026-08-18-cycle","result":"completed"}
+{"ts":"2026-08-19T09:00:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:05:00+09:00","event":"delegate_start","challenge":"C-001","repo":"service-a"}
+{"ts":"2026-08-19T09:06:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:30:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"completed"}
+EOF
+assert_case "重複 start の間の不正イベント（session_id 欠落）を範囲漏れさせず検出" 1 ":4:" \
+  -- runs "$tmp/dup-start-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle --anchor-after-line 2
+
+# journal-index: 当周の行の重複 append（再試行等）は「1 周 1 行」の不変条項違反として検出
+# （末尾の同一性照合だけでは 1 つ目の行が --tail 1 の範囲外に漏れる同型）
+printf '%s\n%s\n' "$good" "$good" > "$tmp/dup-record.jsonl"
+assert_case "当周の行の重複 append を 1 周 1 行違反として検出" 1 "1 周 1 行" \
+  -- journal-index "$tmp/dup-record.jsonl" --tail 1 --expect-cycle 2026-08-19-cycle
+printf '%s\n%s\n' "$legacy" "$good" > "$tmp/no-dup-record.jsonl"
+assert_case "過去周の行は重複カウントに入らない（期待一致のみ数える）" 0 - \
+  -- journal-index "$tmp/no-dup-record.jsonl" --tail 1 --expect-cycle 2026-08-19-cycle
+
 # --- pattern は文字列全体アンカー（Ruby の ^ $ 行アンカー問題） ---
 # 改行を含む値は 1 行が pattern に一致しても全体としては違反（禁止文字の素通し防止）
 assert_case "改行入り session_id（1 行目だけ pattern 一致）を違反として検出" 1 ":3:" \

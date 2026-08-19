@@ -608,6 +608,11 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_reco
       next unless l.include?('"event":"cycle_start"')
       next if anchor_cycle && !l.include?("\"cycle\":\"#{anchor_cycle}\"")
       last = i
+      # 位置アンカー指定時は「位置以降の**最初の**一致」を採る（再試行等で同名の
+      # cycle_start が 2 回 append された場合、最後の一致を採ると 2 つの start の間の
+      # 不正イベントが検証範囲から漏れるため）。位置アンカー無しの従来モードは
+      # 「最後の cycle_start」の文書化済み意味論を維持する。
+      break if anchor_after
     end
     if last.nil?
       if anchor_cycle || anchor_after
@@ -689,6 +694,23 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_reco
         end
       rescue JSON::ParserError
         errors << "#{last_no}: 末尾レコードを解析できず、当周の行（date=#{expect_record[:date]} seq=#{expect_record[:seq]}）であることを確認できません"
+      end
+      # 「1 周 1 行」の不変条項: 期待した (date, seq) を持つレコードはちょうど 1 件。
+      # 再試行等で当周の行が 2 回 append されると、末尾の同一性照合だけでは 1 つ目の行が
+      # --tail 1 の範囲外に漏れる（複数一致から最後を選ぶことで手前が範囲外になる同型）。
+      # 期待値と一致する行だけを数えるため、過去周の重複が違反になることはない。
+      dup_nos = []
+      lines.each_with_index do |l, i|
+        next if l.strip.empty?
+        begin
+          r = JSON.parse(l)
+        rescue JSON::ParserError
+          next
+        end
+        dup_nos << (i + 1) if r.is_a?(Hash) && r["date"] == expect_record[:date] && r["seq"] == expect_record[:seq]
+      end
+      if dup_nos.size > 1
+        errors << "#{dup_nos.last}: 当周の行（date=#{expect_record[:date]} seq=#{expect_record[:seq]}）が #{dup_nos.size} 件あります（行 #{dup_nos.join(', ')}。1 周 1 行の不変条項違反＝再試行等による重複 append を確認）"
       end
     end
   end
