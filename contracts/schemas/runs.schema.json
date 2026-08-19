@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": ".flywheel/runs.jsonl — 実行イベントログ（1 行 1 イベント）",
-  "description": "意味論の散文正本は templates/runtime/README.md「実行イベントログ（runs.jsonl）」（食い違う場合はそちらが正・本スキーマを追従修正する）。イベント種別ごとに必須・任意フィールドが異なるため oneOf で分岐する。検証は scripts/validate-artifact.rb（runs）が本ファイルを解釈して行う。",
+  "description": "意味論の散文正本は templates/runtime/README.md「実行イベントログ（runs.jsonl）」（食い違う場合はそちらが正・本スキーマを追従修正する）。イベント種別ごとに必須・任意フィールドが異なるため oneOf で分岐する。検証は scripts/validate-artifact.rb（runs）が本ファイルを解釈して行う。ts は pattern（値域の形式検証。format を検証しない利用側バリデータ向けの防御）と format: date-time（暦日・時刻・オフセットの意味検証。2026-02-31 等の存在しない日時を拒否）の二層で検証する。",
   "oneOf": [
     {
       "title": "cycle_start",
@@ -9,7 +9,7 @@
       "required": ["ts", "event", "cycle"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "cycle_start" },
         "cycle": { "type": "string", "minLength": 1 }
       }
@@ -20,7 +20,7 @@
       "required": ["ts", "event", "cycle", "result"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "cycle_end" },
         "cycle": { "type": "string", "minLength": 1 },
         "result": {
@@ -35,7 +35,7 @@
       "required": ["ts", "event", "challenge", "repo", "session_id"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "delegate_start" },
         "challenge": { "type": "string", "minLength": 1 },
         "repo": { "type": "string", "minLength": 1 },
@@ -50,7 +50,7 @@
       "required": ["ts", "event", "challenge", "repo", "session_id", "result"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "delegate_end" },
         "challenge": { "type": "string", "minLength": 1 },
         "repo": { "type": "string", "minLength": 1 },
@@ -64,7 +64,7 @@
       "required": ["ts", "event", "id", "title"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "adhoc_start" },
         "id": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
@@ -78,7 +78,7 @@
       "required": ["ts", "event", "id", "result"],
       "additionalProperties": false,
       "properties": {
-        "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
+        "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)([+-](0[0-9]|1[0-4]):[0-5][0-9]|Z)$" },
         "event": { "const": "adhoc_end" },
         "id": { "type": "string", "minLength": 1 },
         "result": { "type": "string", "minLength": 1 },

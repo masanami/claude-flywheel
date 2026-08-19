@@ -93,6 +93,12 @@ assert_case "runs: イベント別の必須フィールド欠落を指摘する"
   -- runs "$FIXTURES/runs/invalid/missing-required.jsonl"
 assert_case "runs: cycle_end.result の語彙逸脱（completed/abandoned 以外）を指摘する" 1 "許可された語彙ではありません" \
   -- runs "$FIXTURES/runs/invalid/cycle-end-bad-result.jsonl"
+assert_case "runs: 桁形状だけ合う不正 ts（2026-99-99T99:99:99+99:99）を指摘する" 1 ":3:" \
+  -- runs "$FIXTURES/runs/invalid/bad-ts.jsonl"
+assert_case "runs: 暦日として存在しない ts（2026-02-31・値域は妥当）を意味検証で指摘する" 1 "ISO 8601 の日時として不正" \
+  -- runs "$FIXTURES/runs/invalid/bad-ts.jsonl"
+assert_case "journal-index: 暦日として存在しない date（2026-02-30）を意味検証で指摘する" 1 "ISO 8601 の日付として不正" \
+  -- journal-index "$FIXTURES/journal-index/invalid/date-invalid.jsonl"
 
 # --- テンプレート自体がバリデータを通る（正本＝実行可能なシステム、の固定） ---
 
@@ -167,6 +173,7 @@ malformed_schema_case "pattern が不正な正規表現" '{"type":"object","prop
 malformed_schema_case "additionalProperties がサブスキーマ" '{"type":"object","additionalProperties":{"type":"string"}}'
 malformed_schema_case "minLength が文字列" '{"type":"object","properties":{"date":{"type":"string","minLength":"1"}}}'
 malformed_schema_case "type が配列" '{"type":["string","null"]}'
+malformed_schema_case "format が未対応の値" '{"type":"object","properties":{"date":{"type":"string","format":"email"}}}'
 
 if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' '# empty' > "$tmp/unreadable.md"

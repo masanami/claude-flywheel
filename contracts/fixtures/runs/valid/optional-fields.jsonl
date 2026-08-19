@@ -4,3 +4,6 @@
 {"ts":"2026-08-14T10:00:00+09:00","event":"cycle_end","cycle":"2026-08-14-cycle-2","result":"abandoned"}
 {"ts":"2026-08-14T13:02:00+09:00","event":"adhoc_start","id":"adhoc-20260814-1302-fix","title":"差し込み修正","challenge":"C-050","repo":"service-a"}
 {"ts":"2026-08-14T13:40:00+09:00","event":"adhoc_end","id":"adhoc-20260814-1302-fix","result":"修正完了","challenge":"C-050","repo":"service-a"}
+{"ts":"2028-02-29T09:00:00+09:00","event":"cycle_start","cycle":"2028-02-29-cycle"}
+{"ts":"2028-02-29T09:30:00Z","event":"cycle_end","cycle":"2028-02-29-cycle","result":"completed"}
+

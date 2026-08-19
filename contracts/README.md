@@ -68,8 +68,10 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 
 検証ロジックとスキーマファイルの二重管理（同じものを 2 規則で読むドリフト）を避けるため、バリデータは JSON Schema の**サブセットを直接解釈**する。サポートするキーワード:
 
-- 検証: `type` `required` `properties` `additionalProperties` `items` `enum` `const` `pattern` `minLength` `minimum` `oneOf`
+- 検証: `type` `required` `properties` `additionalProperties` `items` `enum` `const` `pattern` `minLength` `minimum` `oneOf` `format`
 - 注釈（検証に作用しない）: `$schema` `$id` `title` `description` `$comment` `examples`
+
+`format` は本契約では**検証として作用させる**（対応値は `date-time` / `date` のみ。他の値は exit 2）。pattern の桁形状・値域検証だけでは `2026-02-31` のような「形は合うが暦日として存在しない」値を受理してしまうため、日時・日付フィールドは **pattern（値域。format を検証しない利用側バリデータ向けの防御）＋ format（暦日・時刻・オフセットの意味検証）の二層**で検証する。vendoring 先のバリデータが `format` を検証する場合（例: ajv + ajv-formats）は標準の意味で解釈すればよい。
 
 **サポート外のキーワードがスキーマに現れたら exit 2（検査不能）**とする。黙って無視すると「検査したつもりで素通し」（検査不能の 0 件への丸め込み）になるため。スキーマを拡張する場合はバリデータのサポートも同時に広げること。
 

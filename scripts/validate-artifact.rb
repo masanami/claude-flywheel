@@ -46,6 +46,7 @@
 #     比較の各罠を回避する。追加インストール不要（CLT も不要）。
 
 require "json"
+require "date"
 
 EXIT_OK = 0
 EXIT_VIOLATION = 1
@@ -65,8 +66,14 @@ end
 # 検証として作用するキーワード（これ以外の未知キーワードは exit 2）。
 ASSERTION_KEYWORDS = %w[
   type required properties additionalProperties items enum const pattern
-  minLength minimum oneOf
+  minLength minimum oneOf format
 ].freeze
+
+# format は検証として作用させる（JSON Schema 上は注釈が既定だが、本契約では意味検証に使う。
+# pattern の桁形状だけでは 2026-99-99T99:99:99+99:99 のような不正成分を受理してしまうため）。
+# 対応する値はこの 2 つのみ（他の値は exit 2＝黙って注釈扱いに落とすと「検査したつもりで
+# 素通し」になる）。
+SUPPORTED_FORMATS = %w[date-time date].freeze
 # 注釈キーワード（検証には作用しない。存在を許可するのみ）。
 ANNOTATION_KEYWORDS = %w[$schema $id title description $comment examples].freeze
 
@@ -129,6 +136,12 @@ def assert_schema_supported(schema, where)
   if schema.key?("minimum")
     m = schema["minimum"]
     uncheckable("スキーマの minimum は数値が必要です: #{where}/minimum = #{m.inspect}") unless m.is_a?(Numeric)
+  end
+  if schema.key?("format")
+    f = schema["format"]
+    unless f.is_a?(String) && SUPPORTED_FORMATS.include?(f)
+      uncheckable("スキーマの format が未対応の値です（#{SUPPORTED_FORMATS.join(' | ')} のみ対応）: #{where}/format = #{f.inspect}")
+    end
   end
   if schema.key?("oneOf")
     oo = schema["oneOf"]
@@ -214,6 +227,25 @@ def validate_value(schema, value, path, errors)
     end
     if schema.key?("minLength") && value.length < schema["minLength"]
       errors << (schema["minLength"] == 1 ? "#{loc}: 空にできません" : "#{loc}: 長さが #{schema['minLength']} 未満です")
+    end
+    if schema.key?("format")
+      # 暦日・時刻・オフセットの意味的検証。DateTime/Date.iso8601 は存在しない日付
+      # （2026-02-31・13 月・非閏年の 02-29）を拒否し、閏年の 02-29・うるう秒 :60 は受理する
+      # （Time.iso8601 は不正日を繰り上げ正規化してしまうため使わない）。
+      case schema["format"]
+      when "date-time"
+        begin
+          DateTime.iso8601(value)
+        rescue ArgumentError
+          errors << "#{loc}: ISO 8601 の日時として不正です（暦日・時刻・オフセットの意味検証。実際: #{value.inspect}）"
+        end
+      when "date"
+        begin
+          Date.iso8601(value)
+        rescue ArgumentError
+          errors << "#{loc}: ISO 8601 の日付として不正です（暦日の意味検証。実際: #{value.inspect}）"
+        end
+      end
     end
   end
 
