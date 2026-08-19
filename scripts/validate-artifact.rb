@@ -58,16 +58,71 @@ ASSERTION_KEYWORDS = %w[
 # 注釈キーワード（検証には作用しない。存在を許可するのみ）。
 ANNOTATION_KEYWORDS = %w[$schema $id title description $comment examples].freeze
 
-# スキーマ全体を再帰的に走査し、サポート外キーワードがあれば検査不能で止める。
+SUPPORTED_TYPES = %w[object array string integer number boolean null].freeze
+
+# スキーマ全体を再帰的に走査し、サポート外キーワード・**キーワード値の形の不正**があれば
+# 検査不能で止める。値の形を受理前に検証しないと、不正なスキーマ（例: "required":"date"・
+# "oneOf":{}）が空入力で exit 0／非空入力で未捕捉例外の exit 1 になり、検査不能が正常/違反に
+# 化ける（3 値 exit 契約の破れ）。
 def assert_schema_supported(schema, where)
   uncheckable("スキーマがオブジェクトではありません: #{where}") unless schema.is_a?(Hash)
   schema.each_key do |k|
     next if ASSERTION_KEYWORDS.include?(k) || ANNOTATION_KEYWORDS.include?(k)
     uncheckable("スキーマに未対応のキーワードがあります（黙って無視しない）: #{where}/#{k}")
   end
-  (schema["properties"] || {}).each { |name, sub| assert_schema_supported(sub, "#{where}/properties/#{name}") }
+
+  if schema.key?("type")
+    t = schema["type"]
+    unless t.is_a?(String) && SUPPORTED_TYPES.include?(t)
+      uncheckable("スキーマの type が未対応の値です（#{SUPPORTED_TYPES.join(' | ')} の文字列 1 つのみ対応）: #{where}/type = #{t.inspect}")
+    end
+  end
+  if schema.key?("required")
+    r = schema["required"]
+    unless r.is_a?(Array) && r.all? { |e| e.is_a?(String) }
+      uncheckable("スキーマの required は文字列の配列が必要です: #{where}/required = #{r.inspect}")
+    end
+  end
+  if schema.key?("properties")
+    props = schema["properties"]
+    uncheckable("スキーマの properties はオブジェクトが必要です: #{where}/properties") unless props.is_a?(Hash)
+    props.each { |name, sub| assert_schema_supported(sub, "#{where}/properties/#{name}") }
+  end
+  if schema.key?("additionalProperties")
+    ap = schema["additionalProperties"]
+    unless ap == true || ap == false
+      uncheckable("スキーマの additionalProperties は true/false のみ対応です（サブスキーマ形式は未対応）: #{where}/additionalProperties = #{ap.inspect}")
+    end
+  end
+  # items は単一スキーマ形式のみ対応（配列形式は未対応。assert の Hash 検査で弾かれる）
   assert_schema_supported(schema["items"], "#{where}/items") if schema.key?("items")
-  (schema["oneOf"] || []).each_with_index { |sub, i| assert_schema_supported(sub, "#{where}/oneOf[#{i}]") }
+  if schema.key?("enum")
+    e = schema["enum"]
+    uncheckable("スキーマの enum は空でない配列が必要です: #{where}/enum = #{e.inspect}") unless e.is_a?(Array) && !e.empty?
+  end
+  # const は任意の JSON 値を許容（形の制約なし）
+  if schema.key?("pattern")
+    pat = schema["pattern"]
+    uncheckable("スキーマの pattern は文字列が必要です: #{where}/pattern = #{pat.inspect}") unless pat.is_a?(String)
+    begin
+      Regexp.new(pat)
+    rescue RegexpError => e
+      uncheckable("スキーマの pattern が正規表現として不正です: #{where}/pattern（#{e.message}）")
+    end
+  end
+  if schema.key?("minLength")
+    ml = schema["minLength"]
+    uncheckable("スキーマの minLength は 0 以上の整数が必要です: #{where}/minLength = #{ml.inspect}") unless ml.is_a?(Integer) && ml >= 0
+  end
+  if schema.key?("minimum")
+    m = schema["minimum"]
+    uncheckable("スキーマの minimum は数値が必要です: #{where}/minimum = #{m.inspect}") unless m.is_a?(Numeric)
+  end
+  if schema.key?("oneOf")
+    oo = schema["oneOf"]
+    uncheckable("スキーマの oneOf は空でない配列が必要です: #{where}/oneOf = #{oo.inspect}") unless oo.is_a?(Array) && !oo.empty?
+    oo.each_with_index { |sub, i| assert_schema_supported(sub, "#{where}/oneOf[#{i}]") }
+  end
 end
 
 def type_match?(type, value)
@@ -396,21 +451,28 @@ def load_schema(schema_dir, basename)
 end
 
 errors =
-  case type
-  when "ledger", "archive"
-    check_ledger(file)
-  when "journal-md"
-    check_journal_md(file)
-  when "journal-index"
-    schema = load_schema(schema_dir, "journal-index.schema.json")
-    assert_schema_supported(schema, "journal-index.schema.json")
-    check_jsonl(file, schema)
-  when "runs"
-    schema = load_schema(schema_dir, "runs.schema.json")
-    assert_schema_supported(schema, "runs.schema.json")
-    check_jsonl(file, schema)
-  else
-    uncheckable("不明な type: #{type}\n#{USAGE}")
+  begin
+    case type
+    when "ledger", "archive"
+      check_ledger(file)
+    when "journal-md"
+      check_journal_md(file)
+    when "journal-index"
+      schema = load_schema(schema_dir, "journal-index.schema.json")
+      assert_schema_supported(schema, "journal-index.schema.json")
+      check_jsonl(file, schema)
+    when "runs"
+      schema = load_schema(schema_dir, "runs.schema.json")
+      assert_schema_supported(schema, "runs.schema.json")
+      check_jsonl(file, schema)
+    else
+      uncheckable("不明な type: #{type}\n#{USAGE}")
+    end
+  rescue StandardError => e
+    # バックストップ: バリデータ自身の欠陥による未捕捉例外は「検証した結果の違反」ではない。
+    # 素の例外終了（exit 1 相当）に任せると違反に化けるため、検査不能へ倒す。
+    # （SystemExit は StandardError ではないため、uncheckable 等の正規の exit はここを通らない）
+    uncheckable("内部エラー（違反とは判定できないため検査不能に倒す）: #{e.class}: #{e.message}")
   end
 
 if errors.empty?

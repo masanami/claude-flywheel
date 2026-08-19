@@ -91,6 +91,8 @@ assert_case "runs: 未知イベントを指摘する" 1 "どの分岐にも一�
   -- runs "$FIXTURES/runs/invalid/unknown-event.jsonl"
 assert_case "runs: イベント別の必須フィールド欠落を指摘する" 1 "session_id" \
   -- runs "$FIXTURES/runs/invalid/missing-required.jsonl"
+assert_case "runs: cycle_end.result の語彙逸脱（completed/abandoned 以外）を指摘する" 1 "許可された語彙ではありません" \
+  -- runs "$FIXTURES/runs/invalid/cycle-end-bad-result.jsonl"
 
 # --- テンプレート自体がバリデータを通る（正本＝実行可能なシステム、の固定） ---
 
@@ -143,6 +145,29 @@ printf '%s\n' '{"type":"object","unsupportedKeyword":{}}' > "$tmp/journal-index.
 assert_case "スキーマの未対応キーワードは exit 2（黙って素通ししない）" 2 - \
   -- journal-index "$FIXTURES/journal-index/valid/readme-sample.jsonl" --schema-dir "$tmp"
 
+# --- 検査不能（exit 2）: キーワード値の形が不正なスキーマ（JSON としては妥当）を
+#     正常（空入力で exit 0）にも違反（未捕捉例外の exit 1）にも丸めない ---
+
+# 入力の空/非空に関わらずスキーマ受理の時点で exit 2 になることを両方で固定する
+: > "$tmp/empty-input.jsonl"
+malformed_schema_case() {
+  desc="$1"; schema_json="$2"
+  printf '%s\n' "$schema_json" > "$tmp/journal-index.schema.json"
+  # bash 3.2 は全角文字直前の変数展開でブレース必須（${desc}）
+  assert_case "不正スキーマ（${desc}）は非空入力で exit 2" 2 - \
+    -- journal-index "$FIXTURES/journal-index/valid/readme-sample.jsonl" --schema-dir "$tmp"
+  assert_case "不正スキーマ（${desc}）は空入力でも exit 2" 2 - \
+    -- journal-index "$tmp/empty-input.jsonl" --schema-dir "$tmp"
+}
+
+malformed_schema_case "required が文字列" '{"type":"object","required":"date"}'
+malformed_schema_case "oneOf がオブジェクト" '{"oneOf":{}}'
+malformed_schema_case "enum が文字列" '{"type":"object","properties":{"date":{"enum":"x"}}}'
+malformed_schema_case "pattern が不正な正規表現" '{"type":"object","properties":{"date":{"type":"string","pattern":"["}}}'
+malformed_schema_case "additionalProperties がサブスキーマ" '{"type":"object","additionalProperties":{"type":"string"}}'
+malformed_schema_case "minLength が文字列" '{"type":"object","properties":{"date":{"type":"string","minLength":"1"}}}'
+malformed_schema_case "type が配列" '{"type":["string","null"]}'
+
 if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' '# empty' > "$tmp/unreadable.md"
   chmod 000 "$tmp/unreadable.md"
@@ -169,6 +194,22 @@ else
   FAIL=$((FAIL + 1))
   echo "FAIL - cwd 非依存（一時ディレクトリからの実行でスキーマを自己解決）"
 fi
+
+# --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
+# run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
+# ベースイメージ（node:20-slim）には ruby が無いため、Dockerfile 側の導入が契約の一部。
+# あわせて ingest/periodic-audit の fp 算式（shasum -a 256）が前提とする perl も固定する。
+
+DOCKERFILE="$REPO_ROOT/templates/container/Dockerfile"
+for pkg in ruby perl; do
+  if grep -q "^      $pkg \\\\\$" "$DOCKERFILE"; then
+    PASS=$((PASS + 1))
+    echo "ok   - container イメージが $pkg を導入する（run-cycle 前提ツールの保証）"
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL - container イメージが $pkg を導入する（run-cycle 前提ツールの保証）"
+  fi
+done
 
 # --- 空ファイル・空行の扱い ---
 

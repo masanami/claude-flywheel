@@ -80,6 +80,17 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>]
 - JSONL のスキーマ検証には JSON パーサが必須（標準ライブラリ `json` で完結）。
 - shebang は `#!/usr/bin/ruby` に固定する（`#!/usr/bin/env ruby` だと rbenv 等のユーザ環境の Ruby を拾いバージョンが揺れるため。決定的なバリデータには不適）。
 
+### 実行環境の前提（契約の一部）
+
+バリデータの実行には **`/usr/bin/ruby`** が必要:
+
+| 実行環境 | 充足方法 |
+| --- | --- |
+| macOS ホスト（`execution_mode: native`・既定） | OS 標準搭載（追加インストール不要） |
+| コンテナ（`execution_mode: container`） | `templates/container/Dockerfile` が `ruby` パッケージを導入する（Debian の ruby は `/usr/bin/ruby` を提供し shebang のパスが一致する）。**本契約の導入前に scaffold した `container/Dockerfile` を使っている場合は、テンプレートを取り込んでイメージを再ビルドすること**（ruby 不在だとバリデータは 3 値 exit のどれでもない形で失敗し、コミットゲートが不作動になる） |
+
+Dockerfile がこのランタイムを導入し続けることはテスト（`scripts/tests/validate-artifact.test.sh`）で固定している。
+
 ## 消費者（board 等）の vendoring 手順
 
 1. `schemas/` と `fixtures/` を消費者リポジトリのテストデータへコピーする（バリデータ本体のコピーは任意。パーサは自前実装でよい）。

@@ -14,6 +14,14 @@ FROM node:20-slim
 # - gh: run-cycle の PR 起票・状態照合（gh pr list 等）、ingest-challenges の github-issue ソース
 # - uuid-runtime: run-cycle が委譲ごとに `uuidgen` で session_id を事前採番する（runtime/README.md
 #   「実行イベントログ」参照）。node:20-slim には含まれないため明示的に追加する
+# - ruby: run-cycle 手順6の書き込み後検算（フォーマット契約バリデータ
+#   `scripts/validate-artifact.rb`・shebang は `/usr/bin/ruby` 固定）が前提とする。Debian の
+#   ruby パッケージは /usr/bin/ruby を提供するため shebang のパスが macOS ホストと一致する。
+#   未導入だとバリデータがインタプリタ不在で失敗し、契約の 3 値 exit（0/1/2）のどれでもない
+#   形でコミットゲートが不作動になる
+# - perl: ingest-challenges の取り込み元マーカー fp・periodic-audit の afp の算式
+#   （`shasum -a 256`。/usr/bin/shasum は perl パッケージ同梱）が前提とする。slim イメージの
+#   perl-base には shasum が含まれないため明示的に追加する
 # - ca-certificates / curl: gh の apt リポジトリ追加・HTTPS 通信に必要
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
@@ -23,6 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       procps \
       uuid-runtime \
+      ruby \
+      perl \
       gnupg \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \

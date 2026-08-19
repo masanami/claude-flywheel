@@ -23,7 +23,10 @@
         "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$" },
         "event": { "const": "cycle_end" },
         "cycle": { "type": "string", "minLength": 1 },
-        "result": { "type": "string", "minLength": 1 }
+        "result": {
+          "description": "正本（templates/runtime/README.md）の閉語彙: completed（正常終了）または abandoned（stale ロック回収時の代筆）のみ",
+          "enum": ["completed", "abandoned"]
+        }
       }
     },
     {
