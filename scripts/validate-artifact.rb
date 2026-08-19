@@ -8,7 +8,7 @@
 #
 # 使い方:
 #   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>]
-#                                [--since-last-cycle-start]
+#                                [--tail-entries <n>] [--since-last-cycle-start]
 #
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
@@ -20,6 +20,16 @@
 #                  ../contracts/schemas。vendoring 先で層構成が変わる場合に指定）
 #   --tail <n>     jsonl（journal-index / runs）専用: 末尾 n レコード（**非空行基準**。
 #                  末尾に空行が続いても実レコードが検証範囲から漏れない）だけを検証する。
+#                  あわせて「末尾が非空レコードで終わっている」「非空レコードが n 件以上
+#                  存在する」ことも検証する（空行のみの追記・追記の消失を素通しにしない）。
+#   --tail-entries <n>
+#                  ledger / archive 専用: 末尾 n エントリ（`### [` 見出し基準）だけを検証する。
+#                  アーカイブは「ステータス行以外は原文のまま」の履歴（docs/
+#                  challenge-ledger-format.md §アーカイブ）であり過去エントリを修復対象に
+#                  しないため、run-cycle 手順6 はアーカイブへ追記した周に
+#                  --tail-entries <追記エントリ数> で追記分のみを検証する。エントリ総数が
+#                  n 未満なら違反（追記の消失を素通しにしない）。台帳（現在状態・修復が
+#                  正規運用）は従来どおりオプション無しの全体検証。
 #                  append-only の恒久記録には契約導入前の不正行が残っていることがあり
 #                  （既存行の正しさは正本が保証しない・履歴は書き換えない）、全行検証だと
 #                  過去行の違反で以後の全周が恒久失敗する。run-cycle 手順6 は「1 周 1 行
@@ -53,7 +63,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_UNCHECKABLE = 2
 
-USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--since-last-cycle-start]"
+USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--tail-entries <n>] [--since-last-cycle-start]"
 
 def uncheckable(msg)
   warn "validate-artifact: 検査不能: #{msg}"
@@ -361,7 +371,7 @@ LEDGER_REQUIRED_LINES = [
   ["備考", /^- 備考:/],
 ].freeze
 
-def check_ledger(file)
+def check_ledger(file, tail_entries = nil)
   lines = read_lines(file)
   annotated = annotate_exclusions(lines)
   errors = []
@@ -375,6 +385,18 @@ def check_ledger(file)
     elsif !entries.empty?
       entries.last[2] << text
     end
+  end
+
+  # --tail-entries: アーカイブ用の範囲限定。アーカイブは「ステータス行以外は原文のまま」の
+  # 履歴（docs/challenge-ledger-format.md §アーカイブ）であり、契約導入前の過去エントリの
+  # 「修復」は原文保存の書き換えになるため、当該操作で追記された末尾 n エントリだけを検証する
+  # （台帳は現在状態＝修復が正規運用のため全体検証のまま）。エントリ総数が n 未満の場合は
+  # 「追記されたはずのエントリが存在しない」＝追記の消失として違反にする（不足を素通しにしない）。
+  if tail_entries
+    if entries.size < tail_entries
+      errors << "1: エントリが #{entries.size} 件しかありません（--tail-entries #{tail_entries} は直近 #{tail_entries} 件の追記エントリの存在を要求する。追記が失われていないか確認）"
+    end
+    entries = entries.last(tail_entries)
   end
 
   entries.each do |lineno, heading, body|
@@ -453,6 +475,7 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
   # 検証範囲の起点（0-based）。既定は全行。--tail / --since-last-cycle-start は
   # append-only の恒久記録に残る契約導入前の不正行で恒久失敗しないための範囲限定
   # （過去行を「検証して正常」と読み替えるのではなく、対象外として扱う）。
+  errors = []
   start_idx = 0
   if since_cycle_start
     # 最後の cycle_start 行を探す。他フィールドが壊れた行でも拾えるよう単純な部分一致で判定する
@@ -471,10 +494,21 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
     # 一度も検証されずに exit 0 になる＝範囲計算と検証が同じ入力を 2 規則で読むずれ）。
     record_idxs = []
     lines.each_with_index { |l, i| record_idxs << i unless l.strip.empty? }
+    # --tail は「直近の追記が n 件の非空レコードとして存在する」ことまで検証する
+    # （run-cycle の書き込みゲート用の意味論）:
+    # - 末尾が空行のままだと「当周の追記が空行のみ」でも前周の非空レコードを検証して
+    #   exit 0 になり、当周レコードの欠落が素通しになるため、末尾の空行は違反にする。
+    # - 非空レコードが n 件に満たない場合（空ファイル含む）は「追記されたはずのレコードが
+    #   存在しない」＝追記の消失として違反にする。
+    if !lines.empty? && lines.last.strip.empty?
+      errors << "#{lines.size}: 末尾が空行です（--tail 検証は直近の追記が非空レコードで終わっていることを要求する。空行のみの追記・余分な末尾空行を確認）"
+    end
+    if record_idxs.size < tail
+      errors << "1: 非空レコードが #{record_idxs.size} 件しかありません（--tail #{tail} は直近 #{tail} 件の追記レコードの存在を要求する。追記が失われていないか確認）"
+    end
     start_idx = record_idxs.size > tail ? record_idxs[-tail] : 0
   end
 
-  errors = []
   lines.each_with_index do |line, idx|
     next if idx < start_idx
     lineno = idx + 1 # 範囲限定時もファイル内の絶対行番号で報告する
@@ -499,6 +533,7 @@ end
 args = ARGV.dup
 schema_dir = File.expand_path("../contracts/schemas", __dir__)
 tail = nil
+tail_entries = nil
 since_cycle_start = false
 positional = []
 until args.empty?
@@ -516,6 +551,12 @@ until args.empty?
       uncheckable("--tail は 1 以上の整数が必要です: #{val.inspect}\n#{USAGE}")
     end
     tail = val.to_i
+  when "--tail-entries"
+    val = args.shift
+    unless val.is_a?(String) && val =~ /\A[0-9]+\z/ && val.to_i >= 1
+      uncheckable("--tail-entries は 1 以上の整数が必要です: #{val.inspect}\n#{USAGE}")
+    end
+    tail_entries = val.to_i
   when "--since-last-cycle-start"
     since_cycle_start = true
   when "-h", "--help"
@@ -534,6 +575,9 @@ type, file = positional
 
 if tail && !%w[journal-index runs].include?(type)
   uncheckable("--tail は jsonl（journal-index / runs）専用です（type=#{type}）\n#{USAGE}")
+end
+if tail_entries && !%w[ledger archive].include?(type)
+  uncheckable("--tail-entries は ledger / archive 専用です（type=#{type}）\n#{USAGE}")
 end
 if since_cycle_start && type != "runs"
   uncheckable("--since-last-cycle-start は runs 専用です（type=#{type}）\n#{USAGE}")
@@ -557,7 +601,7 @@ errors =
   begin
     case type
     when "ledger", "archive"
-      check_ledger(file)
+      check_ledger(file, tail_entries)
     when "journal-md"
       check_journal_md(file)
     when "journal-index"

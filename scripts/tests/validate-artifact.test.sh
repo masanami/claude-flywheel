@@ -233,23 +233,27 @@ assert_case "--tail 2 はレガシー行を含み exit 1" 1 - \
 printf '%s\n%s\n' "$good" "$legacy" > "$tmp/legacy-last.jsonl"
 assert_case "--tail 1 でも末尾行が不正なら exit 1（当周の違反は検出する）" 1 ":2:" \
   -- journal-index "$tmp/legacy-last.jsonl" --tail 1
-assert_case "--tail がファイル行数を超えても全行を検証して動く" 1 - \
+assert_case "--tail がレコード数を超える場合は不足違反＋全レコード検証で exit 1" 1 "非空レコードが 2 件" \
   -- journal-index "$tmp/legacy-index.jsonl" --tail 99
 
 # --tail は非空レコード基準で数える（物理行基準だと末尾空行で実レコードが検証範囲から漏れ、
-# 不正な当周成果物が exit 0 でコミットされる）
+# 不正な当周成果物が exit 0 でコミットされる）。あわせて「追記の実在」も検証する:
+# 末尾の空行（＝空行のみの追記の痕跡）と非空レコードの件数不足は違反。
 bad='{"date":"bad"}'
 printf '%s\n\n' "$bad" > "$tmp/trailing-blank.jsonl"
 assert_case "不正レコード＋末尾空行でも --tail 1 は実レコードを検証して exit 1" 1 ":1:" \
   -- journal-index "$tmp/trailing-blank.jsonl" --tail 1
 printf '%s\n\n' "$good" > "$tmp/trailing-blank-good.jsonl"
-assert_case "正常レコード＋末尾空行の --tail 1 は exit 0" 0 - \
+assert_case "空行のみの追記（末尾空行）は --tail 1 で違反（前周レコードの検証で誤証明しない）" 1 "末尾が空行" \
   -- journal-index "$tmp/trailing-blank-good.jsonl" --tail 1
-printf '%s\n\n%s\n\n\n' "$legacy" "$good" > "$tmp/interleaved-blank.jsonl"
-assert_case "空行介在＋末尾空行複数でも --tail 1 は最後の実レコードだけを見て exit 0" 0 - \
+printf '%s\n\n%s\n' "$legacy" "$good" > "$tmp/interleaved-blank.jsonl"
+assert_case "空行介在でも --tail 1 は最後の実レコードだけを見て exit 0" 0 - \
   -- journal-index "$tmp/interleaved-blank.jsonl" --tail 1
 assert_case "空行介在でも --tail 2 はレガシー不正レコードまで遡って exit 1" 1 ":1:" \
   -- journal-index "$tmp/interleaved-blank.jsonl" --tail 2
+: > "$tmp/empty-tail.jsonl"
+assert_case "空ファイルへの --tail 1 は違反（追記されたはずのレコードが無い）" 1 "非空レコードが 0 件" \
+  -- journal-index "$tmp/empty-tail.jsonl" --tail 1
 
 # runs: 最後の cycle_start 以降だけを検証する（1 周の追記行数が可変のため tail でなく範囲指定）
 cat > "$tmp/legacy-runs.jsonl" <<'EOF'
@@ -283,6 +287,76 @@ assert_case "--since-last-cycle-start は runs 以外に使えず exit 2" 2 - \
   -- journal-index "$tmp/legacy-index.jsonl" --since-last-cycle-start
 assert_case "--tail と --since-last-cycle-start の同時指定は exit 2" 2 - \
   -- runs "$tmp/legacy-runs.jsonl" --tail 1 --since-last-cycle-start
+
+# --- archive の --tail-entries: 追記エントリのみ検証（原文保存の履歴を修復対象にしない） ---
+# 契約導入前の壊れた過去エントリ（備考行欠落）が残るアーカイブに、正常なエントリを 1 件
+# 追記したシナリオ。全体検証は exit 1 のままでよい（フィクスチャ・全体契約用）が、
+# run-cycle 手順6 の呼び出し形（--tail-entries 1）は追記分だけを見て exit 0 になること。
+
+cat > "$tmp/legacy-archive.md" <<'EOF'
+# 課題アーカイブ（Challenge Archive）
+
+---
+
+### [C-001] 契約導入前の壊れた過去エントリ（備考行なし・原文保存につき修復しない）
+
+**人間記入欄**
+- 起票者 / 起票日: old / 2026-01-01
+- 説明: 古いエントリ。
+- 完了条件（任意）:
+- 体感の緊急度（任意）:
+
+**分類欄（エージェントが記入）**
+- 担当ポジション: harness
+- 関連サービス:
+- 優先度: P1
+- ステータス: 完了
+- タスク案: なし
+- 承認（人間がチェック）:
+  - [x] 計画を承認（FR-13）
+  - [x] 完了を承認（FR-32）
+- 取り込み元:
+
+### [C-002] 当周に追記された正常なエントリ
+
+**人間記入欄**
+- 起票者 / 起票日: new / 2026-08-19
+- 説明: 追記されたばかりのエントリ。
+- 完了条件（任意）:
+- 体感の緊急度（任意）:
+
+**分類欄（エージェントが記入）**
+- 担当ポジション: harness
+- 関連サービス:
+- 優先度: P2
+- ステータス: 完了
+- タスク案: 対応する
+- 承認（人間がチェック）:
+  - [x] 計画を承認（FR-13）
+  - [x] 完了を承認（FR-32）
+- 取り込み元:
+- 備考:
+EOF
+assert_case "レガシー破損エントリ入りアーカイブ: 全体検証は exit 1" 1 "備考" \
+  -- archive "$tmp/legacy-archive.md"
+assert_case "アーカイブ --tail-entries 1（run-cycle の呼び出し形）は追記分のみで exit 0" 0 - \
+  -- archive "$tmp/legacy-archive.md" --tail-entries 1
+assert_case "--tail-entries 2 はレガシーエントリを含み exit 1" 1 "備考" \
+  -- archive "$tmp/legacy-archive.md" --tail-entries 2
+assert_case "--tail-entries がエントリ総数を超える場合は不足違反（追記の消失を素通しにしない）" 1 "エントリが 2 件" \
+  -- archive "$tmp/legacy-archive.md" --tail-entries 3
+
+# 追記エントリ自体の違反（見出し前の空行欠落＝事故a）は範囲限定でも検出する
+# （C-002 見出し直前の空行を除去した「空行なし連結」状態を生成。macOS awk は多バイト文字の
+# 等値比較に難があるため、日本語を含む行の加工は ruby で行う）
+/usr/bin/ruby -e 'ls = File.readlines(ARGV[0]); i = ls.index { |l| l.start_with?("### [C-002]") }; abort "C-002 見出しが見つからない" unless i && i > 0 && ls[i - 1].strip.empty?; ls.delete_at(i - 1); File.write(ARGV[1], ls.join)' "$tmp/legacy-archive.md" "$tmp/glued-archive.md"
+assert_case "追記エントリの見出し前空行欠落は --tail-entries 1 でも検出" 1 "空行がありません" \
+  -- archive "$tmp/glued-archive.md" --tail-entries 1
+
+# 範囲指定オプションの type 制約
+assert_case "--tail-entries は jsonl に使えず exit 2" 2 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail-entries 1
+assert_case "--tail-entries 0 は exit 2" 2 - -- archive "$tmp/legacy-archive.md" --tail-entries 0
 
 # --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
 # run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
