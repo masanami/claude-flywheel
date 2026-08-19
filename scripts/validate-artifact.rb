@@ -7,7 +7,8 @@
 # 検査項目の由来（実際に起きた事故）・フィクスチャは contracts/README.md を参照。
 #
 # 使い方:
-#   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>]
+#   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>]
+#                                [--since-last-cycle-start]
 #
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
@@ -17,6 +18,17 @@
 #     runs           .flywheel/runs.jsonl
 #   --schema-dir   JSON Schema の置き場（既定: 本スクリプトからの相対
 #                  ../contracts/schemas。vendoring 先で層構成が変わる場合に指定）
+#   --tail <n>     jsonl（journal-index / runs）専用: 末尾 n 行だけを検証する。
+#                  append-only の恒久記録には契約導入前の不正行が残っていることがあり
+#                  （既存行の正しさは正本が保証しない・履歴は書き換えない）、全行検証だと
+#                  過去行の違反で以後の全周が恒久失敗する。run-cycle 手順6 は「1 周 1 行
+#                  append」（journal/README.md）の正本保証に基づき --tail 1 で当周の追記行
+#                  のみを検証する。違反の行番号はファイル内の絶対行番号で出力する
+#   --since-last-cycle-start
+#                  runs 専用: 最後の `cycle_start` 行以降（当周の追記分）だけを検証する。
+#                  runs は 1 周の追記行数が可変で --tail の n を静的に決められないため、
+#                  当周の開始マーカーからの範囲指定を用意する。cycle_start 行が見つからない
+#                  場合は exit 2（当周の開始点を特定できない＝検査不能。0 件と読み替えない）
 #
 # exit code（3 値。検査不能を正常にも違反にも丸めない）:
 #   0 = 違反なし（何も出力しない）
@@ -39,7 +51,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_UNCHECKABLE = 2
 
-USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>]"
+USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--since-last-cycle-start]"
 
 def uncheckable(msg)
   warn "validate-artifact: 検査不能: #{msg}"
@@ -391,10 +403,30 @@ end
 # jsonl（journal-index / runs）
 # ---------------------------------------------------------------------------
 
-def check_jsonl(file, schema)
+def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
+  lines = read_lines(file)
+
+  # 検証範囲の起点（0-based）。既定は全行。--tail / --since-last-cycle-start は
+  # append-only の恒久記録に残る契約導入前の不正行で恒久失敗しないための範囲限定
+  # （過去行を「検証して正常」と読み替えるのではなく、対象外として扱う）。
+  start_idx = 0
+  if since_cycle_start
+    # 最後の cycle_start 行を探す。他フィールドが壊れた行でも拾えるよう単純な部分一致で判定する
+    # （JSON 解析に依存すると、壊れ方によって当周の開始点そのものを見失うため）。
+    last = nil
+    lines.each_with_index { |l, i| last = i if l.include?('"event":"cycle_start"') }
+    if last.nil?
+      uncheckable("--since-last-cycle-start: cycle_start 行が見つからず当周の開始点を特定できません: #{file}")
+    end
+    start_idx = last
+  elsif tail
+    start_idx = lines.size > tail ? lines.size - tail : 0
+  end
+
   errors = []
-  read_lines(file).each_with_index do |line, idx|
-    lineno = idx + 1
+  lines.each_with_index do |line, idx|
+    next if idx < start_idx
+    lineno = idx + 1 # 範囲限定時もファイル内の絶対行番号で報告する
     next if line.strip.empty? # 空行は対応付けの読み手（log-run-event.sh check）と同様に読み飛ばす
     begin
       value = JSON.parse(line)
@@ -415,6 +447,8 @@ end
 
 args = ARGV.dup
 schema_dir = File.expand_path("../contracts/schemas", __dir__)
+tail = nil
+since_cycle_start = false
 positional = []
 until args.empty?
   arg = args.shift
@@ -425,6 +459,14 @@ until args.empty?
       uncheckable("--schema-dir に値がありません\n#{USAGE}")
     end
     schema_dir = val
+  when "--tail"
+    val = args.shift
+    unless val.is_a?(String) && val =~ /\A[0-9]+\z/ && val.to_i >= 1
+      uncheckable("--tail は 1 以上の整数が必要です: #{val.inspect}\n#{USAGE}")
+    end
+    tail = val.to_i
+  when "--since-last-cycle-start"
+    since_cycle_start = true
   when "-h", "--help"
     puts USAGE
     exit EXIT_OK
@@ -438,6 +480,16 @@ end
 uncheckable("引数が不足しています\n#{USAGE}") if positional.size < 2
 uncheckable("引数が多すぎます: #{positional[2..-1].join(' ')}\n#{USAGE}") if positional.size > 2
 type, file = positional
+
+if tail && !%w[journal-index runs].include?(type)
+  uncheckable("--tail は jsonl（journal-index / runs）専用です（type=#{type}）\n#{USAGE}")
+end
+if since_cycle_start && type != "runs"
+  uncheckable("--since-last-cycle-start は runs 専用です（type=#{type}）\n#{USAGE}")
+end
+if tail && since_cycle_start
+  uncheckable("--tail と --since-last-cycle-start は同時に指定できません\n#{USAGE}")
+end
 
 def load_schema(schema_dir, basename)
   path = File.join(schema_dir, basename)
@@ -460,11 +512,11 @@ errors =
     when "journal-index"
       schema = load_schema(schema_dir, "journal-index.schema.json")
       assert_schema_supported(schema, "journal-index.schema.json")
-      check_jsonl(file, schema)
+      check_jsonl(file, schema, tail)
     when "runs"
       schema = load_schema(schema_dir, "runs.schema.json")
       assert_schema_supported(schema, "runs.schema.json")
-      check_jsonl(file, schema)
+      check_jsonl(file, schema, tail, since_cycle_start)
     else
       uncheckable("不明な type: #{type}\n#{USAGE}")
     end

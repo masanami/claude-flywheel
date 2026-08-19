@@ -195,6 +195,56 @@ else
   echo "FAIL - cwd 非依存（一時ディレクトリからの実行でスキーマを自己解決）"
 fi
 
+# --- append-only の恒久記録: 当周の追記分だけを検証する（過去の不正行で恒久失敗しない） ---
+# 契約導入前の不正行（実事故形）が残る index.jsonl に正しい 1 行を append したシナリオ。
+# 全行検証は exit 1 のままでよい（契約全体の検証・パーサテスト用）が、run-cycle 手順6 の
+# 呼び出し形（--tail 1）は当周の追記行だけを見て exit 0 になること。
+
+legacy='{"date":"2026-08-15","seq":1,"touched_issues":[],"delegations":[],"pr_urls":[],"pending_approvals":[],"decisions":"レガシーの不正行（string の decisions）"}'
+good='{"date":"2026-08-19","seq":1,"touched_issues":[],"delegations":[],"pr_urls":[],"pending_approvals":[],"decisions":[]}'
+printf '%s\n%s\n' "$legacy" "$good" > "$tmp/legacy-index.jsonl"
+assert_case "レガシー不正行入り index.jsonl: 全行検証は exit 1（絶対行番号で報告）" 1 ":1:" \
+  -- journal-index "$tmp/legacy-index.jsonl"
+assert_case "レガシー不正行入り index.jsonl: --tail 1（run-cycle の呼び出し形）は exit 0" 0 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 1
+assert_case "--tail 2 はレガシー行を含み exit 1" 1 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 2
+printf '%s\n%s\n' "$good" "$legacy" > "$tmp/legacy-last.jsonl"
+assert_case "--tail 1 でも末尾行が不正なら exit 1（当周の違反は検出する）" 1 ":2:" \
+  -- journal-index "$tmp/legacy-last.jsonl" --tail 1
+assert_case "--tail がファイル行数を超えても全行を検証して動く" 1 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 99
+
+# runs: 最後の cycle_start 以降だけを検証する（1 周の追記行数が可変のため tail でなく範囲指定）
+cat > "$tmp/legacy-runs.jsonl" <<'EOF'
+{"ts":"2026-08-01T10:00:00+09:00","event":"cycle_begin","cycle":"legacy-broken"}
+{"ts":"2026-08-01T10:30:00+09:00","event":"cycle_end","cycle":"2026-08-01-cycle","result":"done"}
+{"ts":"2026-08-19T09:00:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:05:00+09:00","event":"delegate_start","challenge":"C-031","repo":"claude-flywheel","session_id":"550e8400-e29b-41d4-a716-446655440000"}
+{"ts":"2026-08-19T10:00:00+09:00","event":"delegate_end","challenge":"C-031","repo":"claude-flywheel","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"done"}
+{"ts":"2026-08-19T10:05:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"completed"}
+EOF
+assert_case "レガシー不正行入り runs.jsonl: 全行検証は exit 1" 1 - \
+  -- runs "$tmp/legacy-runs.jsonl"
+assert_case "runs --since-last-cycle-start（run-cycle の呼び出し形）は当周分のみで exit 0" 0 - \
+  -- runs "$tmp/legacy-runs.jsonl" --since-last-cycle-start
+printf '%s\n' '{"ts":"2026-08-19T10:06:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle"}' >> "$tmp/legacy-runs.jsonl"
+assert_case "runs --since-last-cycle-start は当周の違反（result 欠落）を絶対行番号で検出" 1 ":7:" \
+  -- runs "$tmp/legacy-runs.jsonl" --since-last-cycle-start
+
+printf '%s\n' '{"ts":"2026-08-19T10:00:00+09:00","event":"cycle_end","cycle":"x","result":"completed"}' > "$tmp/no-start-runs.jsonl"
+assert_case "runs --since-last-cycle-start: cycle_start 不在は exit 2（0 件と読み替えない）" 2 - \
+  -- runs "$tmp/no-start-runs.jsonl" --since-last-cycle-start
+
+# 範囲指定オプションの引数エラー（exit 2）
+assert_case "--tail 0 は exit 2" 2 - -- journal-index "$tmp/legacy-index.jsonl" --tail 0
+assert_case "--tail 非整数は exit 2" 2 - -- journal-index "$tmp/legacy-index.jsonl" --tail abc
+assert_case "--tail は md タイプに使えず exit 2" 2 - -- ledger "$FIXTURES/ledger/valid/archive.md" --tail 1
+assert_case "--since-last-cycle-start は runs 以外に使えず exit 2" 2 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --since-last-cycle-start
+assert_case "--tail と --since-last-cycle-start の同時指定は exit 2" 2 - \
+  -- runs "$tmp/legacy-runs.jsonl" --tail 1 --since-last-cycle-start
+
 # --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
 # run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
 # ベースイメージ（node:20-slim）には ruby が無いため、Dockerfile 側の導入が契約の一部。

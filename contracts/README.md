@@ -18,7 +18,7 @@
 ## バリデータの使い方
 
 ```bash
-scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>]
+scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--since-last-cycle-start]
 ```
 
 | type | 対象ファイル | 検査内容 |
@@ -30,6 +30,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>]
 | `runs` | `.flywheel/runs.jsonl` | `schemas/runs.schema.json` による行ごとの検証 |
 
 - **cwd 非依存**: 対象は引数のパスで受け、スキーマはスクリプト位置から自己解決する（vendoring 先で層構成が変わる場合のみ `--schema-dir` で指定）。
+- **append-only の恒久記録は「当周の追記分だけ」を検証する**: `journal/index.jsonl`・`runs.jsonl` は既存行を書き換えない恒久記録であり、契約導入前の不正行が残っていることがある（既存行の正しさは正本が保証しない）。全行検証だと過去行の違反で以後の全周が恒久失敗するため、run-cycle 手順6 は `journal-index` に `--tail 1`（正本保証「1 周 1 行 append」に基づく）、`runs` に `--since-last-cycle-start`（1 周の追記行数が可変のため、当周の開始マーカーからの範囲指定）を使う。**過去行は「検証して正常」ではなく「対象外」**（読み替えない）。契約全体の検証（vendoring 先のパーサテスト・フィクスチャ）は従来どおり全行が対象。台帳・アーカイブは現在状態のファイル（append-only の履歴ではなく修復が正規の運用）のため全体を検証する。
 - **exit code は 3 値**（検査不能を正常にも違反にも丸めない）:
   - `0` = 違反なし（何も出力しない）
   - `1` = 違反あり（stdout に `<file>:<行>: <内容>` を列挙。**コミットを止める fail-closed**）

@@ -55,7 +55,7 @@ journal/
 
 - **全 7 フィールドを必須**とする（該当が無い周も空配列で置く）。表に無いフィールドは置かない。
 - **書く前に本スキーマ表を読む。既存行を形の参照元にしない**（`tail -1` で直前行を真似ると、真似元の誤りごと繰り返す。既存行が正しい保証はない）。
-- 機械可読版のスキーマは claude-flywheel プラグインの `contracts/schemas/journal-index.schema.json`。**書き込み後・コミット前に** `${CLAUDE_PLUGIN_ROOT}/scripts/validate-artifact.rb journal-index journal/index.jsonl` で検算する（run-cycle 手順6。本表と食い違う場合はバグとして両方を整合させる。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。
+- 機械可読版のスキーマは claude-flywheel プラグインの `contracts/schemas/journal-index.schema.json`。**書き込み後・コミット前に** `${CLAUDE_PLUGIN_ROOT}/scripts/validate-artifact.rb journal-index journal/index.jsonl --tail 1` で当周の追記行を検算する（run-cycle 手順6。過去周の行は append-only の恒久記録＝書き換えない対象のため検証対象外。本表と食い違う場合はバグとして両方を整合させる。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。
 
 `reflect` スキルはこのファイルを、`experience`（good/bad）と並ぶ集計入力として使う。
 
