@@ -79,6 +79,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | フィールド行を持たない独自形式 | `**タスク案（承認済み）**` ＋ 箇条書き | **違反**（必須フィールド行の欠落＋インデント欠落の二重検出） | `fixtures/ledger/invalid/task-plan-bold-heading.md`（実運用ワークスペースの実形） |
 | ネスト項目のインデント欠落 | `- タスク案:` ＋ 行頭の `1. …` | **違反** | `fixtures/ledger/invalid/task-plan-dedented.md` |
 
+**旧テンプレートで scaffold されたワークスペースは移行スクリプトで追従させる**: 形 E（太字見出しブロック）・必須フィールド行の欠落は「書き手が壊した」のではなく「テンプレート更新に追従できていない」型であり、[`scripts/migrate-workspace.rb`](../scripts/migrate-workspace.rb) が構造マイグレーションで解消する（`docs/challenge-ledger-format.md` §既存ワークスペースの移行。**移行の成否は本バリデータの exit で測る**）。ただし**機械が形を判別できないエントリ**（太字ブロックに項目以外の行が混じる・承認チェック行が正規形でない 等）は移行が手を出さず人間判断へ倒すため、移行後も違反が残ることがある。
+
 **結合切れの検査範囲は分類欄のみ**（エージェントが書く領域）。人間記入欄は人間の自由記述と外部本文の転記（ブロック引用）が入るため、行頭の箇条書きを違反にしない——**規定側も「人間記入欄は機械検査の対象外」と明記**しており、散文と検査の範囲を一致させている。
 
 **書き手がいつ形 A へ切り替えるかは別問題（順序制約）**: 受理は最初から形 A〜D すべてを通すが、**書き手（run-cycle 手順2・ingest-challenges 手順3）が形 A で書き始めるのは唯一の消費者（board）の追随後**とする（`docs/challenge-ledger-format.md` §移行フェーズが正本。現行 board はインデント行を捨てるため、先に切り替えると board のカード詳細が `-` 表示になり、Issue #87 の症状を拡大する）。**受理表の「規定上の値」列は消費者が実装すべき読み取り結果であって、現行 board の挙動ではない**。**旧い承認ラベル（`- [ ] 計画を承認（FR-13）`）も受理し続ける**（新表記は `（FR-13・承認対象＝タスク案）`。検出は前方一致）。journal は空の周（`- なし`）も正規（`fixtures/journal-md/valid/minimal.md`）。runs.jsonl は `title`/`skill` 無しの `delegate_start` や `abandoned` の `cycle_end` も正規（`fixtures/runs/valid/optional-fields.jsonl`）。
