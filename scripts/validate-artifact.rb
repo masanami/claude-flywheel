@@ -8,7 +8,8 @@
 #
 # 使い方:
 #   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>]
-#                                [--tail-entries <n>] [--since-last-cycle-start]
+#                                [--expect-ids <id,...>] [--expect-cycle <cycle名>]
+#                                [--since-last-cycle-start]
 #
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
@@ -22,14 +23,20 @@
 #                  末尾に空行が続いても実レコードが検証範囲から漏れない）だけを検証する。
 #                  あわせて「末尾が非空レコードで終わっている」「非空レコードが n 件以上
 #                  存在する」ことも検証する（空行のみの追記・追記の消失を素通しにしない）。
-#   --tail-entries <n>
-#                  ledger / archive 専用: 末尾 n エントリ（`### [` 見出し基準）だけを検証する。
-#                  アーカイブは「ステータス行以外は原文のまま」の履歴（docs/
-#                  challenge-ledger-format.md §アーカイブ）であり過去エントリを修復対象に
-#                  しないため、run-cycle 手順6 はアーカイブへ追記した周に
-#                  --tail-entries <追記エントリ数> で追記分のみを検証する。エントリ総数が
-#                  n 未満なら違反（追記の消失を素通しにしない）。台帳（現在状態・修復が
-#                  正規運用）は従来どおりオプション無しの全体検証。
+#   --expect-ids <id,...>
+#                  ledger / archive 専用: 当該操作で追記したエントリの課題 ID（カンマ区切り）。
+#                  末尾 |ids| エントリだけを検証し、かつ**見出し ID 集合が期待と一致する**ことを
+#                  証明する（件数・形だけの検査では「台帳から削除したのにアーカイブへ追記
+#                  しなかった」場合に古いエントリを検証して exit 0 になるため、同一性まで要求
+#                  する）。アーカイブは「ステータス行以外は原文のまま」の履歴＝過去エントリを
+#                  修復対象にしないための範囲限定を兼ねる。エントリ不足・ID 不一致は違反。
+#                  台帳（現在状態・修復が正規運用）は従来どおりオプション無しの全体検証。
+#   --expect-cycle <cycle名>
+#                  当周のサイクル名（journal ファイル名 basename。YYYY-MM-DD-cycle[-N]）。
+#                  journal-index: 末尾レコードの date・seq がサイクル名から導いた期待値と
+#                  一致することを証明する（当周の append の欠落＝前周レコードでの誤証明を防ぐ）。
+#                  runs: --since-last-cycle-start のアンカーに**そのサイクル名の cycle_start**を
+#                  要求する（前周の stale な cycle_start を受理しない。見つからなければ違反）。
 #                  append-only の恒久記録には契約導入前の不正行が残っていることがあり
 #                  （既存行の正しさは正本が保証しない・履歴は書き換えない）、全行検証だと
 #                  過去行の違反で以後の全周が恒久失敗する。run-cycle 手順6 は「1 周 1 行
@@ -63,7 +70,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_UNCHECKABLE = 2
 
-USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--tail-entries <n>] [--since-last-cycle-start]"
+USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--since-last-cycle-start]"
 
 def uncheckable(msg)
   warn "validate-artifact: 検査不能: #{msg}"
@@ -371,7 +378,7 @@ LEDGER_REQUIRED_LINES = [
   ["備考", /^- 備考:/],
 ].freeze
 
-def check_ledger(file, tail_entries = nil)
+def check_ledger(file, expect_ids = nil)
   lines = read_lines(file)
   annotated = annotate_exclusions(lines)
   errors = []
@@ -387,16 +394,25 @@ def check_ledger(file, tail_entries = nil)
     end
   end
 
-  # --tail-entries: アーカイブ用の範囲限定。アーカイブは「ステータス行以外は原文のまま」の
-  # 履歴（docs/challenge-ledger-format.md §アーカイブ）であり、契約導入前の過去エントリの
-  # 「修復」は原文保存の書き換えになるため、当該操作で追記された末尾 n エントリだけを検証する
-  # （台帳は現在状態＝修復が正規運用のため全体検証のまま）。エントリ総数が n 未満の場合は
-  # 「追記されたはずのエントリが存在しない」＝追記の消失として違反にする（不足を素通しにしない）。
-  if tail_entries
-    if entries.size < tail_entries
-      errors << "1: エントリが #{entries.size} 件しかありません（--tail-entries #{tail_entries} は直近 #{tail_entries} 件の追記エントリの存在を要求する。追記が失われていないか確認）"
+  # --expect-ids: アーカイブ追記用の範囲限定＋**同一性の証明**。アーカイブは「ステータス行
+  # 以外は原文のまま」の履歴（docs/challenge-ledger-format.md §アーカイブ）であり、契約導入前の
+  # 過去エントリを修復対象にしないため、当該操作で追記された末尾 n エントリだけを検証する
+  # （台帳は現在状態＝修復が正規運用のため全体検証のまま）。件数・形だけの検査では
+  # 「台帳から削除したのにアーカイブへ追記しなかった」場合に古いエントリを検証して exit 0 に
+  # なる（課題の消失がコミットされる）ため、呼び出し側が**当周に移動した課題 ID** を渡し、
+  # 末尾 n エントリの見出し ID 集合が期待と一致することまで証明する。
+  if expect_ids
+    n = expect_ids.size
+    if entries.size < n
+      errors << "1: エントリが #{entries.size} 件しかありません（--expect-ids は #{n} 件の追記エントリを要求: #{expect_ids.join(', ')}。追記が失われていないか確認）"
     end
-    entries = entries.last(tail_entries)
+    target = entries.last([n, entries.size].min)
+    actual_ids = target.map { |_, heading, _| heading[/\A### \[([^\]]*)\]/, 1] || "" }
+    if actual_ids.sort != expect_ids.sort
+      at = target.empty? ? 1 : target.first[0]
+      errors << "#{at}: 末尾 #{n} エントリの ID が期待と一致しません（期待: #{expect_ids.sort.join(', ')} / 実際: #{actual_ids.sort.join(', ')}。アーカイブへの追記漏れ・移動対象の取り違えを確認）"
+    end
+    entries = target
   end
 
   entries.each do |lineno, heading, body|
@@ -469,7 +485,11 @@ end
 # jsonl（journal-index / runs）
 # ---------------------------------------------------------------------------
 
-def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
+# expect_record: {date:, seq:}（journal-index の同一性証明。末尾レコードが当周の行で
+# あること＝当周の append が実際に起きたことを検証する。前周の正常レコードを「検証して
+# 正常」と誤証明しないため）。anchor_cycle: runs の同一性証明（そのサイクル名を持つ
+# cycle_start をアンカーに要求する。前周の stale な cycle_start を受理しないため）。
+def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_record = nil, anchor_cycle = nil)
   lines = read_lines(file)
 
   # 検証範囲の起点（0-based）。既定は全行。--tail / --since-last-cycle-start は
@@ -482,9 +502,20 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
     # （JSON 解析に依存すると、壊れ方によって当周の開始点そのものを見失うため）。
     # 空行は部分一致しえないためアンカーに選ばれず、アンカー以降のレコードは空行の有無に
     # かかわらず全て検証対象になる（下記 --tail のような物理行/論理レコードのずれは生じない）。
+    # --expect-cycle 指定時は「そのサイクル名の cycle_start」だけをアンカーとして受理する
+    # （当周の cycle_start が best-effort で書かれなかった場合に、前周の stale な cycle_start を
+    # 選んで前周分を「当周の検証」として誤証明しないため。見つからなければ違反として報告する）。
     last = nil
-    lines.each_with_index { |l, i| last = i if l.include?('"event":"cycle_start"') }
+    lines.each_with_index do |l, i|
+      next unless l.include?('"event":"cycle_start"')
+      next if anchor_cycle && !l.include?("\"cycle\":\"#{anchor_cycle}\"")
+      last = i
+    end
     if last.nil?
+      if anchor_cycle
+        errors << "1: 期待したサイクル #{anchor_cycle} の cycle_start が見つかりません（当周の開始記録の欠落＝append の失敗、または --expect-cycle の指定誤り）"
+        return errors
+      end
       uncheckable("--since-last-cycle-start: cycle_start 行が見つからず当周の開始点を特定できません: #{file}")
     end
     start_idx = last
@@ -523,6 +554,32 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false)
     validate_value(schema, value, "", line_errors)
     line_errors.each { |e| errors << "#{lineno}: #{e}" }
   end
+
+  # 同一性の証明: 末尾の非空レコードが「当周の行」（date・seq が期待値と一致）であること。
+  # 形の検証だけでは、当周の append が丸ごと欠落していても前周の正常レコードで exit 0 に
+  # なり「1 周 1 行」の不変条項をゲートが強制できないため。
+  if expect_record
+    last_line = nil
+    last_no = nil
+    lines.each_with_index do |l, i|
+      next if l.strip.empty?
+      last_line = l
+      last_no = i + 1
+    end
+    if last_line.nil?
+      errors << "1: レコードがありません（期待: 当周の行 date=#{expect_record[:date]} seq=#{expect_record[:seq]}）"
+    else
+      begin
+        rec = JSON.parse(last_line)
+        if !rec.is_a?(Hash) || rec["date"] != expect_record[:date] || rec["seq"] != expect_record[:seq]
+          actual = rec.is_a?(Hash) ? "date=#{rec['date'].inspect} seq=#{rec['seq'].inspect}" : rec.class.to_s
+          errors << "#{last_no}: 末尾レコードが当周の行ではありません（期待: date=#{expect_record[:date]} seq=#{expect_record[:seq]} / 実際: #{actual}。当周の append の欠落を確認）"
+        end
+      rescue JSON::ParserError
+        errors << "#{last_no}: 末尾レコードを解析できず、当周の行（date=#{expect_record[:date]} seq=#{expect_record[:seq]}）であることを確認できません"
+      end
+    end
+  end
   errors
 end
 
@@ -533,7 +590,8 @@ end
 args = ARGV.dup
 schema_dir = File.expand_path("../contracts/schemas", __dir__)
 tail = nil
-tail_entries = nil
+expect_ids = nil
+expect_cycle = nil
 since_cycle_start = false
 positional = []
 until args.empty?
@@ -551,12 +609,21 @@ until args.empty?
       uncheckable("--tail は 1 以上の整数が必要です: #{val.inspect}\n#{USAGE}")
     end
     tail = val.to_i
-  when "--tail-entries"
+  when "--expect-ids"
     val = args.shift
-    unless val.is_a?(String) && val =~ /\A[0-9]+\z/ && val.to_i >= 1
-      uncheckable("--tail-entries は 1 以上の整数が必要です: #{val.inspect}\n#{USAGE}")
+    if val.nil? || val.start_with?("--")
+      uncheckable("--expect-ids に値がありません\n#{USAGE}")
     end
-    tail_entries = val.to_i
+    expect_ids = val.split(",").map(&:strip)
+    if expect_ids.empty? || expect_ids.any?(&:empty?)
+      uncheckable("--expect-ids はカンマ区切りの課題 ID（1 件以上・空要素なし）が必要です: #{val.inspect}\n#{USAGE}")
+    end
+  when "--expect-cycle"
+    val = args.shift
+    if val.nil? || val.empty? || val.start_with?("--")
+      uncheckable("--expect-cycle に値がありません\n#{USAGE}")
+    end
+    expect_cycle = val
   when "--since-last-cycle-start"
     since_cycle_start = true
   when "-h", "--help"
@@ -576,14 +643,32 @@ type, file = positional
 if tail && !%w[journal-index runs].include?(type)
   uncheckable("--tail は jsonl（journal-index / runs）専用です（type=#{type}）\n#{USAGE}")
 end
-if tail_entries && !%w[ledger archive].include?(type)
-  uncheckable("--tail-entries は ledger / archive 専用です（type=#{type}）\n#{USAGE}")
+if expect_ids && !%w[ledger archive].include?(type)
+  uncheckable("--expect-ids は ledger / archive 専用です（type=#{type}）\n#{USAGE}")
+end
+if expect_cycle && !%w[journal-index runs].include?(type)
+  uncheckable("--expect-cycle は journal-index / runs 専用です（type=#{type}）\n#{USAGE}")
 end
 if since_cycle_start && type != "runs"
   uncheckable("--since-last-cycle-start は runs 専用です（type=#{type}）\n#{USAGE}")
 end
 if tail && since_cycle_start
   uncheckable("--tail と --since-last-cycle-start は同時に指定できません\n#{USAGE}")
+end
+if expect_cycle && type == "runs" && !since_cycle_start
+  uncheckable("runs の --expect-cycle は --since-last-cycle-start と併用してください\n#{USAGE}")
+end
+
+# journal-index の --expect-cycle はサイクル名（journal ファイル名 basename）から
+# 当周レコードの期待値（date・seq）を導く。seq はサフィックス無し＝1・`-N`＝N
+# （templates/journal/README.md のスキーマと命名規則に一致）。
+expect_record = nil
+if expect_cycle && type == "journal-index"
+  m = expect_cycle.match(/\A([0-9]{4}-[0-9]{2}-[0-9]{2})-cycle(?:-([0-9]+))?\z/)
+  unless m
+    uncheckable("--expect-cycle はサイクル名（YYYY-MM-DD-cycle または YYYY-MM-DD-cycle-N）が必要です: #{expect_cycle.inspect}\n#{USAGE}")
+  end
+  expect_record = { date: m[1], seq: (m[2] || "1").to_i }
 end
 
 def load_schema(schema_dir, basename)
@@ -601,17 +686,17 @@ errors =
   begin
     case type
     when "ledger", "archive"
-      check_ledger(file, tail_entries)
+      check_ledger(file, expect_ids)
     when "journal-md"
       check_journal_md(file)
     when "journal-index"
       schema = load_schema(schema_dir, "journal-index.schema.json")
       assert_schema_supported(schema, "journal-index.schema.json")
-      check_jsonl(file, schema, tail)
+      check_jsonl(file, schema, tail, false, expect_record)
     when "runs"
       schema = load_schema(schema_dir, "runs.schema.json")
       assert_schema_supported(schema, "runs.schema.json")
-      check_jsonl(file, schema, tail, since_cycle_start)
+      check_jsonl(file, schema, tail, since_cycle_start, nil, expect_cycle)
     else
       uncheckable("不明な type: #{type}\n#{USAGE}")
     end

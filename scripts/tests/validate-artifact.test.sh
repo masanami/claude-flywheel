@@ -288,10 +288,12 @@ assert_case "--since-last-cycle-start は runs 以外に使えず exit 2" 2 - \
 assert_case "--tail と --since-last-cycle-start の同時指定は exit 2" 2 - \
   -- runs "$tmp/legacy-runs.jsonl" --tail 1 --since-last-cycle-start
 
-# --- archive の --tail-entries: 追記エントリのみ検証（原文保存の履歴を修復対象にしない） ---
+# --- archive の --expect-ids: 追記エントリのみ検証＋同一性（追記 ID 一致）の証明 ---
 # 契約導入前の壊れた過去エントリ（備考行欠落）が残るアーカイブに、正常なエントリを 1 件
 # 追記したシナリオ。全体検証は exit 1 のままでよい（フィクスチャ・全体契約用）が、
-# run-cycle 手順6 の呼び出し形（--tail-entries 1）は追記分だけを見て exit 0 になること。
+# run-cycle 手順6 の呼び出し形（--expect-ids <移動した課題ID>）は追記分だけを見て exit 0 に
+# なり、かつ「台帳から削除したのにアーカイブへ追記しなかった」（末尾が古いエントリのまま）を
+# ID 不一致として検出すること。
 
 cat > "$tmp/legacy-archive.md" <<'EOF'
 # 課題アーカイブ（Challenge Archive）
@@ -339,24 +341,62 @@ cat > "$tmp/legacy-archive.md" <<'EOF'
 EOF
 assert_case "レガシー破損エントリ入りアーカイブ: 全体検証は exit 1" 1 "備考" \
   -- archive "$tmp/legacy-archive.md"
-assert_case "アーカイブ --tail-entries 1（run-cycle の呼び出し形）は追記分のみで exit 0" 0 - \
-  -- archive "$tmp/legacy-archive.md" --tail-entries 1
-assert_case "--tail-entries 2 はレガシーエントリを含み exit 1" 1 "備考" \
-  -- archive "$tmp/legacy-archive.md" --tail-entries 2
-assert_case "--tail-entries がエントリ総数を超える場合は不足違反（追記の消失を素通しにしない）" 1 "エントリが 2 件" \
-  -- archive "$tmp/legacy-archive.md" --tail-entries 3
+assert_case "アーカイブ --expect-ids C-002（run-cycle の呼び出し形）は追記分のみで exit 0" 0 - \
+  -- archive "$tmp/legacy-archive.md" --expect-ids C-002
+assert_case "--expect-ids C-001,C-002 はレガシーエントリを含み exit 1" 1 "備考" \
+  -- archive "$tmp/legacy-archive.md" --expect-ids C-001,C-002
+assert_case "移動漏れ（期待 ID がアーカイブ末尾に無い）を ID 不一致で検出" 1 "一致しません" \
+  -- archive "$tmp/legacy-archive.md" --expect-ids C-003
+assert_case "複数移動の一部漏れ（期待 2 件・末尾は別 ID）も ID 不一致で検出" 1 "一致しません" \
+  -- archive "$tmp/legacy-archive.md" --expect-ids C-002,C-003
+assert_case "--expect-ids がエントリ総数を超える場合は不足違反（追記の消失を素通しにしない）" 1 "エントリが 2 件" \
+  -- archive "$tmp/legacy-archive.md" --expect-ids C-001,C-002,C-003
 
 # 追記エントリ自体の違反（見出し前の空行欠落＝事故a）は範囲限定でも検出する
 # （C-002 見出し直前の空行を除去した「空行なし連結」状態を生成。macOS awk は多バイト文字の
 # 等値比較に難があるため、日本語を含む行の加工は ruby で行う）
 /usr/bin/ruby -e 'ls = File.readlines(ARGV[0]); i = ls.index { |l| l.start_with?("### [C-002]") }; abort "C-002 見出しが見つからない" unless i && i > 0 && ls[i - 1].strip.empty?; ls.delete_at(i - 1); File.write(ARGV[1], ls.join)' "$tmp/legacy-archive.md" "$tmp/glued-archive.md"
-assert_case "追記エントリの見出し前空行欠落は --tail-entries 1 でも検出" 1 "空行がありません" \
-  -- archive "$tmp/glued-archive.md" --tail-entries 1
+assert_case "追記エントリの見出し前空行欠落は --expect-ids でも検出" 1 "空行がありません" \
+  -- archive "$tmp/glued-archive.md" --expect-ids C-002
 
-# 範囲指定オプションの type 制約
-assert_case "--tail-entries は jsonl に使えず exit 2" 2 - \
-  -- journal-index "$tmp/legacy-index.jsonl" --tail-entries 1
-assert_case "--tail-entries 0 は exit 2" 2 - -- archive "$tmp/legacy-archive.md" --tail-entries 0
+# --- journal-index の --expect-cycle: 当周の append が実際に起きたことの証明 ---
+# legacy-index.jsonl の末尾レコードは date=2026-08-19 seq=1。当周がそれと一致するなら
+# exit 0、一致しない（＝当周の append が丸ごと欠落し前周の行が末尾のまま）なら違反。
+
+assert_case "journal-index --expect-cycle 一致（run-cycle の呼び出し形）は exit 0" 0 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 1 --expect-cycle 2026-08-19-cycle
+assert_case "当周 append の欠落（date 不一致）を検出" 1 "当周の行ではありません" \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 1 --expect-cycle 2026-08-20-cycle
+assert_case "同日複数周の欠落（seq 不一致）を検出" 1 "当周の行ではありません" \
+  -- journal-index "$tmp/legacy-index.jsonl" --tail 1 --expect-cycle 2026-08-19-cycle-2
+assert_case "空ファイルへの --expect-cycle はレコード不在で exit 1" 1 "レコードがありません" \
+  -- journal-index "$tmp/empty-tail.jsonl" --expect-cycle 2026-08-19-cycle
+
+# --- runs の --expect-cycle: 当周のサイクル名を持つ cycle_start をアンカーに要求 ---
+# 当周の cycle_start が best-effort で書かれなかった場合、前周の stale な cycle_start を
+# アンカーに前周分を「当周の検証」として誤証明しないこと。
+
+cat > "$tmp/stale-runs.jsonl" <<'EOF'
+{"ts":"2026-08-18T09:00:00+09:00","event":"cycle_start","cycle":"2026-08-18-cycle"}
+{"ts":"2026-08-18T10:00:00+09:00","event":"cycle_end","cycle":"2026-08-18-cycle","result":"completed"}
+EOF
+assert_case "stale な前周 cycle_start を受理しない（期待サイクルの start 不在＝違反）" 1 "見つかりません" \
+  -- runs "$tmp/stale-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle
+assert_case "期待サイクルの cycle_start があれば当周分のみ検証して exit 0" 0 - \
+  -- runs "$tmp/stale-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-18-cycle
+assert_case "--expect-cycle 無しの従来モードは最後の cycle_start を使う（後方互換）" 0 - \
+  -- runs "$tmp/stale-runs.jsonl" --since-last-cycle-start
+
+# 期待値オプションの引数・type 制約
+assert_case "--expect-ids は jsonl に使えず exit 2" 2 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --expect-ids C-001
+assert_case "--expect-ids の空要素は exit 2" 2 - -- archive "$tmp/legacy-archive.md" --expect-ids "C-001,,C-002"
+assert_case "--expect-cycle は md タイプに使えず exit 2" 2 - \
+  -- ledger "$tmp/legacy-archive.md" --expect-cycle 2026-08-19-cycle
+assert_case "journal-index の --expect-cycle は不正な形式なら exit 2" 2 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --expect-cycle bogus-name
+assert_case "runs の --expect-cycle は --since-last-cycle-start 必須（無しは exit 2）" 2 - \
+  -- runs "$tmp/stale-runs.jsonl" --expect-cycle 2026-08-18-cycle
 
 # --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
 # run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
