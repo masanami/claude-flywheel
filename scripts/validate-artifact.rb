@@ -415,19 +415,53 @@ LEDGER_REQUIRED_LINES = [
   ["備考", /^- 備考:/],
 ].freeze
 
+# エントリ固有のフィールド行（必須行＋マーカー行）。見出しが破損・削除されると本文が
+# 「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
+# エントリの外に現れたら見出し破損の兆候として違反にする。
+LEDGER_FIELD_LINES = (LEDGER_REQUIRED_LINES.map { |_, re| re } +
+                      [/^- 取り込み元:/, /^- 監査元:/]).freeze
+
+# 破損した見出し候補（`## [C-` への降格・`###[C-` の空白欠落等）。正規見出し `### [` に
+# 一致しない `#` 始まりの `[C-` 含み行は、正規の前文・記入例（フェンス/コメント内は除外済み）
+# には現れない（実台帳・実アーカイブ・テンプレート・正例フィクスチャで誤検出ゼロを実測）。
+# 引用（`> ### [C-...`）は行頭が `#` でないため対象外。
+def broken_heading_candidate?(line)
+  line =~ /\A#+/ && line.include?("[C-") && line !~ /\A### \[/
+end
+
 def check_ledger(file, expect_ids = nil)
   lines = read_lines(file)
   annotated = annotate_exclusions(lines)
   errors = []
 
   # エントリ（見出し〜次見出し）へ分割する。見出しはフェンス・コメント内を除外して拾う。
+  # あわせて最初の見出しより前（前文）の included 行を控える（孤児フィールド検出用）。
   entries = [] # [heading_lineno, heading_text, included_body_lines]
+  preamble = [] # [lineno, text]
   annotated.each do |lineno, text, included|
     next unless included
     if text =~ /^### \[/
       entries << [lineno, text, []]
     elsif !entries.empty?
       entries.last[2] << text
+    else
+      preamble << [lineno, text]
+    end
+  end
+
+  # 全体検証（運用では ledger。archive のフル検証は fixtures / vendoring 用）でのみ、
+  # 前文の孤児フィールドを検査する（--expect-ids の範囲限定では前文＝レガシー領域は対象外。
+  # 追記エントリの見出し破損は --expect-ids の ID 照合〔不足・不一致〕が既に検出する）。
+  unless expect_ids
+    preamble.each do |lineno, text|
+      if LEDGER_FIELD_LINES.any? { |re| re =~ text }
+        errors << "#{lineno}: エントリ見出しに属さないフィールド行があります（見出しの破損・削除で課題が不可視になっている可能性）: #{text[0, 50]}"
+      end
+    end
+    preamble.each do |lineno, text|
+      if broken_heading_candidate?(text)
+        errors << "#{lineno}: 正規の見出し（### [ID] ...）に一致しない見出し候補があります: #{text[0, 50]}"
+      end
     end
   end
 
@@ -472,6 +506,25 @@ def check_ledger(file, expect_ids = nil)
     a = body.count { |l| l =~ /^- 監査元: *[^ ]/ }
     if t > 1 || a > 1 || (t > 0 && a > 0)
       errors << "#{lineno}: マーカーの整合違反（取り込み元=#{t} 監査元=#{a}。高々 1 つ・両種の同居禁止）: #{heading[0, 60]}"
+    end
+
+    # (4) 本文内の破損見出し候補（`## [C-` への降格等）。破損見出しの本文は直前エントリへ
+    #     吸収されて課題ごと不可視になるため、「無害な本文」扱いにしない。
+    body.each do |l|
+      if broken_heading_candidate?(l)
+        errors << "#{lineno}: エントリ本文に正規の見出し（### [ID] ...）に一致しない見出し候補があります（破損した見出しの吸収の可能性）: #{l[0, 50]}"
+      end
+    end
+
+    # (5) 必須フィールド行の重複（見出し行だけが削除されると後続エントリの本文が丸ごと
+    #     吸収され、同じフィールド行が 2 度現れる。正規形では各行は高々 1 回＝実台帳・
+    #     実アーカイブ・テンプレートで重複ゼロを実測。引用・入れ子はインデント／`> ` 付きで
+    #     行頭パターンに一致しない）。
+    LEDGER_REQUIRED_LINES.each do |label, re|
+      c = body.count { |l| re =~ l }
+      if c > 1
+        errors << "#{lineno}: 「#{label}」行が #{c} 回出現しています（見出し行の削除による別エントリの吸収の可能性）: #{heading[0, 60]}"
+      end
     end
   end
 

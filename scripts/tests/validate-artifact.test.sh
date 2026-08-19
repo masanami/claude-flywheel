@@ -77,6 +77,12 @@ assert_case "事故e: 巻き添え削除された備考行を指摘する" 1 "�
   -- ledger "$FIXTURES/ledger/invalid/missing-note-field.md"
 assert_case "マーカー整合: 両種同居と重複を指摘する" 1 "マーカーの整合違反" \
   -- ledger "$FIXTURES/ledger/invalid/double-marker.md"
+assert_case "見出し降格（先頭課題の前文化）を孤児フィールドとして指摘する" 1 "属さないフィールド行" \
+  -- ledger "$FIXTURES/ledger/invalid/heading-demoted.md"
+assert_case "見出し降格（## [C- 化）を見出し候補として指摘する" 1 "見出し候補" \
+  -- ledger "$FIXTURES/ledger/invalid/heading-demoted.md"
+assert_case "見出し行の削除（後続課題の吸収）をフィールド重複として指摘する" 1 "回出現" \
+  -- ledger "$FIXTURES/ledger/invalid/heading-deleted.md"
 assert_case "事故b: decisions の string 化を指摘する" 1 "decisions: 型が array ではありません" \
   -- journal-index "$FIXTURES/journal-index/invalid/decisions-string.jsonl"
 assert_case "事故c: pending_approvals の形の崩れを指摘する" 1 "pending_approvals" \
@@ -358,6 +364,14 @@ assert_case "--expect-ids がエントリ総数を超える場合は不足違反
 /usr/bin/ruby -e 'ls = File.readlines(ARGV[0]); i = ls.index { |l| l.start_with?("### [C-002]") }; abort "C-002 見出しが見つからない" unless i && i > 0 && ls[i - 1].strip.empty?; ls.delete_at(i - 1); File.write(ARGV[1], ls.join)' "$tmp/legacy-archive.md" "$tmp/glued-archive.md"
 assert_case "追記エントリの見出し前空行欠落は --expect-ids でも検出" 1 "空行がありません" \
   -- archive "$tmp/glued-archive.md" --expect-ids C-002
+
+# 追記エントリの見出し破損（### → ## への降格）は --expect-ids の ID 照合が検出する
+# （破損見出しのエントリは認識されず、末尾エントリの ID が期待と一致しなくなるため。
+# 見出し破損検査を範囲限定モードで前文＝レガシー領域へ広げない根拠でもある）
+/usr/bin/ruby -e 'File.write(ARGV[1], File.read(ARGV[0]).sub("### [C-002]", "## [C-002]"))' \
+  "$tmp/legacy-archive.md" "$tmp/demoted-archive.md"
+assert_case "追記エントリの見出し破損は --expect-ids の ID 照合が検出" 1 "一致しません" \
+  -- archive "$tmp/demoted-archive.md" --expect-ids C-002
 
 # --- journal-index の --expect-cycle: 当周の append が実際に起きたことの証明 ---
 # legacy-index.jsonl の末尾レコードは date=2026-08-19 seq=1。当周がそれと一致するなら
