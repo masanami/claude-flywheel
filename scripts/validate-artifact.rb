@@ -415,10 +415,29 @@ LEDGER_REQUIRED_LINES = [
   ["備考", /^- 備考:/],
 ].freeze
 
-# エントリ固有のフィールド行（必須行＋マーカー行）。見出しが破損・削除されると本文が
-# 「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
+# 参照フィールド（任意・複数可。docs/challenge-ledger-format.md §関連リポジトリ・関連Issue・関連PR）。
+# **必須にはしない**（このフィールドを持たない既存エントリはそのまま正規）。値を書いた場合だけ
+# 形を検査する: 消費側（board 等）が `<owner>/<repo>` / `<repo>#<番号>` からリンクを組み立てる
+# 前提のため、自由記述・URL・プレースホルダ（`（未作成）` 等）が入ると機械処理が静かに壊れる
+# （journal-index の `touched_issues.to` に自由記述が入って集計不能になった事故と同型）。
+# 要素は `\A`/`\z` でアンカーする（Ruby の `^`/`$` は行アンカーのため）。
+LEDGER_REF_FIELDS = [
+  ["関連リポジトリ", /^- 関連リポジトリ:(.*)$/,
+   %r{\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\z},
+   "`<owner>/<repo>` のカンマ区切り"],
+  ["関連Issue", /^- 関連Issue:(.*)$/,
+   %r{\A(?:[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\#\d+\z},
+   "`<owner>/<repo>#<番号>`（同一 owner なら `<repo>#<番号>`）のカンマ区切り"],
+  ["関連PR", /^- 関連PR:(.*)$/,
+   %r{\A(?:[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\#\d+\z},
+   "`<owner>/<repo>#<番号>`（同一 owner なら `<repo>#<番号>`）のカンマ区切り"],
+].freeze
+
+# エントリ固有のフィールド行（必須行＋マーカー行＋参照フィールド行）。見出しが破損・削除されると
+# 本文が「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
 # エントリの外に現れたら見出し破損の兆候として違反にする。
 LEDGER_FIELD_LINES = (LEDGER_REQUIRED_LINES.map { |_, re| re } +
+                      LEDGER_REF_FIELDS.map { |_, re, _, _| re } +
                       [/^- 取り込み元:/, /^- 監査元:/]).freeze
 
 # 破損した見出し候補（`## [C-` への降格・`###[C-` の空白欠落等）。正規見出し `### [` に
@@ -524,6 +543,41 @@ def check_ledger(file, expect_ids = nil)
       c = body.count { |l| re =~ l }
       if c > 1
         errors << "#{lineno}: 「#{label}」行が #{c} 回出現しています（見出し行の削除による別エントリの吸収の可能性）: #{heading[0, 60]}"
+      end
+    end
+
+    # (6) 複数行フィールド（タスク案・完了条件）のネスト項目のインデント欠落
+    #     （docs/challenge-ledger-format.md §複数行フィールドの記入形式の形 F）。フィールド行の
+    #     直下の番号付きリストが行頭（インデントなし）に書かれると、GitHub 上は独立したリストに
+    #     なり、消費側の「フィールド直下の連続インデント行」収集からも外れて値ごと欠落する
+    #     （board で "-" 表示になった実事故と同型: Issue #87）。
+    #     **検査範囲は分類欄のみ**（エージェントが書く領域に限定する）。人間記入欄は人間の自由記述と
+    #     外部本文の転記（ブロック引用）が入るため、行頭の番号付きリストを違反にしない。
+    in_classification = false
+    body.each do |l|
+      if l =~ /^\*\*分類欄/
+        in_classification = true
+        next
+      end
+      next unless in_classification
+      if l =~ /^\d+[.)][ \t]/
+        errors << "#{lineno}: 分類欄にインデントされていない番号付きリスト行があります（複数行フィールドのネスト項目は半角スペース 2 個でインデントする。フィールドとの結びつきが切れて消費側で欠落する）: #{l[0, 50]}"
+      end
+    end
+
+    # (7) 参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形。空欄は「該当なし」で正規。
+    LEDGER_REF_FIELDS.each do |label, line_re, elem_re, hint|
+      body.each do |l|
+        m = line_re.match(l)
+        next unless m
+        value = m[1].strip
+        next if value.empty?
+        elems = value.split(",").map(&:strip).reject(&:empty?)
+        bad = elems.reject { |e| elem_re =~ e }
+        if elems.empty? || !bad.empty?
+          shown = elems.empty? ? value : bad.join(", ")
+          errors << "#{lineno}: 「#{label}」の値の形が不正です（#{hint}。URL・自由記述・プレースホルダは書かない。不正: #{shown}）: #{heading[0, 60]}"
+        end
       end
     end
   end
