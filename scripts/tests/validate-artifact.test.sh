@@ -387,6 +387,49 @@ assert_case "期待サイクルの cycle_start があれば当周分のみ検証
 assert_case "--expect-cycle 無しの従来モードは最後の cycle_start を使う（後方互換）" 0 - \
   -- runs "$tmp/stale-runs.jsonl" --since-last-cycle-start
 
+# --expect-cycle は終端の cycle_end（同名）の実在も要求する（best-effort append の失敗で
+# 閉じられていない run が観測プレーンに残るのを検出。検証は cycle_end 記録後に走る前提）
+cat > "$tmp/no-end-runs.jsonl" <<'EOF'
+{"ts":"2026-08-19T09:00:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:05:00+09:00","event":"delegate_start","challenge":"C-001","repo":"service-a","session_id":"550e8400-e29b-41d4-a716-446655440000","title":"委譲"}
+{"ts":"2026-08-19T09:40:00+09:00","event":"delegate_end","challenge":"C-001","repo":"service-a","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"done"}
+EOF
+assert_case "期待サイクルの cycle_end 欠落（run が閉じられていない）を検出" 1 "cycle_end が見つかりません" \
+  -- runs "$tmp/no-end-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle
+assert_case "--expect-cycle 無しなら cycle_end は要求しない（後方互換）" 0 - \
+  -- runs "$tmp/no-end-runs.jsonl" --since-last-cycle-start
+
+# --anchor-after-line: クラッシュ後のサイクル名再利用で「同名の旧 cycle_start」を当周の
+# 証明に使わせない（追記前の行数＝起動ごとに一意な位置でアンカーを固定する）
+cat > "$tmp/reused-name-runs.jsonl" <<'EOF'
+{"ts":"2026-08-19T08:00:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:00:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"abandoned"}
+{"ts":"2026-08-19T09:30:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"completed"}
+EOF
+assert_case "同名の旧 cycle_start を当周の証明に使わせない（--anchor-after-line 2 で違反）" 1 "見つかりません" \
+  -- runs "$tmp/reused-name-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle --anchor-after-line 2
+assert_case "--anchor-after-line 無しだと同名旧 start で誤証明される（弱いモードの記録）" 0 - \
+  -- runs "$tmp/reused-name-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle
+cat > "$tmp/reused-name-ok-runs.jsonl" <<'EOF'
+{"ts":"2026-08-19T08:00:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:00:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"abandoned"}
+{"ts":"2026-08-19T09:10:00+09:00","event":"cycle_start","cycle":"2026-08-19-cycle"}
+{"ts":"2026-08-19T09:30:00+09:00","event":"cycle_end","cycle":"2026-08-19-cycle","result":"completed"}
+EOF
+assert_case "当周の start が記録位置より後にあれば exit 0（run-cycle の完全形）" 0 - \
+  -- runs "$tmp/reused-name-ok-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle --anchor-after-line 2
+assert_case "--anchor-after-line がファイル行数を超える（append-only の破れ）は exit 2" 2 - \
+  -- runs "$tmp/reused-name-ok-runs.jsonl" --since-last-cycle-start --expect-cycle 2026-08-19-cycle --anchor-after-line 99
+assert_case "--anchor-after-line は runs の --since-last-cycle-start 専用（journal-index は exit 2）" 2 - \
+  -- journal-index "$tmp/legacy-index.jsonl" --anchor-after-line 0
+assert_case "--anchor-after-line 非整数は exit 2" 2 - \
+  -- runs "$tmp/reused-name-ok-runs.jsonl" --since-last-cycle-start --anchor-after-line abc
+
+# --- pattern は文字列全体アンカー（Ruby の ^ $ 行アンカー問題） ---
+# 改行を含む値は 1 行が pattern に一致しても全体としては違反（禁止文字の素通し防止）
+assert_case "改行入り session_id（1 行目だけ pattern 一致）を違反として検出" 1 ":3:" \
+  -- runs "$FIXTURES/runs/invalid/key-unsafe-chars.jsonl"
+
 # 期待値オプションの引数・type 制約
 assert_case "--expect-ids は jsonl に使えず exit 2" 2 - \
   -- journal-index "$tmp/legacy-index.jsonl" --expect-ids C-001

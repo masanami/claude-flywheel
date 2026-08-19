@@ -9,7 +9,7 @@
 # 使い方:
 #   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>]
 #                                [--expect-ids <id,...>] [--expect-cycle <cycle名>]
-#                                [--since-last-cycle-start]
+#                                [--anchor-after-line <n>] [--since-last-cycle-start]
 #
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
@@ -36,7 +36,16 @@
 #                  journal-index: 末尾レコードの date・seq がサイクル名から導いた期待値と
 #                  一致することを証明する（当周の append の欠落＝前周レコードでの誤証明を防ぐ）。
 #                  runs: --since-last-cycle-start のアンカーに**そのサイクル名の cycle_start**を
-#                  要求する（前周の stale な cycle_start を受理しない。見つからなければ違反）。
+#                  要求し（前周の stale な cycle_start を受理しない。見つからなければ違反）、
+#                  さらにアンカー以降に**同じサイクル名の cycle_end** の存在も要求する
+#                  （閉じられていない run が観測プレーンに残るのを検出。検証は cycle_end
+#                  記録後に実行される前提）。
+#   --anchor-after-line <n>
+#                  runs 専用（--since-last-cycle-start と併用）: cycle_start 追記**直前**の
+#                  runs.jsonl の行数 n（ファイル不在なら 0）。行 n より後にある cycle_start
+#                  だけをアンカーとして受理する。クラッシュ後のサイクル名再利用では同名の
+#                  旧 cycle_start が存在しうるため、名前一致に加えて**起動ごとに一意な位置**で
+#                  当周の start の実在を証明する。
 #                  append-only の恒久記録には契約導入前の不正行が残っていることがあり
 #                  （既存行の正しさは正本が保証しない・履歴は書き換えない）、全行検証だと
 #                  過去行の違反で以後の全周が恒久失敗する。run-cycle 手順6 は「1 周 1 行
@@ -70,7 +79,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_UNCHECKABLE = 2
 
-USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--since-last-cycle-start]"
+USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--anchor-after-line <n>] [--since-last-cycle-start]"
 
 def uncheckable(msg)
   warn "validate-artifact: 検査不能: #{msg}"
@@ -142,7 +151,8 @@ def assert_schema_supported(schema, where)
     pat = schema["pattern"]
     uncheckable("スキーマの pattern は文字列が必要です: #{where}/pattern = #{pat.inspect}") unless pat.is_a?(String)
     begin
-      Regexp.new(pat)
+      # 実際の評価と同じ変換（^→\A・$→\z）を通した形でコンパイル可能性を確認する
+      Regexp.new(ecma_to_ruby_pattern(pat))
     rescue RegexpError => e
       uncheckable("スキーマの pattern が正規表現として不正です: #{where}/pattern（#{e.message}）")
     end
@@ -166,6 +176,33 @@ def assert_schema_supported(schema, where)
     uncheckable("スキーマの oneOf は空でない配列が必要です: #{where}/oneOf = #{oo.inspect}") unless oo.is_a?(Array) && !oo.empty?
     oo.each_with_index { |sub, i| assert_schema_supported(sub, "#{where}/oneOf[#{i}]") }
   end
+end
+
+# JSON Schema の pattern は ECMA 正規表現（非 multiline: ^＝文字列先頭・$＝文字列末尾）だが、
+# Ruby の ^ / $ は常に**行**アンカーのため、そのまま評価すると改行を含む文字列の 1 行だけが
+# 一致して全体が通ってしまう（例: "abc\n\"x" が ^[^\"\\]+$ を通過し、禁止文字入りの値が
+# log-run-event.sh check のキー抽出を壊す）。文字クラス内（[^...] の否定）とエスケープ済み
+# （\^ \$）を除き、^ → \A・$ → \z へ変換して**文字列全体**に対して評価する。
+def ecma_to_ruby_pattern(pat)
+  out = +""
+  in_class = false
+  escaped = false
+  pat.each_char do |c|
+    if escaped
+      out << c
+      escaped = false
+      next
+    end
+    case c
+    when "\\" then out << c; escaped = true
+    when "[" then in_class = true; out << c
+    when "]" then in_class = false; out << c
+    when "^" then out << (in_class ? c : "\\A")
+    when "$" then out << (in_class ? c : "\\z")
+    else out << c
+    end
+  end
+  out
 end
 
 def type_match?(type, value)
@@ -243,7 +280,7 @@ def validate_value(schema, value, path, errors)
   end
 
   if value.is_a?(String)
-    if schema.key?("pattern") && !(Regexp.new(schema["pattern"]) =~ value)
+    if schema.key?("pattern") && !(Regexp.new(ecma_to_ruby_pattern(schema["pattern"])) =~ value)
       errors << "#{loc}: 形式が不正です（実際: #{value.inspect} / 期待パターン: #{schema['pattern']}）"
     end
     if schema.key?("minLength") && value.length < schema["minLength"]
@@ -489,7 +526,11 @@ end
 # あること＝当周の append が実際に起きたことを検証する。前周の正常レコードを「検証して
 # 正常」と誤証明しないため）。anchor_cycle: runs の同一性証明（そのサイクル名を持つ
 # cycle_start をアンカーに要求する。前周の stale な cycle_start を受理しないため）。
-def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_record = nil, anchor_cycle = nil)
+# anchor_after: 追記前の行数（0-based の開始インデックスに一致）。クラッシュ後の
+# サイクル名再利用では「同名の旧 cycle_start」が存在しうるため、名前一致だけでは当周の
+# start の実在を証明できない。呼び出し側が cycle_start 追記直前の行数を控えて渡し、
+# 「その行より後」にあるアンカーだけを受理する（起動ごとに一意な期待値）。
+def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_record = nil, anchor_cycle = nil, anchor_after = nil)
   lines = read_lines(file)
 
   # 検証範囲の起点（0-based）。既定は全行。--tail / --since-last-cycle-start は
@@ -505,20 +546,38 @@ def check_jsonl(file, schema, tail = nil, since_cycle_start = false, expect_reco
     # --expect-cycle 指定時は「そのサイクル名の cycle_start」だけをアンカーとして受理する
     # （当周の cycle_start が best-effort で書かれなかった場合に、前周の stale な cycle_start を
     # 選んで前周分を「当周の検証」として誤証明しないため。見つからなければ違反として報告する）。
+    if anchor_after && lines.size < anchor_after
+      uncheckable("--anchor-after-line #{anchor_after} に対しファイルが #{lines.size} 行しかありません（append-only の前提が破れています）: #{file}")
+    end
     last = nil
     lines.each_with_index do |l, i|
+      next if anchor_after && i < anchor_after
       next unless l.include?('"event":"cycle_start"')
       next if anchor_cycle && !l.include?("\"cycle\":\"#{anchor_cycle}\"")
       last = i
     end
     if last.nil?
-      if anchor_cycle
-        errors << "1: 期待したサイクル #{anchor_cycle} の cycle_start が見つかりません（当周の開始記録の欠落＝append の失敗、または --expect-cycle の指定誤り）"
+      if anchor_cycle || anchor_after
+        where = anchor_after ? "行 #{anchor_after} より後に" : ""
+        what = anchor_cycle ? "期待したサイクル #{anchor_cycle} の" : ""
+        errors << "1: #{where}#{what}cycle_start が見つかりません（当周の開始記録の欠落＝append の失敗、または期待値の指定誤り。同名の旧 cycle_start は当周の証明にならない）"
         return errors
       end
       uncheckable("--since-last-cycle-start: cycle_start 行が見つからず当周の開始点を特定できません: #{file}")
     end
     start_idx = last
+
+    # 期待サイクル指定時は、アンカー以降に**同じサイクル名の cycle_end** が存在することも
+    # 要求する（run-cycle の検証実行位置は cycle_end 記録後のため要求可能。best-effort の
+    # cycle_end append が失敗すると、観測プレーンに閉じられていない run が残るため）。
+    if anchor_cycle
+      has_end = lines[start_idx..-1].any? do |l|
+        l.include?('"event":"cycle_end"') && l.include?("\"cycle\":\"#{anchor_cycle}\"")
+      end
+      unless has_end
+        errors << "#{lines.size}: 期待したサイクル #{anchor_cycle} の cycle_end が見つかりません（run が閉じられていない＝cycle_end append の失敗を確認）"
+      end
+    end
   elsif tail
     # 末尾 n は**非空の JSONL レコード基準**で数える（物理行基準にすると、末尾に空行が
     # 続くファイルで start_idx が空行を指し、検証ループの空行スキップと合わさって実レコードが
@@ -592,6 +651,7 @@ schema_dir = File.expand_path("../contracts/schemas", __dir__)
 tail = nil
 expect_ids = nil
 expect_cycle = nil
+anchor_after = nil
 since_cycle_start = false
 positional = []
 until args.empty?
@@ -624,6 +684,12 @@ until args.empty?
       uncheckable("--expect-cycle に値がありません\n#{USAGE}")
     end
     expect_cycle = val
+  when "--anchor-after-line"
+    val = args.shift
+    unless val.is_a?(String) && val =~ /\A[0-9]+\z/
+      uncheckable("--anchor-after-line は 0 以上の整数（追記前の行数）が必要です: #{val.inspect}\n#{USAGE}")
+    end
+    anchor_after = val.to_i
   when "--since-last-cycle-start"
     since_cycle_start = true
   when "-h", "--help"
@@ -657,6 +723,9 @@ if tail && since_cycle_start
 end
 if expect_cycle && type == "runs" && !since_cycle_start
   uncheckable("runs の --expect-cycle は --since-last-cycle-start と併用してください\n#{USAGE}")
+end
+if anchor_after && (type != "runs" || !since_cycle_start)
+  uncheckable("--anchor-after-line は runs の --since-last-cycle-start と併用してください（type=#{type}）\n#{USAGE}")
 end
 
 # journal-index の --expect-cycle はサイクル名（journal ファイル名 basename）から
@@ -696,7 +765,7 @@ errors =
     when "runs"
       schema = load_schema(schema_dir, "runs.schema.json")
       assert_schema_supported(schema, "runs.schema.json")
-      check_jsonl(file, schema, tail, since_cycle_start, nil, expect_cycle)
+      check_jsonl(file, schema, tail, since_cycle_start, nil, expect_cycle, anchor_after)
     else
       uncheckable("不明な type: #{type}\n#{USAGE}")
     end
