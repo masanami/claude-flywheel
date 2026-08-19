@@ -41,7 +41,7 @@ journal/
 | --- | --- | --- |
 | `date` | string (`YYYY-MM-DD`) | 実行日 |
 | `seq` | number | 同日内の連番（**1 始まり**。`seq: 1` はファイル名にサフィックスを付けない＝ `YYYY-MM-DD-cycle.md`、`seq: 2` から `-2` を付ける） |
-| `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }` |
+| `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }`。`to` は**正規のステータス語彙のみ**（`未分類 / 分類済 / 計画承認待ち / 着手中 / 検証中 / 完了確認待ち / 完了`）。「分類済（着手可能）」のような補足はカッコ書きで付けず `decisions` 等の別欄へ書く（自由記述が混ざると reflect や観測プレーンの機械集計が効かなくなる） |
 | `delegations` | `array<object>` | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<事前採番して --session-id で指定した UUID>", "result": "<結果1行>" }` |
 | `pr_urls` | `array<string>` | 作成した PR / ブランチの URL |
 | `pending_approvals` | `array<object>` | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |
@@ -52,6 +52,10 @@ journal/
 ```json
 {"date":"2026-07-04","seq":1,"touched_issues":[{"id":"C-002-4","from":"着手中","to":"検証中"}],"delegations":[{"repo":"service-a","skill":"tdd-impl","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"実装完了・PR起票"}],"pr_urls":["https://github.com/org/service-a/pull/12"],"pending_approvals":[{"gate":"FR-13","issue":"C-003","summary":"タスク起票の承認待ち"}],"decisions":["既存パターンに合わせフォールバック処理を追加"]}
 ```
+
+- **全 7 フィールドを必須**とする（該当が無い周も空配列で置く）。表に無いフィールドは置かない。
+- **書く前に本スキーマ表を読む。既存行を形の参照元にしない**（`tail -1` で直前行を真似ると、真似元の誤りごと繰り返す。既存行が正しい保証はない）。
+- 機械可読版のスキーマは claude-flywheel プラグインの `contracts/schemas/journal-index.schema.json`。**書き込み後・コミット前に** `${CLAUDE_PLUGIN_ROOT}/scripts/validate-artifact.rb journal-index journal/index.jsonl` で検算する（run-cycle 手順6。本表と食い違う場合はバグとして両方を整合させる。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。
 
 `reflect` スキルはこのファイルを、`experience`（good/bad）と並ぶ集計入力として使う。
 
