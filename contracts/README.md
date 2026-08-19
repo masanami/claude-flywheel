@@ -23,8 +23,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 
 | type | 対象ファイル | 検査内容 |
 | --- | --- | --- |
-| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／複数行フィールドのネスト項目のインデント／参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形 |
-| `archive` | `challenge-archive.md` | `ledger` と同一（アーカイブはエントリを原文のまま移した同形式） |
+| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／**分類欄の結合切れ**（インデント欠落 3 形＋ネスト項目群の途中の空行）／参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形 |
+| `archive` | `challenge-archive.md` | `ledger` とほぼ同一（エントリを原文のまま移した同形式）。ただし**結合切れ・参照フィールドの値の形の 2 検査は行わない**——原文保存の履歴であり修復が禁じられているため（移行猶予。詳細は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式） |
 | `journal-md` | `journal/YYYY-MM-DD-cycle.md` | 定型 5 セクション（触った課題／委譲／PR・ブランチ URL／承認待ちゲート／判断と根拠）の存在・順序 |
 | `journal-index` | `journal/index.jsonl` | `schemas/journal-index.schema.json` による行ごとの検証 |
 | `runs` | `.flywheel/runs.jsonl` | `schemas/runs.schema.json` による行ごとの検証 |
@@ -48,7 +48,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | 台帳/アーカイブ: 見出し直前の空行 | 複数エントリの同時アーカイブで `"\n".join` 連結され見出しが直前の箇条書きに吸収（recurrence 3）→ `fixtures/ledger/invalid/heading-no-blank-line.md` |
 | 台帳/アーカイブ: 必須フィールド行 | エントリの範囲削除が隣接エントリの備考行・空行を巻き添え削除 → `fixtures/ledger/invalid/missing-note-field.md` |
 | 台帳/アーカイブ: マーカー整合 | 行番号演算の移動が隣接エントリのマーカーを破壊（`docs/challenge-ledger-format.md` §台帳を機械で編集するときの規律の awk 検算と同じ意味論）→ `fixtures/ledger/invalid/double-marker.md` |
-| 台帳/アーカイブ: 複数行フィールドのネスト項目のインデント（**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）。インデントを落とすとフィールドとの結びつきが切れて値ごと消える → `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（旧テンプレートのワークスペースが発明した実形） |
+| 台帳/アーカイブ: **分類欄の結合切れ**（インデント欠落の 3 形〔番号付き・`-`・`*`〕＋ネスト項目群の途中の空行。**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）。継続行がフィールド行と結びつかなくなると値ごと消える。**規定が「違反」と宣言する形を 1 つだけ検査して残りを素通しにしない**（規定と検査を 2 規則にしない） → `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/continuation-break-variants.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（旧テンプレートのワークスペースが発明した実形） |
 | 台帳/アーカイブ: 参照フィールドの値の形 | `関連リポジトリ` / `関連Issue` / `関連PR` は消費側が `<owner>/<repo>` / `<repo>#<番号>` からリンクを組み立てる前提（Issue #89）。自由記述・URL・プレースホルダが入るとリンク化・機械集計が静かに壊れる（`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md` |
 | journal md: 定型 5 セクション | セクション欠落・順序崩れで board のセクション対応（index.jsonl と 1:1）が壊れる → `fixtures/journal-md/invalid/` |
 | index.jsonl: `decisions` は array\<string\> | string で 3 周連続記入し board 表示を破壊（recurrence 3）→ `fixtures/journal-index/invalid/decisions-string.jsonl` |
@@ -79,7 +79,9 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | フィールド行を持たない独自形式 | `**タスク案（承認済み）**` ＋ 箇条書き | **違反**（必須フィールド行の欠落＋インデント欠落の二重検出） | `fixtures/ledger/invalid/task-plan-bold-heading.md`（実運用ワークスペースの実形） |
 | ネスト項目のインデント欠落 | `- タスク案:` ＋ 行頭の `1. …` | **違反** | `fixtures/ledger/invalid/task-plan-dedented.md` |
 
-**インデント欠落の検査範囲は分類欄のみ**（エージェントが書く領域）。人間記入欄は人間の自由記述と外部本文の転記（ブロック引用）が入るため、行頭の番号付きリストを違反にしない。**旧い承認ラベル（`- [ ] 計画を承認（FR-13）`）も受理し続ける**（新表記は `（FR-13・承認対象＝タスク案）`。検出は前方一致）。journal は空の周（`- なし`）も正規（`fixtures/journal-md/valid/minimal.md`）。runs.jsonl は `title`/`skill` 無しの `delegate_start` や `abandoned` の `cycle_end` も正規（`fixtures/runs/valid/optional-fields.jsonl`）。
+**結合切れの検査範囲は分類欄のみ**（エージェントが書く領域）。人間記入欄は人間の自由記述と外部本文の転記（ブロック引用）が入るため、行頭の箇条書きを違反にしない——**規定側も「人間記入欄は機械検査の対象外」と明記**しており、散文と検査の範囲を一致させている。
+
+**書き手がいつ形 A へ切り替えるかは別問題（順序制約）**: 受理は最初から形 A〜D すべてを通すが、**書き手（run-cycle 手順2・ingest-challenges 手順3）が形 A で書き始めるのは唯一の消費者（board）の追随後**とする（`docs/challenge-ledger-format.md` §移行フェーズが正本。現行 board はインデント行を捨てるため、先に切り替えると board のカード詳細が `-` 表示になり、Issue #87 の症状を拡大する）。**受理表の「規定上の値」列は消費者が実装すべき読み取り結果であって、現行 board の挙動ではない**。**旧い承認ラベル（`- [ ] 計画を承認（FR-13）`）も受理し続ける**（新表記は `（FR-13・承認対象＝タスク案）`。検出は前方一致）。journal は空の周（`- なし`）も正規（`fixtures/journal-md/valid/minimal.md`）。runs.jsonl は `title`/`skill` 無しの `delegate_start` や `abandoned` の `cycle_end` も正規（`fixtures/runs/valid/optional-fields.jsonl`）。
 
 ## スキーマはバリデータが直接解釈する
 
@@ -118,7 +120,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 
 | 読むもの | 何が書いてあるか |
 | --- | --- |
-| `docs/challenge-ledger-format.md` §複数行フィールドの記入形式 | タスク案・完了条件の**複数行形式**と、受理／違反の形の一覧。**同節「消費側（board 等）の読み取り規則」がパーサの契約**（フィールド値＝フィールド行の値＋直下に連続するインデント行。空行・インデントなしの行・次見出しで終端） |
+| `docs/challenge-ledger-format.md` §複数行フィールドの記入形式 | タスク案・完了条件の**複数行形式**と、受理／違反の形の一覧。**同節「消費側（board 等）の読み取り規則」がパーサの契約**——フィールド値＝フィールド行の値＋直下に連続する**継続行**で、継続行は**インデント行**（ネスト項目）と**引用行（行頭 `>`）**の 2 種類（引用行は ingest-challenges が書く `- 説明:（原文引用）` 直下のブロック引用＝実運用の説明欄の主要形。値に含めないと説明が定型文字列としてしか読めない）。空行・いずれの継続行でもない行・次見出しで終端 |
+| 同 §移行フェーズ | **書き手が形 A へ切り替える順序制約と切り替え条件**。board の追随（#151）が完了し、`fixtures/ledger/valid/multiline-and-refs.md` の C-101 から `taskPlan`・`completionCriteria` を取得できることが切り替えの条件（判定コマンドも記載） |
 | 同 §関連リポジトリ・関連Issue・関連PR | 参照フィールド 3 種の値の形式・複数値のカンマ区切り・短縮形の owner 解決・リンク化は消費側の責務であること |
 | 同 §FR-13 の承認対象 | 承認待ちカードで**何を前面に出すべきか**（承認対象＝タスク案。判断材料は タスク案／完了条件／関連リポジトリ） |
 
