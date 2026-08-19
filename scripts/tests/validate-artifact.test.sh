@@ -460,6 +460,18 @@ assert_case "runs の --expect-cycle は --since-last-cycle-start 必須（無�
 # ベースイメージ（node:20-slim）には ruby が無いため、Dockerfile 側の導入が契約の一部。
 # あわせて ingest/periodic-audit の fp 算式（shasum -a 256）が前提とする perl も固定する。
 
+# run-cycle 手順6 の事後補記経路（journal ⑤ への追記＋追加コミット）は本体の検算より後に
+# 走るため、追記後・追加コミット前の journal-md 再検証の規定が SKILL に存在することを固定する
+# （規定が消えると、壊れた補記がコミットゲートを素通りする）。
+SKILL_MD="$REPO_ROOT/skills/run-cycle/SKILL.md"
+if grep '追加で Git コミット' "$SKILL_MD" | grep -q '再検証.*journal-md\|journal-md.*再検証'; then
+  PASS=$((PASS + 1))
+  echo "ok   - SKILL 手順6: 事後補記の追加コミット前に journal-md 再検証の規定がある"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - SKILL 手順6: 事後補記の追加コミット前に journal-md 再検証の規定がある"
+fi
+
 DOCKERFILE="$REPO_ROOT/templates/container/Dockerfile"
 for pkg in ruby perl; do
   if grep -q "^      $pkg \\\\\$" "$DOCKERFILE"; then
