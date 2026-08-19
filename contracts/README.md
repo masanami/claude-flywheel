@@ -87,14 +87,15 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 
 ### 実行環境の前提（契約の一部）
 
-バリデータの実行には **`/usr/bin/ruby`** が必要:
+**コミットゲートの有効化には ruby（`/usr/bin/ruby`）が必要**。対象環境（macOS・WSL2・Linux）別の充足方法:
 
 | 実行環境 | 充足方法 |
 | --- | --- |
-| macOS ホスト（`execution_mode: native`・既定） | OS 標準搭載（追加インストール不要） |
-| コンテナ（`execution_mode: container`） | `templates/container/Dockerfile` が `ruby` パッケージを導入する（Debian の ruby は `/usr/bin/ruby` を提供し shebang のパスが一致する）。**本契約の導入前に scaffold した `container/Dockerfile` を使っている場合は、テンプレートを取り込んでイメージを再ビルドすること**（ruby 不在だとバリデータは 3 値 exit のどれでもない形で失敗し、コミットゲートが不作動になる） |
+| macOS ホスト（`execution_mode: native`・既定） | OS 標準搭載（追加作業なし） |
+| Linux / WSL2 ホスト（`native`） | 標準では未搭載のことが多い。`sudo apt-get install -y ruby`（Debian/Ubuntu 系。他ディストリビューションは相当のパッケージ）で導入する（Debian の ruby は `/usr/bin/ruby` を提供し shebang のパスが一致する） |
+| コンテナ（`execution_mode: container`） | `templates/container/Dockerfile` が `ruby` パッケージを導入済み。**本契約の導入前に scaffold した `container/Dockerfile` を使っている場合は、テンプレートを取り込んでイメージを再ビルドすること** |
 
-Dockerfile がこのランタイムを導入し続けることはテスト（`scripts/tests/validate-artifact.test.sh`）で固定している。
+**ruby 未導入の環境ではバリデータの起動自体が失敗する**（インタプリタ不在＝exit 126/127 等、3 値契約のどれでもない exit）。run-cycle 手順6 はこれを **exit 2 と同じ「検査不能」として扱い、コミットは止めずに理由をサイクルレポートへ記載する**（縮退規則。ゲートは警告に縮退し、未定義動作・「違反なし」への読み替えにはしない）。ゲートを有効化するには上表の導入を行うこと。Dockerfile がこのランタイムを導入し続けることはテスト（`scripts/tests/validate-artifact.test.sh`）で固定している。
 
 ## 消費者（board 等）の vendoring 手順
 

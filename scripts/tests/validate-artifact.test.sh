@@ -495,6 +495,31 @@ else
   echo "FAIL - SKILL 手順6: 事後補記の追加コミット前に journal-md 再検証の規定がある"
 fi
 
+# 対象環境（macOS・WSL2・Linux）のうち ruby が OS 標準搭載なのは macOS のみ。未導入環境では
+# バリデータの起動自体が失敗し 3 値契約のどれでもない exit（126/127 等）になるため、
+# run-cycle 手順6 に「起動失敗＝検査不能（exit 2 と同じ扱い・コミットは止めない）」の
+# 縮退規則があることを固定する（規定が消えると未定義動作に戻る）。
+if grep '書き込み後・コミット前の検算' "$SKILL_MD" | grep -q '126/127.*検査不能\|検査不能.*126/127'; then
+  PASS=$((PASS + 1))
+  echo "ok   - SKILL 手順6: バリデータ起動失敗（126/127 等）を検査不能として扱う縮退規則がある"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - SKILL 手順6: バリデータ起動失敗（126/127 等）を検査不能として扱う縮退規則がある"
+fi
+
+# 再現: インタプリタ不在の実行は 0/1/2 のどれでもない exit を返す（縮退規則が受け止める領域）
+printf '#!/nonexistent-interpreter-for-degradation-test\nexit 0\n' > "$tmp/bad-shebang.rb"
+chmod +x "$tmp/bad-shebang.rb"
+"$tmp/bad-shebang.rb" journal-index "$tmp/empty.jsonl" >/dev/null 2>&1
+bad_exit=$?
+if [ "$bad_exit" -ne 0 ] && [ "$bad_exit" -ne 1 ] && [ "$bad_exit" -ne 2 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - インタプリタ不在の起動失敗は 3 値契約外の exit（実測: ${bad_exit}）＝縮退規則の対象"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - インタプリタ不在の起動失敗は 3 値契約外の exit（実測: ${bad_exit}）＝縮退規則の対象"
+fi
+
 DOCKERFILE="$REPO_ROOT/templates/container/Dockerfile"
 for pkg in ruby perl; do
   if grep -q "^      $pkg \\\\\$" "$DOCKERFILE"; then
