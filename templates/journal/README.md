@@ -22,6 +22,7 @@ journal/
 - `index.jsonl` は既存内容を書き換えず、**末尾に 1 行 append** する。
 - **秘密情報（トークン・資格情報・Cookie 等）は書かない**（run-cycle 本体の原則を踏襲）。
 - `run-cycle --dry-run` 実行時は journal への書き込みを行わない（コミットも発生しない）。
+- **書き出しは毎周・Git コミットは変化のあった周にまとめる**（[#82](https://github.com/masanami/claude-flywheel/issues/82)）。外部状態に変化が無かった周（no-op 周）も `.md` と `index.jsonl` は**通常どおり書く**が、サイクルコミットは打たずワーキングツリーに残し、次にコミットする周へ束ねる。**1 周 1 ファイル・1 周 1 行・両者の 1:1 対応は変わらない**ため、`reflect` / `start-day` のしきい値判定（`index.jsonl` の行数）や観測プレーンの読み取りには影響しない（消費者はコミットではなくファイルを読む）。保留は**当日内に限る**（日を跨いだ保留は次の周がフラッシュする）。判定の正本は run-cycle 手順6 と `scripts/noop-check.rb`。
 
 ## `.md` の定型セクション（5 つ・この順）
 
@@ -55,7 +56,7 @@ journal/
 
 - **全 7 フィールドを必須**とする（該当が無い周も空配列で置く）。表に無いフィールドは置かない。
 - **書く前に本スキーマ表を読む。既存行を形の参照元にしない**（`tail -1` で直前行を真似ると、真似元の誤りごと繰り返す。既存行が正しい保証はない）。
-- 機械可読版のスキーマは claude-flywheel プラグインの `contracts/schemas/journal-index.schema.json`。**書き込み後・コミット前に** `${CLAUDE_PLUGIN_ROOT}/scripts/validate-artifact.rb journal-index journal/index.jsonl --tail 1` で当周の追記行を検算する（run-cycle 手順6。過去周の行は append-only の恒久記録＝書き換えない対象のため検証対象外。本表と食い違う場合はバグとして両方を整合させる。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。
+- 機械可読版のスキーマは claude-flywheel プラグインの `contracts/schemas/journal-index.schema.json`。**書き込み後・コミット前に** `${CLAUDE_PLUGIN_ROOT}/scripts/validate-artifact.rb journal-index journal/index.jsonl --tail 1` で当周の追記行を検算する（run-cycle 手順6。**no-op 周のコミットを保留している場合は、まとめコミットに入る未コミット追記行の数まで `--tail` を広げる**＝上記「書き出しは毎周・コミットは変化のあった周にまとめる」を参照。過去周の行は append-only の恒久記録＝書き換えない対象のため検証対象外。本表と食い違う場合はバグとして両方を整合させる。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。
 
 `reflect` スキルはこのファイルを、`experience`（good/bad）と並ぶ集計入力として使う。
 
