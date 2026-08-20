@@ -12,6 +12,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
 | [gdd-drift-integration.md](./gdd-drift-integration.md) | periodic-audit の**最初の利用例**: GDD 意味ドリフト検知（`/guarantee-audit drift`）の接続設計と経緯（[#81](https://github.com/masanami/claude-flywheel/issues/81)）。汎用機構そのものの正本は [periodic-audit SKILL.md](../skills/periodic-audit/SKILL.md) | 確定 |
+| [noop-cycle-batching.md](./noop-cycle-batching.md) | no-op 周の軽量化（[#82](https://github.com/masanami/claude-flywheel/issues/82)）: 変化ゼロの周のコミットを次の周へ束ねる設計、3 案の比較と採用根拠、「変化なし」の機械的定義 | 確定 |
 | [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: 実装済みの最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較（採否は人間判断・未決） | ドラフト |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
@@ -65,5 +66,6 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱） |
 | [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
 | [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start` とともに警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |
+| [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
 | [validate-artifact.rb](../scripts/validate-artifact.rb) | run-cycle 成果物のフォーマット契約バリデータ（台帳・アーカイブ・journal・jsonl。run-cycle 手順6 が書き込み後・コミット前に呼ぶ。契約は [contracts/README.md](../contracts/README.md)。[#91](https://github.com/masanami/claude-flywheel/issues/91)） |
 | [migrate-workspace.rb](../scripts/migrate-workspace.rb) | 既存ワークスペースを現行テンプレートの構造へ追従させる（台帳・アーカイブの構造マイグレーション＋ scaffold 追従レポート。既定は dry-run。flywheel-init の再実行から呼ばれる。[#88](https://github.com/masanami/claude-flywheel/issues/88)） |

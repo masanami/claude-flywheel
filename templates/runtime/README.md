@@ -142,6 +142,7 @@ flowchart LR
 - 機械可読版のスキーマ（JSON Schema）はプラグインの `contracts/schemas/runs.schema.json`（本セクションが正本であり、食い違う場合はスキーマ側を追従修正する。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。消費者（観測プレーン）のパーサテスト用フィクスチャは `contracts/fixtures/runs/`。
 - プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝未終了 `*_start` があれば列挙して exit 1）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
 - **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start` の件数とともにサイクルレポートへ警告を出す（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
+- **no-op 周の判定（派生読み取り・スキーマ不変）**: run-cycle 手順6 は、当周のコミットを打つか次の周へ束ねるかを決めるために、読み取り専用の `scripts/noop-check.rb` で**当周の `cycle_start` 以降に `cycle_start` / `cycle_end` 以外のイベントが記録されていないか**を検査する（委譲・差し込み・`delegate_end` の事後補記が起きた周を「変化なし」と誤判定しないための裏取り。Issue [#82](https://github.com/masanami/claude-flywheel/issues/82)。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・当周の `cycle_start` が見つからない場合は「判定不能」であり「委譲なし」ではない**（exit 2 で区別し、呼び出し側は従来どおりコミットする）。
 
 ## メモ
 
