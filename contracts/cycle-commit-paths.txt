@@ -1,0 +1,36 @@
+# cycle-commit-paths.txt — サイクルコミットのパス集合の**正本**（run-cycle 手順6）。
+#
+# 2 者がこのファイルを読む（同じ集合を 2 箇所に書かないための単一正本）:
+#   1. run-cycle 手順6 の `git add -- <...>` / `git commit -- <pathspec>`（許可パス）
+#   2. scripts/noop-check.rb（コミット／保留の判定。`commit_path=` として出力し直す）
+#
+# noop-check.rb は**ワーキングツリー全体**を見る（ここに挙げたパスだけを見るのではない）。
+# 本ファイルの役割は「dirty なパスをどう分類するか」であって、監視範囲の限定ではない:
+#
+#   [commit]  … サイクルコミットが取り込むパス。dirty なら `reason=state-dirty`
+#   [exclude] … サイクルコミットの対象外と**宣言済み**のパス。dirty でも判定に影響させない
+#   どちらでもない … `reason=out-of-scope-dirty`（コミットはするが、本ファイルの見直しか
+#                    人間の作業中かを人間へ知らせる。**新しいパスが黙って「変化なし」側へ
+#                    落ちることが構造的に起きない**＝両者がずれたら気づける）
+#
+# 追加・削除したら scripts/tests/noop-check.test.sh が固定している結線（SKILL の許可パス列挙・
+# 分類テスト）も同時に更新すること。
+
+[commit]
+challenge-ledger.md
+challenge-archive.md
+memory
+journal
+positions
+
+[exclude]
+# 優先度方針は「サイクルコミットに混ぜず専用の独立コミット」と規定されている（run-cycle 手順6）。
+# 未コミットの変更はサイクルレポートに書く（`--notable` の対象）ため、判定では無視してよい。
+priority-policy.md
+# ローカル実行状態。正しく scaffold されたワークスペースでは gitignore 済みで `git status` に
+# 現れないが、`.gitignore` の不備で現れると毎周 dirty になり判定が永久に commit へ固定される。
+# ワークスペース側の設定に依存せず「これは判定材料でない」と宣言しておく（cadence.json は
+# 運用設定として Git 追跡される＝ここに含めず、変更があれば人間へ知らせる）。
+.flywheel/repos
+.flywheel/runs.jsonl
+.flywheel/cycle.lock

@@ -66,6 +66,6 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱） |
 | [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
 | [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start` とともに警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |
-| [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
+| [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。許可パスの正本は [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt)。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
 | [validate-artifact.rb](../scripts/validate-artifact.rb) | run-cycle 成果物のフォーマット契約バリデータ（台帳・アーカイブ・journal・jsonl。run-cycle 手順6 が書き込み後・コミット前に呼ぶ。契約は [contracts/README.md](../contracts/README.md)。[#91](https://github.com/masanami/claude-flywheel/issues/91)） |
 | [migrate-workspace.rb](../scripts/migrate-workspace.rb) | 既存ワークスペースを現行テンプレートの構造へ追従させる（台帳・アーカイブの構造マイグレーション＋ scaffold 追従レポート。既定は dry-run。flywheel-init の再実行から呼ばれる。[#88](https://github.com/masanami/claude-flywheel/issues/88)） |

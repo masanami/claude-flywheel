@@ -2,13 +2,14 @@
 
 `run-cycle` が書き出す成果物の**フォーマット契約**（Issue [#91](https://github.com/masanami/claude-flywheel/issues/91)）。成果物の消費者は 2 者——**GitHub 上の人間**（Markdown のレンダリング）と**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board) のパーサ）——であり、「書き込みは成功したが消費者にとって壊れている」型の事故を書き込み側の検算で止める。
 
-契約は 3 点セットで構成する（board 等の消費者はこれを vendoring してパーサテストに使う。アプリ統合・実行時依存にはしない）:
+契約は 3 点セット（board 等の消費者はこれを vendoring してパーサテストに使う。アプリ統合・実行時依存にはしない）と、**書き込み側だけが使うパス集合の正本 1 点**で構成する:
 
 | 構成物 | 場所 | 役割 |
 | --- | --- | --- |
 | JSON Schema | [`schemas/`](./schemas/) | JSONL 成果物（`journal/index.jsonl`・`.flywheel/runs.jsonl`）の機械可読スキーマ |
 | バリデータ | [`../scripts/validate-artifact.rb`](../scripts/validate-artifact.rb) | 全成果物の決定的検証（Markdown 検査＋スキーマの解釈実行） |
 | ゴールデンフィクスチャ | [`fixtures/`](./fixtures/) | 正例（受理されるべき正規形）と誤例（実際に起きた事故の再現） |
+| サイクルコミットのパス集合（**vendoring 対象外**。消費者は読まない） | [`cycle-commit-paths.txt`](./cycle-commit-paths.txt) | run-cycle 手順6 の許可パス（`git add` / pathspec）と [`../scripts/noop-check.rb`](../scripts/noop-check.rb) の dirty パス分類の**単一正本**。両者がずれると「許可パス内の変更が『変化なし』と判定される」事故になるため 1 箇所に置く（[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
 
 ## 正本のレイヤリング
 
