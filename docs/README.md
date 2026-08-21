@@ -63,7 +63,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | --- | --- |
 | [sync-repos.sh](../scripts/sync-repos.sh) | `repos.tsv` を読み、関連リポジトリを `.flywheel/repos/` へ冪等に clone/fetch（作業用・ローカル作業を壊さない安全同期） |
 | [trust-clone.sh](../scripts/trust-clone.sh) | 作業用クローンを Claude Code の trust 承認済みにする（`~/.claude.json` を更新。人間が一度だけ手動実行） |
-| [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱） |
+| [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱。環境要因の失敗は exit 0＝best-effort、引数エラーは exit 2＝イベント未記録。[#98](https://github.com/masanami/claude-flywheel/issues/98)） |
 | [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
 | [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start` とともに警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |
 | [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。許可パスの正本は [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt)。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |

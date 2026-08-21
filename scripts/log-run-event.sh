@@ -11,6 +11,13 @@
 #                            [--session-id <uuid>] [--result <text>] [--id <adhoc-id>]
 #                            [--title <text>] [--skill <text>] [--dry-run] [--workspace <dir>]
 #
+#   値の渡し方は `--opt <value>` と `--opt=<value>` の 2 形式。**値が `-` / `--` で始まっても
+#   そのまま値として扱う**（`--result "--tail を非空レコード基準へ"` のように、オプション名で
+#   始まる 1 行要約は実運用で普通に起きるため。Issue #98）。次の引数をフラグとみなすのは、
+#   それが**下記のオプション名と一致する**（`--result` や `--workspace=...` 等）ときだけ。
+#   値そのものがオプション名と一致する場合は `--opt=<value>` 形式で明示する
+#   （例: `--result=--dry-run`。`=` は最初の 1 個だけが区切りなので値に `=` を含めてよい）。
+#
 #   event        cycle_start | cycle_end | delegate_start | delegate_end | adhoc_start | adhoc_end
 #   --cycle      当周の journal ファイル名 basename（cycle_* 用）
 #   --challenge  課題 ID（C-xxx。delegate_* 用）
@@ -28,7 +35,7 @@
 #   --workspace  ワークスペースのルート（既定: .）。<workspace>/.flywheel/runs.jsonl に書く
 #
 # 使い方（検算・読み取り専用）:
-#   scripts/log-run-event.sh check [--workspace <dir>]
+#   scripts/log-run-event.sh check [--workspace <dir>]   （`--workspace=<dir>` 形式も可）
 #
 #   未終了の delegate_start / adhoc_start（対応する *_end がまだ無いもの）を列挙する。
 #   run-cycle step 6 で cycle_end を記録する直前に呼び、未終了があれば実状態に基づく
@@ -56,12 +63,20 @@
 #   - ts は自動付与する（ISO 8601・タイムゾーンオフセットはコロン付き +09:00 形式）。
 #   - 1 イベント＝1 行の JSON を単一の printf で append する（並行 append でも実用上
 #     行が交錯しないため。append 前に mkdir -p .flywheel を行う）。
-#   - best-effort: 書き込みイベント（上記「使い方（書き込み）」）は常に exit 0。不正な
-#     イベント名・引数エラー・書き込み失敗は stderr に警告し、書かずに正常終了する
-#     （観測が制御を阻害しないため）。
-#   - **例外**: `check` は書き込みを行わない読み取り・検証コマンドであり、exit code
-#     自体が「未終了 start の有無」等のシグナルのため、上記 best-effort 契約（常に exit 0）
-#     の対象外とする（未終了があれば exit 1、引数・環境エラーは exit 2 を返す）。
+#   - best-effort（exit 0）: 書き込みイベント（上記「使い方（書き込み）」）の**環境要因の
+#     失敗**（日時の取得・`mkdir`・`append` の失敗）は stderr に警告して exit 0 で返す。
+#     呼び出し側では回復できず、サイクルを止める理由にならないため（観測が制御を阻害しない）。
+#   - **引数エラーは exit 2**（不正なイベント名・不明な引数・値の欠落／曖昧・必須フィールドの
+#     欠落・`--session-id` / `--id` の不正文字・空の `--workspace`）。イベントは書かれていない。
+#     これらは**呼び出し側の誤りであり呼び出し側で直せる**ため、exit 0 に混ぜると記録の欠落が
+#     無言で積み上がる（Issue #98。落ちた `*_end` は後続の `check` で「未終了 `*_start`」と
+#     いう実在しない異常になって現れ、本物の記録漏れを埋もれさせる）。best-effort の意図は
+#     「観測の失敗が制御を止めないこと」であって「失敗を無言にすること」ではないため、
+#     環境要因（exit 0）と呼び出し側の誤り（exit 2）を exit code で分ける。exit 2 でも本
+#     スクリプトは何も書かずに終了するだけで、呼び出し側のサイクルを止める副作用は持たない。
+#   - `check` は書き込みを行わない読み取り・検証コマンドであり、exit code 自体が
+#     「未終了 start の有無」のシグナルのため上記とは別契約（未終了があれば exit 1、
+#     引数・環境エラーは exit 2）。
 #   - 秘密情報のチェックはしない（書き手の規律。本スクリプトは内容を解釈しない機械）。
 
 set -euo pipefail
@@ -69,9 +84,32 @@ set -euo pipefail
 USAGE="usage: $0 <event> [--cycle <name>] [--challenge <id>] [--repo <name>] [--session-id <uuid>] [--result <text>] [--id <adhoc-id>] [--title <text>] [--skill <text>] [--dry-run] [--workspace <dir>]"
 USAGE_CHECK="usage: $0 check [--workspace <dir>]"
 
-# 警告を stderr へ出す（best-effort 契約のため、警告してもスクリプトは exit 0 で終える）。
+# 警告を stderr へ出す（環境要因の失敗はこれだけを出して exit 0＝best-effort。呼び出し側で
+# 直せる引数エラーは arg_error 経由で警告のうえ exit 2 にする）。
 warn() {
   echo "log-run-event: $1" >&2
+}
+
+# 引数エラー（呼び出し側が直せる誤り）は警告して exit 2 で返す。環境要因の失敗
+# （日時取得・mkdir・append）は best-effort の exit 0 のままとし、両者を exit code で
+# 区別する（Issue #98。理由は冒頭「注意」）。
+arg_error() {
+  warn "${1}。イベントは書いていません（引数エラー: exit 2）"
+  exit 2
+}
+
+# 書き込みパスが認識するオプション名の集合（`--opt=<value>` 形式を含む）。
+# 「次の引数は値かフラグか」の判定は**この集合との一致だけ**で行い、先頭が `-` / `--` か
+# どうかでは判定しない（`--result "--tail を非空レコード基準へ"` のような値を落とさないため）。
+is_known_option() {
+  case "$1" in
+    --cycle|--challenge|--repo|--session-id|--result|--id|--title|--skill|--workspace|--dry-run)
+      return 0 ;;
+    --cycle=*|--challenge=*|--repo=*|--session-id=*|--result=*|--id=*|--title=*|--skill=*|--workspace=*)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
 }
 
 # 値を JSON 文字列として安全にする（バックスラッシュ→\\、二重引用符→\"、
@@ -108,7 +146,7 @@ extract_field() {
 # check サブコマンド本体: runs.jsonl を ts 順（＝行順。append-only のため一致）に走査し、
 # delegate_*/adhoc_* をキー（session_id / id）ごとに start/end でペアリングする。
 # 末尾が start のまま閉じられていないキーが残れば、その行を列挙して exit 1（読み取り専用の
-# 検証コマンドにつき、書き込みイベントの best-effort＝常に exit 0 契約の対象外）。
+# 検証コマンドにつき、書き込みイベントの exit code 契約とは別体系）。
 #
 # ペアリングは「未終了 start のスタック」で行う（同一キーの start を複数回 push しうる。
 # start では既存の未終了 start を上書きしない＝記録漏れで同一キーの start が連続しても
@@ -118,15 +156,27 @@ cmd_check() {
   workspace="."
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --workspace=*)
+        # `--workspace=<dir>` 形式（値がオプション名と一致する場合の明示手段。書き込みパスと同形）。
+        workspace="${1#*=}"
+        if [ -z "$workspace" ]; then
+          warn "--workspace に値がありません: $1"
+          echo "$USAGE_CHECK" >&2
+          exit 2
+        fi
+        shift
+        ;;
       --workspace)
         if [ "$#" -lt 2 ] || [ -z "$2" ]; then
           warn "--workspace に値がありません"
           echo "$USAGE_CHECK" >&2
           exit 2
         fi
+        # 次の引数をフラグとみなすのは check が認識するオプション名と一致するときだけ
+        # （先頭が `-` かどうかでは判定しない＝`-` で始まるディレクトリ名を落とさない。Issue #98）。
         case "$2" in
-          --*)
-            warn "--workspace に値がありません（次の引数もフラグ）: $1 $2"
+          --workspace|--workspace=*|-h|--help)
+            warn "--workspace の値がオプション名と一致するため、値か指定漏れか判別できません: $1 $2（値として渡すなら --workspace=$2 形式を使う）"
             echo "$USAGE_CHECK" >&2
             exit 2
             ;;
@@ -255,8 +305,7 @@ fi
 
 if [ "$#" -lt 1 ]; then
   warn "$USAGE"
-  warn "イベント名がありません。書かずに終了します（best-effort）"
-  exit 0
+  arg_error "イベント名がありません"
 fi
 
 EVENT="$1"
@@ -269,8 +318,7 @@ fi
 case "$EVENT" in
   cycle_start|cycle_end|delegate_start|delegate_end|adhoc_start|adhoc_end) ;;
   *)
-    warn "不正なイベント名: ${EVENT}（cycle_start | cycle_end | delegate_start | delegate_end | adhoc_start | adhoc_end のいずれか）。書かずに終了します（best-effort）"
-    exit 0
+    arg_error "不正なイベント名: ${EVENT}（cycle_start | cycle_end | delegate_start | delegate_end | adhoc_start | adhoc_end のいずれか）"
     ;;
 esac
 
@@ -285,57 +333,69 @@ SKILL=""
 DRY_RUN=0
 WORKSPACE="."
 
+# OPT / OPT_VAL に「オプション名」と「その値」を確定させてから代入する
+# （`--opt <value>` と `--opt=<value>` の 2 形式を同じ経路へ合流させる）。
+OPT=""
+OPT_VAL=""
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --cycle=*|--challenge=*|--repo=*|--session-id=*|--result=*|--id=*|--title=*|--skill=*|--workspace=*)
+      # `--opt=<value>` 形式。最初の `=` だけが区切り（値に `=` を含めてよい）。
+      # 値がオプション名と一致する場合（`--result=--dry-run` 等）の明示手段でもある。
+      OPT="${1%%=*}"
+      OPT_VAL="${1#*=}"
+      shift
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
       continue
       ;;
     --cycle|--challenge|--repo|--session-id|--result|--id|--title|--skill|--workspace)
+      OPT="$1"
       if [ "$#" -lt 2 ]; then
-        warn "オプションに値がありません: ${1}。書かずに終了します（best-effort）"
-        exit 0
+        arg_error "オプションに値がありません: ${OPT}"
       fi
-      case "$2" in
-        --*)
-          warn "オプションに値がありません（次の引数もフラグ）: ${1} ${2}。書かずに終了します（best-effort）"
-          exit 0
-          ;;
-      esac
+      # 次の引数をフラグとみなすのは、それが認識済みオプション名と一致するときだけ。
+      # 先頭が `-` / `--` かどうかでは判定しない（Issue #98）。一致して曖昧になった場合は
+      # 黙って捨てず、`--opt=<value>` 形式への書き換えを促して exit 2 で知らせる。
+      if is_known_option "$2"; then
+        arg_error "${OPT} の値がオプション名と一致するため、値か指定漏れか判別できません: ${OPT} ${2}（値として渡すなら ${OPT}=${2} 形式を使う）"
+      fi
+      OPT_VAL="$2"
+      shift 2
       ;;
     *)
-      warn "不明な引数: ${1}。書かずに終了します（best-effort）"
       warn "$USAGE"
-      exit 0
+      arg_error "不明な引数: ${1}"
       ;;
   esac
-  case "$1" in
-    --cycle)      CYCLE="$2" ;;
-    --challenge)  CHALLENGE="$2" ;;
-    --repo)       REPO="$2" ;;
-    --session-id) SESSION_ID="$2" ;;
-    --result)     RESULT="$2" ;;
-    --id)         ADHOC_ID="$2" ;;
-    --title)      TITLE="$2" ;;
-    --skill)      SKILL="$2" ;;
-    --workspace)  WORKSPACE="$2" ;;
+
+  case "$OPT" in
+    --cycle)      CYCLE="$OPT_VAL" ;;
+    --challenge)  CHALLENGE="$OPT_VAL" ;;
+    --repo)       REPO="$OPT_VAL" ;;
+    --session-id) SESSION_ID="$OPT_VAL" ;;
+    --result)     RESULT="$OPT_VAL" ;;
+    --id)         ADHOC_ID="$OPT_VAL" ;;
+    --title)      TITLE="$OPT_VAL" ;;
+    --skill)      SKILL="$OPT_VAL" ;;
+    --workspace)  WORKSPACE="$OPT_VAL" ;;
   esac
-  shift 2
 done
 
 # 空の --workspace は出力先が /.flywheel（ルート直下）に化けるため拒否する。
 if [ -z "$WORKSPACE" ]; then
-  warn "--workspace が空です。書かずに終了します（best-effort）"
-  exit 0
+  arg_error "--workspace が空です"
 fi
 
 # イベント別の必須フィールド検証（仕様の正本 templates/runtime/README.md のフィールド表に従う）。
-# 欠落したまま書くと消費者（観測プレーン）が対応付けできないため、警告して書かずに終了する。
+# 欠落したまま書くと消費者（観測プレーン）が対応付けできないため、警告して書かずに終了する
+# （呼び出し側で直せる誤り＝引数エラーにつき exit 2）。
 require_nonempty() {
   if [ -z "$1" ]; then
-    warn "必須オプションがありません: ${2}（event=${EVENT}）。書かずに終了します（best-effort）"
-    exit 0
+    arg_error "必須オプションがありません: ${2}（event=${EVENT}）"
   fi
 }
 
@@ -343,12 +403,11 @@ require_nonempty() {
 # 未エスケープ " 区切り前提で読む対応付けキー）で読み戻されるため、" や \ を含むと
 # check が誤ったキーとして扱う（json_escape は runs.jsonl 自体は壊さないが、
 # extract_field 側の前提までは救わない）。書き込み時点で拒否する
-# （他の必須フィールド検証と同じ best-effort 契約＝警告して書かずに exit 0）。
+# （他の必須フィールド検証と同じ扱い＝呼び出し側で直せる引数エラーにつき exit 2）。
 reject_unsafe_key() {
   case "$1" in
     *'"'*|*\\*)
-      warn "${2} に \" または \\ を含めることはできません: ${1}（event=${EVENT}）。書かずに終了します（best-effort）"
-      exit 0
+      arg_error "${2} に \" または \\ を含めることはできません: ${1}（event=${EVENT}）"
       ;;
   esac
 }
