@@ -131,7 +131,7 @@ flowchart LR
 - **1 イベント＝1 行を単一の書き込みで append する**（例: `printf '%s\n' '<JSON 1 行>' >> .flywheel/runs.jsonl`。複数の親セッション〔run-cycle と差し込み〕が同時に書いても、O_APPEND への短い単一 write なら実用上行が交錯しないため。複数行をまとめて書かない）。それでも破損した行は消費者がパースエラーとして可視化する前提とし、厳密な直列化（`flock` 等）は交錯が実際に観測されてから導入する（YAGNI）。
 - **書き手は親セッション**（run-cycle を回すメインセッション／差し込みの対話セッション）。委譲先の子セッションは書かない（書き手を一本化し、並走委譲での競合を避けるため）。
 - 初回 append の前に `mkdir -p .flywheel` する（ディレクトリ未作成で append が失敗しないため）。
-- **best-effort**: 書き込みに失敗してもサイクル・作業を止めない（観測が制御を阻害しないため）。
+- **best-effort**: 書き込みに失敗してもサイクル・作業を止めない（観測が制御を阻害しないため）。ただし **best-effort は「失敗を無言にすること」ではない**: 引数の解釈に失敗した等の**書き手側の誤り**は、記録の欠落が黙って積み上がらないよう**呼び出し側が検出できる形**で知らせる（参照実装の exit code は下記。Issue [#98](https://github.com/masanami/claude-flywheel/issues/98)）。
 - **秘密情報（トークン・資格情報等）は書かない**（run-cycle 本体の原則を踏襲。`session_id` は識別子であり可）。
 - `run-cycle --dry-run` 実行時は一切書かない（journal と同じパリティ。dry-run は状態を変えないため）。
 - gitignore 対象＝コミットしない（ローカル実行状態のため）。恒久記録は journal 側が担う。
@@ -141,6 +141,8 @@ flowchart LR
 - **未終了 `adhoc_start` の扱い**: 中断・クラッシュで `adhoc_end` が残らなかった場合も代筆回収はしない（cycle の `abandoned` と違い、回収の自然な契機〔次サイクルの stale ロック回収〕が無いため）。消費者はしきい値超過の未終了 start を要確認として扱う。作業を再開したら同じ `id` のまま継続し、終了時に `adhoc_end` で閉じる。
 - 機械可読版のスキーマ（JSON Schema）はプラグインの `contracts/schemas/runs.schema.json`（本セクションが正本であり、食い違う場合はスキーマ側を追従修正する。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。消費者（観測プレーン）のパーサテスト用フィクスチャは `contracts/fixtures/runs/`。
 - プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝未終了 `*_start` があれば列挙して exit 1）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
+  - `log-run-event.sh` の書き込みイベントの exit code は 2 値: **環境要因の失敗（日時取得・`mkdir`・`append`）は exit 0**（呼び出し側で回復できず、サイクルを止める理由にならないため）／**引数エラーは exit 2 で、イベントは記録されていない**（不正なイベント名・不明な引数・値の欠落／曖昧・必須フィールドの欠落・対応付けキーの不正文字・空の `--workspace`）。呼び出し側は exit 2 を見たら引数を直して同じイベントを記録し直す。
+  - 値の渡し方は `--opt <value>` と `--opt=<value>` の 2 形式で、**値が `-` / `--` で始まってもそのまま値として扱う**（`--result "--tail を非空レコード基準へ"` のようにオプション名で始まる 1 行要約は実運用で普通に起きるため）。次の引数をフラグとみなすのは**それがオプション名と一致するとき**だけで、一致して曖昧になる場合は `--opt=<value>` 形式で明示する（例: `--result=--dry-run`）。
 - **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start` の件数とともにサイクルレポートへ警告を出す（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
 - **no-op 周の判定（派生読み取り・スキーマ不変）**: run-cycle 手順6 は、当周のコミットを打つか次の周へ束ねるかを決めるために、読み取り専用の `scripts/noop-check.rb` で**当周の `cycle_start` 以降に `cycle_start` / `cycle_end` 以外のイベントが記録されていないか**を検査する（委譲・差し込み・`delegate_end` の事後補記が起きた周を「変化なし」と誤判定しないための裏取り。Issue [#82](https://github.com/masanami/claude-flywheel/issues/82)。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・当周の `cycle_start` が見つからない場合は「判定不能」であり「委譲なし」ではない**（exit 2 で区別し、呼び出し側は従来どおりコミットする）。
 
