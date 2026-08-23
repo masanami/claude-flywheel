@@ -75,7 +75,7 @@ assert_case "事故a: 見出し直前の空行欠落を指摘する" 1 "空行�
   -- ledger "$FIXTURES/ledger/invalid/heading-no-blank-line.md"
 assert_case "事故e: 巻き添え削除された備考行を指摘する" 1 "「備考」" \
   -- ledger "$FIXTURES/ledger/invalid/missing-note-field.md"
-assert_case "マーカー整合: 両種同居と重複を指摘する" 1 "マーカーの整合違反" \
+assert_case "マーカー整合: 取り込み元マーカーの重複を指摘する" 1 "マーカーの整合違反（取り込み元=2" \
   -- ledger "$FIXTURES/ledger/invalid/double-marker.md"
 assert_case "見出し降格（先頭課題の前文化）を孤児フィールドとして指摘する" 1 "属さないフィールド行" \
   -- ledger "$FIXTURES/ledger/invalid/heading-demoted.md"
@@ -481,7 +481,7 @@ assert_case "runs の --expect-cycle は --since-last-cycle-start 必須（無�
 # --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
 # run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
 # ベースイメージ（node:20-slim）には ruby が無いため、Dockerfile 側の導入が契約の一部。
-# あわせて ingest/periodic-audit の fp 算式（shasum -a 256）が前提とする perl も固定する。
+# あわせて ingest の fp 算式（shasum -a 256）が前提とする perl も固定する。
 
 # run-cycle 手順6 の事後補記経路（journal ⑤ への追記＋追加コミット）は本体の検算より後に
 # 走るため、追記後・追加コミット前の journal-md 再検証の規定が SKILL に存在することを固定する
@@ -565,16 +565,14 @@ FORMAT_DOC="$REPO_ROOT/docs/challenge-ledger-format.md"
 LEDGER_TPL="$REPO_ROOT/templates/challenge-ledger.md"
 INGEST_MD="$REPO_ROOT/skills/ingest-challenges/SKILL.md"
 VALIDATOR="$REPO_ROOT/scripts/validate-artifact.rb"
-AUDIT_MD="$REPO_ROOT/skills/periodic-audit/SKILL.md"
 CONTRACTS_MD="$REPO_ROOT/contracts/README.md"
 
 # 参照フィールド 3 種のラベルが 規定・雛形・検査 の 3 者で一致する（改名・取りこぼしの検出）
-# 掃引範囲は「台帳エントリを書く 4 者」の雛形すべて（人間＝雛形／run-cycle／ingest／periodic-audit）。
-# periodic-audit の雛形が漏れていて旧ラベルのまま残った実績があるため、掃引範囲自体をテストで固定する。
+# 掃引範囲は「台帳エントリを書く 3 者」の雛形すべて（人間＝雛形／run-cycle／ingest）。
+# 雛形が掃引範囲から漏れて旧ラベルのまま残った実績があるため、掃引範囲自体をテストで固定する。
 for label in "関連リポジトリ" "関連Issue" "関連PR"; do
   assert_contains "規定に参照フィールド「${label}」がある" "$FORMAT_DOC" "- ${label}:"
   assert_contains "雛形に参照フィールド「${label}」がある" "$LEDGER_TPL" "- ${label}:"
-  assert_contains "periodic-audit の雛形に参照フィールド「${label}」がある" "$AUDIT_MD" "- ${label}:"
   assert_contains "バリデータが参照フィールド「${label}」を検査対象にしている" "$VALIDATOR" "- ${label}:"
 done
 
@@ -582,9 +580,7 @@ done
 APPROVE_LABEL="- [ ] 計画を承認（FR-13・承認対象＝タスク案）"
 assert_contains "規定の承認チェック行が承認対象を名乗る" "$FORMAT_DOC" "$APPROVE_LABEL"
 assert_contains "雛形の承認チェック行が承認対象を名乗る" "$LEDGER_TPL" "$APPROVE_LABEL"
-assert_contains "periodic-audit の雛形の承認チェック行が承認対象を名乗る" "$AUDIT_MD" "$APPROVE_LABEL"
 assert_absent "雛形に旧い承認ラベルが残っていない" "$LEDGER_TPL" "- [ ] 計画を承認（FR-13）"
-assert_absent "periodic-audit の雛形に旧い承認ラベルが残っていない" "$AUDIT_MD" "- [ ] 計画を承認（FR-13）"
 # 承認の検出条件の記述は実形（2 スペースインデント・`[x]` が成立条件）と一致していること
 assert_contains "規定の承認検出の記述が実形（インデント・[x]）と一致する" "$FORMAT_DOC" "2 スペースインデントのチェックボックス行"
 # 規定側は記入例が複数箇所にあるため「1 箇所でも新表記があること」では乖離を検出できない。
@@ -629,7 +625,7 @@ assert_contains "規定: <url> 列から <owner>/<repo> を導く手順がある
 assert_absent "規定: 消費側に repos.tsv の参照を要求していない" "$FORMAT_DOC" "次にワークスペースの \`repos.tsv\` を参照する"
 
 # --- 消費者向けの契約（contracts/README）と雛形も掃引範囲に含める ---
-# 掃引範囲から漏れたファイルは変異が素通りする（periodic-audit の雛形で実際に起きた）。
+# 掃引範囲から漏れたファイルは変異が素通りする（雛形の掃引漏れで実際に起きた）。
 # 消費者が実装の根拠にする記述と、書き手が最初に読む雛形の記入指示を逐語で固定する。
 assert_contains "契約README: 消費者向けに引用行を継続行として明記している" "$CONTRACTS_MD" "**引用行（行頭 \`>\`）**"
 assert_contains "契約README: 消費者の必読に移行フェーズが含まれている" "$CONTRACTS_MD" "同 §移行フェーズ"
