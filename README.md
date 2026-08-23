@@ -23,9 +23,9 @@ flowchart TD
     learn -->|"弾み車を回し続ける"| explore
 ```
 
-## 配布形態：Claude Code プラグイン
+## 配布形態：Claude Code / Codex プラグイン
 
-claude-flywheel は **Claude Code プラグイン**として install して使います。1 つのプラグインから、**プロジェクトごとに独立した複数のエージェント（fleet）** を作ります。構成は 3 層:
+claude-flywheel は **Claude Code / Codex の両方から同じ `skills/` を使えるプラグイン**として配布します。1 つのプラグインから、**プロジェクトごとに独立した複数のエージェント（fleet）** を作ります。構成は 3 層:
 
 - **機械（プラグイン）** — スキル・テンプレ・docs（全エージェント共通の土台）
 - **各エージェント（独立リポジトリ）** — 課題台帳・positions・memory・runtime ＋ 独自ハーネス（守備範囲は原則重複しない）
@@ -34,11 +34,11 @@ claude-flywheel は **Claude Code プラグイン**として install して使�
 > プラグインは配布・更新されるため、運用状態は中に持たず、各エージェントのリポジトリに置きます。
 
 ```bash
-# 1. マーケットプレイスを登録し、プラグインを install
+# Claude Code: マーケットプレイスを登録し、プラグインを install
 /plugin marketplace add masanami/claude-flywheel
 /plugin install claude-flywheel@claude-flywheel
 
-# 2. エージェント用リポジトリで状態を初期化（スキルは plugin 名で名前空間化される）
+# エージェント用リポジトリで状態を初期化（スキルは plugin 名で名前空間化される）
 /claude-flywheel:flywheel-init          # 状態を生成（templates から）
 /claude-flywheel:bootstrap-domain-map   # positions/・memory/ を生成（ドメイン地図）
 
@@ -47,8 +47,23 @@ claude-flywheel は **Claude Code プラグイン**として install して使�
 #   → /claude-flywheel:run-cycle（routine で定期実行も可）
 ```
 
+Codex向けには `.codex-plugin/plugin.json` を同梱し、Claude Code向けの `.claude-plugin/` と同じトップレベル `skills/` を参照します。Phase 1時点では公開marketplaceへの登録は行わず、ローカル開発・検証では利用先ワークスペースから本cloneのskill正本へsymlinkします。
+
+```bash
+# Codex: ローカルcloneを利用先ワークスペースへ接続（開発・検証用）
+mkdir -p <agent-workspace>/.agents
+ln -s <absolute-path-to-claude-flywheel>/skills <agent-workspace>/.agents/skills
+cd <agent-workspace>
+codex
+
+# /skills または $ のskill selectorで次が見えることを確認する
+# $flywheel-init / $bootstrap-domain-map / $ingest-challenges / $run-cycle
+```
+
+このリポジトリ自身には `.agents/skills -> ../skills` を置き、skillを複製せずrepo-local discoveryを検証します。**Phase 1が保証するのはCodexによるskillの発見・選択まで**です。`${CLAUDE_PLUGIN_ROOT}` の中立化、`AGENTS.md` scaffold、Codexによるexecutor委譲・権限設定は後続Phaseで対応するため、Codexでのワークフロー一巡はまだ保証しません。`start-day` / schedulerは最後のPhaseで扱い、現時点の `start-day` はClaude Codeのセッション内cron専用です。
+
 提供物（プラグイン本体）:
-- **`skills/`** — `flywheel-init` / `bootstrap-domain-map` / `ingest-challenges` / `run-cycle` / `agent-memory` / `reflect` などのスキル群【成果物(a)】
+- **`skills/`** — Claude Code / Codex が共有する `flywheel-init` / `bootstrap-domain-map` / `ingest-challenges` / `run-cycle` / `agent-memory` / `reflect` などのスキル群【成果物(a)】
 - **`templates/`** — 利用先に scaffold する雛形（課題台帳・ポジション・関連リポジトリ・ランタイム設定）
 - **`scripts/`** — 機械的処理の純シェル（`sync-repos.sh`：関連リポジトリ（作業用クローン）の clone/fetch／`trust-clone.sh`：クローンの trust 承認（人間が一度だけ手動実行））
 - **`docs/`** — 設計ドキュメント（要件・アーキテクチャ・課題・memory運用・自己改善）
