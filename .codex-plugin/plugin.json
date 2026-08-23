@@ -1,0 +1,29 @@
+{
+  "name": "claude-flywheel",
+  "version": "0.18.0",
+  "description": "自走するエージェントのための汎用ハーネス。課題の自己選択・ポジション・記憶・自律サイクルを提供する。",
+  "author": {
+    "name": "masanami"
+  },
+  "homepage": "https://github.com/masanami/claude-flywheel",
+  "repository": "https://github.com/masanami/claude-flywheel",
+  "keywords": [
+    "autonomous-agent",
+    "harness",
+    "flywheel",
+    "orchestration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude Flywheel",
+    "shortDescription": "自走するエージェントの汎用ハーネス",
+    "longDescription": "課題の自己選択、ポジション、記憶、承認ゲート、自律サイクルをClaude CodeとCodexで共有するためのスキル群です。",
+    "developerName": "masanami",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Flywheelの課題台帳を確認し、次に行うべき作業を提案してください。"
+  }
+}

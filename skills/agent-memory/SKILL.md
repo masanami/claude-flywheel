@@ -1,6 +1,6 @@
 ---
 name: agent-memory
-description: claude-flywheel エージェントの**ドメイン記憶**（リポジトリ内 memory/<domain>/ の map/tacit/experience/reference）を構造化して管理する。save/recall/promote/maintain を提供。主に run-cycle・bootstrap-domain-map からの委譲、または「ドメイン記憶を記録/参照」「agent-memory」と明示されたときに使う。汎用的な「覚えておいて/思い出して」（ユーザーや作業文脈の記憶）は対象外＝公式 Claude Code memory の領分。
+description: claude-flywheel エージェントの**ドメイン記憶**（リポジトリ内 memory/domain/ の map/tacit/experience/reference）を構造化して管理する。save/recall/promote/maintain を提供。主に run-cycle・bootstrap-domain-map からの委譲、または「ドメイン記憶を記録/参照」「agent-memory」と明示されたときに使う。汎用的な「覚えておいて/思い出して」（ユーザーや作業文脈の記憶）は対象外＝公式 Claude Code memory の領分。
 ---
 
 # agent-memory
