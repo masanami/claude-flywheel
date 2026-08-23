@@ -11,7 +11,6 @@ claude-flywheel の設計ドキュメント置き場。
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
-| [gdd-drift-integration.md](./gdd-drift-integration.md) | periodic-audit の**最初の利用例**: GDD 意味ドリフト検知（`/guarantee-audit drift`）の接続設計と経緯（[#81](https://github.com/masanami/claude-flywheel/issues/81)）。汎用機構そのものの正本は [periodic-audit SKILL.md](../skills/periodic-audit/SKILL.md) | 確定 |
 | [noop-cycle-batching.md](./noop-cycle-batching.md) | no-op 周の軽量化（[#82](https://github.com/masanami/claude-flywheel/issues/82)）: 変化ゼロの周のコミットを次の周へ束ねる設計、3 案の比較と採用根拠、「変化なし」の機械的定義 | 確定 |
 | [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: 実装済みの最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較（採否は人間判断・未決） | ドラフト |
 
@@ -38,7 +37,6 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
 | [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
-| [periodic-audit](../skills/periodic-audit/SKILL.md) | 宣言された監査ジョブを低頻度で1周（対象 repo へ接続ツールの監査スキルを委譲→課題台帳へ冪等に起票）。何を監査するかは cadence.json が宣言する |
 
 ## テンプレート（`templates/` ＝利用先に scaffold する雛形）
 
