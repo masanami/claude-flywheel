@@ -1,3 +1,5 @@
+<!-- flywheel-template: runtime/README.md@0.20.0 -->
+
 # runtime — 自律実行ランタイム【成果物 (b)】
 
 自走エージェントを定期的に起こすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code のセッション内 cron（`start-day` スキルが登録）＋ `run-cycle` スキルで実現する。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。

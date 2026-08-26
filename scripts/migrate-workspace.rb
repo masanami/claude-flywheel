@@ -35,8 +35,9 @@
 #     この 2 つだけが「テンプレート由来の構造」と「運用中のライブデータ」が同居し、
 #     ファイル単位の再生成が不可能＝構造マイグレーションでしか追従できない。
 #   - それ以外（scaffold 済みドキュメント・設定）は**検出して提示するだけ**で書き換えない。
-#     テンプレート版マーカーを埋めていないため「テンプレートが更新された」と「利用先が
-#     カスタマイズした」を機械が区別できず、自動上書きは利用先の編集を静かに壊すため。
+#     版マーカー（#118）は「どの版から生まれたか」を示すが、生成物の各行が「テンプレートの
+#     更新分」なのか「利用先のカスタマイズ」なのかまでは判定できず、自動上書きは利用先の
+#     編集を静かに壊すため。マーカーは**検出の網羅性を上げるためだけ**に使う。
 #
 # ## 非破壊の設計（台帳の機械編集は事故の実績があるため多重化する）
 #
@@ -620,6 +621,9 @@ def inject_fault!(lines)
   case FAULT
   when nil, ""
     lines
+  when "marker-always-current", "marker-skip-heading-delta"
+    # 版マーカー検査側で解釈する故障。行は変えない（scaffold 追従レポートは書き込みを伴わない）。
+    lines
   when "fail-after-stage"
     # 行は変えない。置換直前（一時ファイル作成後）に中断させ、`ensure` の後始末を固定する。
     lines
@@ -891,8 +895,207 @@ def markdown_sections(body, title_re)
   end
 end
 
+# ---------------------------------------------------------------------------
+# テンプレート版マーカー（flywheel-template）
+#
+# 決定の正本は docs/template-version-marker.md（Issue #118）。要旨:
+#   - scaffold 生成物の 1 行目に `<!-- flywheel-template: <name>@<version> -->` を刻む。
+#     マーカーは**生成物と同じファイル**に乗るので、コピー・移動に随伴する。
+#   - **正本はテンプレート側のマーカー 1 本だけ**。「現行版はいくつか」を書いた表を別に
+#     持たない（2 本目のリストは必ずずれる＝ PR #96 の教訓）。ここでは `templates/` 配下の
+#     Markdown を走査して版表をその場で作る。
+#   - 版マーカーは**検出のためだけ**に使う。自動適用の範囲は広げない（本スクリプトは
+#     scaffold 生成物を 1 バイトも書き換えない）。
+#   - マーカー単独では誤報する（人間が手で追従してもマーカーは古いまま残る）。重要項目は
+#     内容ベースの検出器を**併用**する（下の §意思決定の主体 / §接続ツール）。
+#
+# 対象は Markdown のみ。JSON にコメント構文が無く、全種類で統一した行内マーカーは原理的に
+# 置けないため（対象外の生成物とその現在の検出手段は docs/template-version-marker.md §7）。
+
+MARKER_RE = /\A<!--\s*flywheel-template:\s*([^\s@]+)@([^\s@]+)\s*-->\s*\z/.freeze
+
+# マーカーを探す範囲（先頭 n 行）。ファイル全体を走査すると、マーカーを引用した本文
+# （docs・記入例）を実マーカーと誤認しうるため、位置を先頭に限る。
+MARKER_SCAN_LINES = 5
+
+# テンプレート → ワークスペースの配置先。**対応表に無い Markdown テンプレートは実行時に
+# 通知する**（載せ忘れを「静かな取りこぼし」ではなく「通知」として出す）。
+#   :file … 単一ファイル（存在しなければ検査しない＝不足は SCAFFOLD_PATHS 側の責務）
+#   :glob … 0..N 件（bootstrap 前は 0 件が正常）
+TEMPLATE_TARGETS = [
+  ["CLAUDE.md", "CLAUDE.md", :file],
+  ["challenge-ledger.md", "challenge-ledger.md", :file],
+  ["priority-policy.md", "priority-policy.md", :file],
+  ["challenge-sources.md", "challenge-sources.md", :file],
+  ["position.md", "positions/*.md", :glob],
+  ["journal/README.md", "journal/README.md", :file],
+  ["journal/cycle-template.md", "journal/cycle-template.md", :file],
+  ["runtime/README.md", "runtime/README.md", :file],
+].freeze
+
+# 戻り値: [:ok, name, version] / [:none] / [:broken, 該当行]
+# 「マーカーらしき行はあるが形が違う」を [:none] に丸めない（形式不正を「未導入」と
+# 読み替えると、壊れたマーカーが静かに放置される）。
+def read_marker(path)
+  head = File.open(path, "r:UTF-8") { |f| f.first(MARKER_SCAN_LINES) || [] }
+  head = head.map { |l| l.sub(/\r?\n\z/, "") }
+  head.each do |line|
+    m = MARKER_RE.match(line)
+    return [:ok, m[1], m[2]] if m
+  end
+  broken = head.find { |l| l.include?("flywheel-template") }
+  broken ? [:broken, broken.strip] : [:none]
+rescue SystemCallError, ArgumentError
+  [:none]
+end
+
+# semver（`<major>.<minor>.<patch>`）を整数配列にする。**3 要素ちょうど、かつ各要素が
+# 正規形（`0` または `[1-9]\d*`）のものだけを受理する**（それ以外は nil ＝形式不正）。
+# 2 つの軸のどちらを緩めても、**形式不正であるべきマーカーが「追従済み」として黙殺される**:
+#   - 要素数を可変にして欠けた分を 0 で補うと `@0.20` が `@0.20.0` と一致する
+#   - 先頭ゼロを許すと `to_i` が正規化してしまい `@00.20.0` が `@0.20.0` と一致する
+#     （`@01.02.03` は `@1.2.3` に化け、テンプレートより新しいと誤報する）
+# 版の値はプラグインの `version`（`.claude-plugin/plugin.json`）であり、一貫してこの形。
+# prerelease（`-rc1` 等）は現に使っておらず、優先順位規則が要るため受理しない。
+def semver(v)
+  return nil unless v =~ /\A(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\z/
+  v.split(".").map(&:to_i)
+end
+
+# a <=> b（どちらかが semver でなければ nil）。要素数は 3 で揃うため配列比較で足りる。
+def semver_cmp(a, b)
+  pa = semver(a)
+  pb = semver(b)
+  return nil if pa.nil? || pb.nil?
+  pa <=> pb
+end
+
+# 見出しの正規化。利用先は見出しに**連番**と**補足の丸括弧**を足す（実運用の
+# positions/*.md は `## 5. 接続ツール（実作業の委譲先）` の形）。落とさずに比較すると
+# 追従済みの生成物が毎回「見出しが無い」と報告される。
+def normalize_heading(line)
+  t = line.sub(/\A\#+[ \t]+/, "").strip
+  t = t.sub(/\A\d+[.)]\s*/, "")
+  t = t.sub(/（[^（）]*）\s*\z/, "")
+  t = t.sub(/\([^()]*\)\s*\z/, "")
+  t.strip
+end
+
+# `##` 見出しの正規化済み一覧（フェンス・HTML コメントの中は数えない）。
+# プレースホルダ（`<…>`）を含む見出しは、利用先で必ず書き換わるため比較から外す。
+def h2_headings(body)
+  lines = body.split("\n", -1)
+  inc = annotate_exclusions(lines)
+  out = []
+  lines.each_with_index do |line, i|
+    next unless inc[i] && line =~ /\A\#\#[ \t]+/
+    h = normalize_heading(line)
+    next if h.empty? || h.include?("<")
+    out << h
+  end
+  out
+end
+
+def read_body(path)
+  File.read(path, encoding: "UTF-8")
+rescue SystemCallError
+  nil
+end
+
+# テンプレート側の版表（正本）。戻り値: [表, テンプレート側の通知]
+#   表: name => { version:, path:, rel: }
+def template_marker_table(templates)
+  table = {}
+  notes = []
+  mapped = TEMPLATE_TARGETS.map { |rel, _, _| rel }
+  Dir.glob(File.join(templates, "**", "*.md")).sort.each do |path|
+    rel = path.sub(/\A#{Regexp.escape(templates)}\/?/, "")
+    kind, name, version = read_marker(path)
+    if kind != :ok
+      notes << "版マーカー: テンプレート #{rel} に版マーカーが無い（追従を検出できない）。" \
+               "1 行目へ `<!-- flywheel-template: #{rel}@<版> -->` を追記する"
+      next
+    end
+    unless mapped.include?(rel)
+      notes << "版マーカー: テンプレート #{rel} の配置先が未定義（追従検査の対象外）。" \
+               "migrate-workspace.rb の TEMPLATE_TARGETS に追記する"
+    end
+    table[name] = { version: version, path: path, rel: rel }
+  end
+  [table, notes]
+end
+
+# ワークスペース側の突き合わせ。**検出のみ**（1 バイトも書き換えない）。
+# `content_ok` は内容ベースの検出器が「重要項目は追従済み」と判定した生成物の相対パス集合
+# （マーカーが古いだけの既知の偽陽性を、人間が「マーカー行だけ直せばよい」と読める形にする）。
+def marker_notes(ws, templates, content_ok)
+  return [] if FAULT == "marker-always-current"
+
+  table, notes = template_marker_table(templates)
+
+  TEMPLATE_TARGETS.each do |tpl_rel, dest, kind|
+    entry = table.values.find { |e| e[:rel] == tpl_rel }
+    next if entry.nil? # テンプレート側の欠落は上で通知済み
+    tv = entry[:version]
+    tpl_body = read_body(entry[:path])
+
+    paths = kind == :glob ? Dir.glob(File.join(ws, dest)).sort : [File.join(ws, dest)]
+    paths.each do |path|
+      next unless File.exist?(path)
+      rel = path.sub(/\A#{Regexp.escape(ws)}\/?/, "")
+      state, _name, wv = read_marker(path)
+
+      stale =
+        case state
+        when :ok
+          cmp = semver_cmp(wv, tv)
+          if cmp.nil?
+            notes << "版マーカー: #{rel} の版マーカーの形式が不正（版が semver でない: @#{wv}）。" \
+                     "マーカー導入前の世代と同じ扱いで報告する"
+            true
+          elsif cmp < 0
+            notes << "版マーカー: #{rel} はテンプレートに追従していない" \
+                     "（テンプレート #{tpl_rel}@#{tv} / 生成物は @#{wv}）。" \
+                     "`<plugin>/templates/#{tpl_rel}` と突き合わせて手で追従し、マーカーの版を上げる"
+            true
+          elsif cmp > 0
+            notes << "版マーカー: #{rel} の版がテンプレートより新しい" \
+                     "（生成物 @#{wv} / テンプレート #{tpl_rel}@#{tv}）。プラグインが古い可能性がある"
+            false
+          else
+            false
+          end
+        when :broken
+          notes << "版マーカー: #{rel} の版マーカーの形式が不正（#{_name}）。" \
+                   "マーカー導入前の世代と同じ扱いで報告する"
+          true
+        else
+          notes << "版マーカー: #{rel} に版マーカーが無い（マーカー導入前に scaffold された世代）。" \
+                   "テンプレート #{tpl_rel}@#{tv} と内容を突き合わせ、追従したうえで、" \
+                   "1 行目に <!-- flywheel-template: #{tpl_rel}@#{tv} --> を追記する"
+          true
+        end
+
+      next unless stale
+      notes << "版マーカー: #{rel} — 重要項目の内容チェックでは追従済み（マーカー行の版を上げれば足りる可能性がある）" if content_ok.include?(rel)
+      next if FAULT == "marker-skip-heading-delta"
+      next if tpl_body.nil?
+      body = read_body(path)
+      next if body.nil?
+      missing = h2_headings(tpl_body) - h2_headings(body)
+      next if missing.empty?
+      notes << "版マーカー: #{rel} — テンプレートにあって見当たらない見出し" \
+               "（参考・利用先が見出しを改名していると出る）: #{missing.join(' / ')}"
+    end
+  end
+
+  notes
+end
+
 def scaffold_report(ws, templates)
   notes = []
+  # 内容ベースの検出器が「重要項目は追従済み」と判定した生成物（版マーカーの既知の偽陽性と協調させる）
+  content_ok = []
 
   SCAFFOLD_PATHS.each do |rel|
     path = File.join(ws, rel)
@@ -931,7 +1134,9 @@ def scaffold_report(ws, templates)
   claude_md = File.join(ws, "CLAUDE.md")
   if File.exist?(claude_md)
     sections = markdown_sections(File.read(claude_md, encoding: "UTF-8"), /意思決定の主体/)
-    if !sections.empty? && sections.none? { |s| s.include?("スキルの性質") }
+    if sections.any? { |sec| sec.include?("スキルの性質") }
+      content_ok << "CLAUDE.md"
+    elsif !sections.empty?
       notes << "`CLAUDE.md`: §意思決定の主体が旧 1 軸（課題のスコープのみ）のまま（対話前提スキルでも単一 repo なら子が決める、と読める）。" \
                "`<plugin>/templates/CLAUDE.md` の 2 軸（スキルの性質 × 課題のスコープ）へ手で追従する"
     end
@@ -952,7 +1157,12 @@ def scaffold_report(ws, templates)
     # いずれかの候補節が 3 項目を揃えていれば追従済み。揃っていなければ、最も惜しい候補
     # （欠落の少ないもの）の欠落を報告する＝人が直すべき節を指せるようにする。
     missing = sections.map { |s| POSITION_TOOL_ITEMS.reject { |label| s.include?(label) } }.min_by(&:size)
-    next if missing.empty?
+    if missing.empty?
+      # marker_notes はワークスペース相対パスで照合する（固定値を積むと協調ノートが
+      # 黙って発火しなくなる）。
+      content_ok << path.sub(/\A#{Regexp.escape(ws)}\/?/, "")
+      next
+    end
     notes << "`positions/#{File.basename(path)}`: §接続ツールに宣言項目が無い（欠けている宣言項目: #{missing.join(' / ')}）" \
              "＝ run-cycle は宣言なしを安全側（親がユーザー役）として扱う。`<plugin>/templates/position.md` の §接続ツール を参照して追記する" \
              "（確定していない項目は `未宣言` と記入する＝推測で埋めない）"
@@ -963,6 +1173,8 @@ def scaffold_report(ws, templates)
     body = File.read(dockerfile, encoding: "UTF-8")
     notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" unless body =~ /^\s*(RUN|ARG|ENV)?.*\bruby\b/
   end
+
+  notes.concat(marker_notes(ws, templates, content_ok))
 
   notes
 end

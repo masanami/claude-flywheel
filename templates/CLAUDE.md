@@ -1,3 +1,5 @@
+<!-- flywheel-template: CLAUDE.md@0.20.0 -->
+
 # <エージェント名>（claude-flywheel エージェント）
 
 > claude-flywheel をベースにした自律エージェントのリポジトリ。

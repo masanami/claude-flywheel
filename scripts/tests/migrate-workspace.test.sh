@@ -623,6 +623,338 @@ ws="$(mkws empty)"
 assert_exit "台帳が無いワークスペースは exit 0" 0 -- --workspace "$ws"
 assert_out "台帳が無いことを報告する" "初回 scaffold が必要" -- --workspace "$ws"
 
+
+# ---------------------------------------------------------------------------
+# 16. テンプレート版マーカー（flywheel-template）— 追従検出の汎用化（Issue #118）
+#
+# 決定の正本は docs/template-version-marker.md。ここで固定するのは §5 の状態空間と
+# §8 のテスト計画。要は「**項目ごとの検出器を書かなくても、テンプレートに新設された節が
+# 名指しで報告される**」こと。
+# ---------------------------------------------------------------------------
+
+# 16-1. 受理方向: 生成側の正規出力（テンプレートの逐語コピー）を検証側が必ず受理する。
+#       状態 1（マーカーあり・版が一致）は 1 件も報告しない。
+ws="$(mkws markerok)"
+mkdir -p "$ws/positions" "$ws/journal" "$ws/runtime"
+cp "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
+cp "$REPO_ROOT/templates/challenge-ledger.md" "$ws/challenge-ledger.md"
+cp "$REPO_ROOT/templates/priority-policy.md" "$ws/priority-policy.md"
+cp "$REPO_ROOT/templates/challenge-sources.md" "$ws/challenge-sources.md"
+cp "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+cp "$REPO_ROOT/templates/journal/README.md" "$ws/journal/README.md"
+cp "$REPO_ROOT/templates/journal/cycle-template.md" "$ws/journal/cycle-template.md"
+cp "$REPO_ROOT/templates/runtime/README.md" "$ws/runtime/README.md"
+assert_no_out "受理方向: テンプレート逐語コピーに版マーカーの指摘を出さない" '版マーカー:' -- --workspace "$ws"
+assert_no_out "受理方向: 見出し差分も出さない" 'テンプレートにあって見当たらない見出し' -- --workspace "$ws"
+assert_exit "受理方向: テンプレート逐語コピーは exit 0" 0 -- --workspace "$ws"
+
+# 16-2. 状態 4（マーカー無し＝既存世代）を報告する。**自動で書き足さない**。
+ws="$(mkws markermissing)"
+cp "$FIXTURES/legacy-0.18-CLAUDE.md" "$ws/CLAUDE.md"
+cp "$ws/CLAUDE.md" "$tmp/markermissing.orig"
+assert_out "既存世代（マーカー無し）を検出する" 'CLAUDE.md に版マーカーが無い' -- --workspace "$ws"
+assert_out "既存世代には追記の仕方を案内する" '1 行目に <!-- flywheel-template:' -- --workspace "$ws"
+/usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
+assert_same "マーカーを自動で書き足さない（検出のみ）" "$tmp/markermissing.orig" "$ws/CLAUDE.md"
+
+# 16-3. **Issue #118 の完了条件**: 0.19.0 で新設された節が、専用の検出器なしで名指しされる。
+#       フィクスチャは実データ（0.18 世代の templates/CLAUDE.md を git 履歴から取得）。
+assert_out "新設節を名指しで報告する（1 サイクル = 1 セッション）" '1 サイクル = 1 セッション' -- --workspace "$ws"
+assert_out "新設節を名指しで報告する（委譲の費用ガード）" '委譲の費用ガード' -- --workspace "$ws"
+assert_out "見出し差分であることを明示する" 'テンプレートにあって見当たらない見出し' -- --workspace "$ws"
+
+# 16-4. 状態 2（版が古い）: 追従していないことを版つきで報告し、見出し差分を添える。
+ws="$(mkws markerstale)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@0.1.0 -->'; cat "$FIXTURES/legacy-0.18-CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "古い版マーカーを検出する" 'CLAUDE.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_out "古い版マーカーは生成物側の版を示す" '生成物は @0.1.0' -- --workspace "$ws"
+assert_out "古い版マーカーにも見出し差分を添える" '1 サイクル = 1 セッション' -- --workspace "$ws"
+
+# 16-5. 状態 3（版がテンプレートより新しい）: 「古い」と混同せず別の理由で報告する。
+ws="$(mkws markernewer)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@99.0.0 -->'; cat "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "テンプレートより新しい版を検出する" 'テンプレートより新しい' -- --workspace "$ws"
+assert_no_out "新しい版を「追従していない」と誤報しない" 'CLAUDE.md はテンプレートに追従していない' -- --workspace "$ws"
+
+# 16-6. 状態 5（形式が壊れている）: 「マーカーがある」と読み替えず、不正として報告する。
+ws="$(mkws markerbroken)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md -->'; cat "$FIXTURES/legacy-0.18-CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "壊れた版マーカーを不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+assert_out "壊れた版マーカーでも見出し差分は出す" '1 サイクル = 1 セッション' -- --workspace "$ws"
+
+# 16-7. 偽陽性の回帰（見出し正規化）: 利用先は見出しに連番・補足の丸括弧を付ける。
+#       実運用の positions/*.md は `## 5. 接続ツール（実作業の委譲先）` の形を採る。
+#       連番・末尾丸括弧を落として比較しないと、追従済みのポジションが毎回報告される。
+ws="$(mkws markernorm)"
+mkdir -p "$ws/positions"
+/usr/bin/ruby -e '
+  src = File.read(ARGV[0], encoding: "UTF-8")
+  # 版だけ古くしてマーカー比較を発火させ、見出し差分の偽陽性だけを測る
+  src = src.sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  # 利用先の文言ゆれを再現: 末尾丸括弧の中身を書き換える
+  src = src.gsub("## 5. 接続ツール（実作業の委譲先）", "## 5. 接続ツール（実作業の委譲先・repo ごとに分岐）")
+  File.write(ARGV[1], src)
+' "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+assert_out "版が古いポジションは追従対象として報告する" 'positions/sample.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_no_out "連番・末尾丸括弧のゆれを見出し欠落と誤報しない" 'テンプレートにあって見当たらない見出し' -- --workspace "$ws"
+
+# 16-8. マーカー検査は 1 バイトも書き換えない（scaffold 追従レポートは検出のみ）。
+ws="$(mkws markernowrite)"
+mkdir -p "$ws/positions"
+cp "$FIXTURES/legacy-0.18-CLAUDE.md" "$ws/CLAUDE.md"
+cp "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+cp "$ws/CLAUDE.md" "$tmp/markernowrite-claude.orig"
+cp "$ws/positions/sample.md" "$tmp/markernowrite-pos.orig"
+/usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
+assert_same "マーカー検査は CLAUDE.md を書き換えない" "$tmp/markernowrite-claude.orig" "$ws/CLAUDE.md"
+assert_same "マーカー検査はポジションを書き換えない" "$tmp/markernowrite-pos.orig" "$ws/positions/sample.md"
+
+# 16-9. 台帳の 1 行目マーカーが構造マイグレーションで動かない・消えない
+#       （記入例ブロックの再構築が head 側のマーカーを巻き込まないこと）。
+ws="$(mkws markerledger)"
+{ printf '%s\n\n' '<!-- flywheel-template: challenge-ledger.md@0.1.0 -->'; cat "$FIXTURES/legacy-bold-heading-ledger.md"; } > "$ws/challenge-ledger.md"
+cp "$ws/challenge-ledger.md" "$tmp/markerledger.orig"
+assert_exit "1 行目にマーカーがある台帳も移行できる" 0 -- --workspace "$ws" --apply --backup-dir "$tmp/backup-markerledger"
+if [ "$(head -1 "$ws/challenge-ledger.md")" = '<!-- flywheel-template: challenge-ledger.md@0.1.0 -->' ]; then
+  pass "移行後もマーカーが 1 行目に残る"
+else
+  fail "移行後もマーカーが 1 行目に残る" "head -1: $(head -1 "$ws/challenge-ledger.md")"
+fi
+assert_validator "1 行目マーカーつきの台帳はバリデータを通る" ledger "$ws/challenge-ledger.md" 0
+
+# 16-10. 正本の一本化（1）: すべての Markdown テンプレートが版マーカーを持つ。
+#        持たないテンプレートは「追従を検出できない」＝静かな取りこぼしになる。
+nomarker=""
+for tpl in $(cd "$REPO_ROOT/templates" && find . -name '*.md' | sed 's|^\./||' | sort); do
+  if ! head -5 "$REPO_ROOT/templates/$tpl" | grep -q '^<!-- flywheel-template: '; then
+    nomarker="${nomarker} ${tpl}"
+  fi
+done
+if [ -z "$nomarker" ]; then
+  pass "すべての Markdown テンプレートが版マーカーを持つ"
+else
+  fail "すべての Markdown テンプレートが版マーカーを持つ" "マーカーが無い:${nomarker}"
+fi
+
+# 16-11. 正本の一本化（2）: すべての Markdown テンプレートが配置先の対応表に載る。
+#        載せ忘れは「対象外だが存在する」として**実行時に通知される**（静かに落とさない）。
+ws="$(mkws markercoverage)"
+assert_no_out "配置先が未定義のテンプレートが無い" '配置先が未定義' -- --workspace "$ws"
+assert_no_out "版マーカーが無いテンプレートが無い" 'に版マーカーが無い（追従を検出できない）' -- --workspace "$ws"
+
+# 対応表に無いテンプレートを置くと通知される（この検査自体がタウトロジーでないことの確認）
+tpldir="$tmp/templates-extra"
+rm -rf "$tpldir"
+cp -R "$REPO_ROOT/templates" "$tpldir"
+printf '%s\n' '<!-- flywheel-template: unmapped.md@0.1.0 -->' '' '# 対応表に無いテンプレート' > "$tpldir/unmapped.md"
+assert_out "対応表に無いテンプレートを通知する" '配置先が未定義' -- --workspace "$ws" --templates-dir "$tpldir"
+rm -f "$tpldir/unmapped.md"
+printf '%s\n' '# マーカーの無いテンプレート' > "$tpldir/nomarker.md"
+assert_out "版マーカーの無いテンプレートを通知する" 'に版マーカーが無い（追従を検出できない）' -- --workspace "$ws" --templates-dir "$tpldir"
+
+# 16-12. bump ガード: 内容を変えたのに版を上げ忘れると「追従済み」と偽って報告される。
+#        作業ブランチで内容が変わった Markdown テンプレートは、マーカー行も変わっていること。
+base=""
+for ref in origin/main main; do
+  if git -C "$REPO_ROOT" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+    base="$(git -C "$REPO_ROOT" merge-base "$ref" HEAD 2>/dev/null)"
+    [ -n "$base" ] && break
+  fi
+done
+if [ -z "$base" ]; then
+  echo "skip - bump ガード: 基準リビジョン（origin/main / main）が取れないためスキップした"
+else
+  unbumped=""
+  for tpl in $(git -C "$REPO_ROOT" diff --name-only "$base" -- 'templates/*.md' 'templates/**/*.md'); do
+    [ -f "$REPO_ROOT/$tpl" ] || continue
+    if ! git -C "$REPO_ROOT" diff -U0 "$base" -- "$tpl" | grep -q '^[+-]<!-- flywheel-template: '; then
+      unbumped="${unbumped} ${tpl}"
+    fi
+  done
+  if [ -z "$unbumped" ]; then
+    pass "内容を変えた Markdown テンプレートは版マーカーも更新されている"
+  else
+    fail "内容を変えた Markdown テンプレートは版マーカーも更新されている" "版を上げ忘れ:${unbumped}"
+  fi
+fi
+
+# 16-13. 制約の固定（Issue #118）: この課題は flywheel 内で閉じる。
+#        版マーカーの対象は flywheel が scaffold した成果物のみで、他ハーネスの生成物の
+#        意味を flywheel が解釈しない。参照が生えたらここで落とす。
+n="$(grep -c 'harness' "$SCRIPT" || true)"
+n="$(printf '%s' "$n" | tr -d ' ')"
+if [ "$n" = "0" ]; then
+  pass "migrate-workspace.rb に harness への参照が無い（0 件）"
+else
+  fail "migrate-workspace.rb に harness への参照が無い（0 件）" "got=${n} 件"
+fi
+
+# 16-14. 変異注入: マーカー検出がタウトロジーでないことを示す。
+#        比較を無効化する変異を入れると 16-3 / 16-4 が検出できなくなる。
+ws="$(mkws markermutation)"
+cp "$FIXTURES/legacy-0.18-CLAUDE.md" "$ws/CLAUDE.md"
+out="$(MIGRATE_WORKSPACE_INJECT_FAULT=marker-always-current /usr/bin/ruby "$SCRIPT" --workspace "$ws" 2>&1)"
+case "$out" in
+  *'版マーカー:'*) fail "変異注入（marker-always-current）で検出が消えることを示す" "変異を入れても報告が出た" ;;
+  *) pass "変異注入（marker-always-current）で検出が消えることを示す" ;;
+esac
+out="$(MIGRATE_WORKSPACE_INJECT_FAULT=marker-skip-heading-delta /usr/bin/ruby "$SCRIPT" --workspace "$ws" 2>&1)"
+case "$out" in
+  *'1 サイクル = 1 セッション'*) fail "変異注入（marker-skip-heading-delta）で見出し差分が消えることを示す" "変異を入れても節名が出た" ;;
+  *) pass "変異注入（marker-skip-heading-delta）で見出し差分が消えることを示す" ;;
+esac
+# 変異を入れない通常実行では両方とも出る（変異注入の対照）
+assert_out "対照: 変異なしでは版マーカーの報告が出る" '版マーカー:' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 17. 版の形式（semver）の受理・非受理（PR #119 レビュー指摘 1）
+#
+# 版が semver でないマーカーは docs/template-version-marker.md §5 状態 5 ＝形式不正。
+# **要**: 欠けた要素を 0 で補って比較すると `@0.20` が `@0.20.0` と一致し、
+# 形式不正であるべきマーカーが「追従済み」として黙殺される（報告が消える）。
+# ---------------------------------------------------------------------------
+
+# 正当な 3 要素は受理し続ける（受理方向を壊さない）
+ws="$(mkws semverok)"
+tplver="$(sed -n '1p' "$REPO_ROOT/templates/CLAUDE.md" | sed 's/.*@//; s/ -->.*//')"
+{ printf '%s\n\n' "<!-- flywheel-template: CLAUDE.md@${tplver} -->"; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_no_out "3 要素の正当な版は受理する（報告しない）" '版マーカー:' -- --workspace "$ws"
+
+# 2 要素は形式不正。**「テンプレートと一致」に化けない**ことがこの検査の要。
+ws="$(mkws semver2)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@0.20 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "2 要素の版を形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+assert_out "2 要素の版は semver でないことを示す" '版が semver でない: @0.20' -- --workspace "$ws"
+
+# 4 要素・接頭辞つき・数値でない — いずれも形式不正
+ws="$(mkws semver4)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@0.20.0.1 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "4 要素の版を形式不正として報告する" '版が semver でない: @0.20.0.1' -- --workspace "$ws"
+
+ws="$(mkws semverv)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@v0.20.0 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "接頭辞つきの版を形式不正として報告する" '版が semver でない: @v0.20.0' -- --workspace "$ws"
+
+ws="$(mkws semverword)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@latest -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "数値でない版を形式不正として報告する" '版が semver でない: @latest' -- --workspace "$ws"
+
+# 版が空（`@` の後ろが無い）はマーカーの形自体が壊れている扱い（状態 5）
+ws="$(mkws semverempty)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@ -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "版が空のマーカーを形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 18. 内容ベース検出器との協調が positions/*.md でも発火する（PR #119 レビュー指摘 2）
+#
+# §6 の協調（マーカーは古いが重要項目は追従済み → 「マーカー行だけ直せばよい」と読める形に
+# 落とす）は、CLAUDE.md と positions/*.md の両方が対象。照合はワークスペース相対パスで
+# 行うため、**content_ok に積む値の形が marker_notes 側とずれると黙って発火しなくなる**。
+# ---------------------------------------------------------------------------
+
+# 宣言項目が揃った（＝内容チェックは追従済みの）ポジションで、版だけ古い場合
+ws="$(mkws coordpos)"
+mkdir -p "$ws/positions"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+assert_out "版が古いポジションを追従対象として報告する（前提）" '版マーカー: positions/sample.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_out "ポジションでも協調ノートが出る" '版マーカー: positions/sample.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# 対照: 宣言項目が欠けているポジションでは協調ノートを出さない（無条件に出す実装を弾く）
+ws="$(mkws coordposng)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '<!-- flywheel-template: position.md@0.1.0 -->' \
+  '' \
+  '# ポジション: sample' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **開発フロー（接続ツール）**: `claude-flywheel`' > "$ws/positions/sample.md"
+assert_out "宣言項目が欠けたポジションは追従対象として報告する（前提）" '版マーカー: positions/sample.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_no_out "宣言項目が欠けたポジションには協調ノートを出さない" '重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# CLAUDE.md 側の協調は既存どおり動く（回帰）
+ws="$(mkws coordclaude)"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
+assert_out "CLAUDE.md 側の協調ノートも出る" '版マーカー: CLAUDE.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# 存在しないパス（実装のタイプミス）を content_ok に積んでいないことの直接確認:
+# ワークスペースに `positions/migrate-workspace.rb` は存在しないので、協調ノートは
+# 必ず実在するポジションの相対パスで出る。
+ws="$(mkws coordpath)"
+mkdir -p "$ws/positions"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/position.md" "$ws/positions/harness.md"
+assert_out "協調ノートは実在するポジションの相対パスで出る" '版マーカー: positions/harness.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+assert_no_out "スクリプト名を混入した固定値を content_ok に積まない" 'positions/migrate-workspace.rb' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 19. 版の各要素の正規形（PR #119 再レビュー指摘）
+#
+# §17 は**要素数**の軸だけを洗っており、**要素の正規形**の軸を見ていなかった。
+# `00.20.0` は 3 要素なので §17 の検査を通り、`to_i` で `[0, 20, 0]` になって
+# `0.20.0` と一致する——**形式不正であるべきマーカーが「追従済み」として黙殺される**。
+# 帰結は §17 が塞いだものと同一。各要素は `0` または `[1-9]\d*` に限る。
+# ---------------------------------------------------------------------------
+
+# マーカーの版だけを差し替えたワークスペースを作る: mkmarker <名前> <版文字列>
+mkmarker() {
+  ws="$tmp/$1"
+  rm -rf "$ws"
+  mkdir -p "$ws"
+  { printf '%s\n\n' "<!-- flywheel-template: CLAUDE.md@$2 -->"; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+  echo "$ws"
+}
+
+tplver="$(sed -n '1p' "$REPO_ROOT/templates/CLAUDE.md" | sed 's/.*@//; s/ -->.*//')"
+
+# 先頭ゼロは形式不正。**「テンプレートと一致」にも「新しい」にも化けない**ことが要。
+i=0
+for badver in 00.20.0 01.02.03 0.00.0 0.20.00 000.0.0; do
+  i=$((i + 1))
+  ws="$(mkmarker "leadzero-$i" "$badver")"
+  # bash 3.2 は全角文字直前の変数展開でブレース必須（${badver}）
+  assert_out "先頭ゼロの版を形式不正として報告する（${badver}）" "版が semver でない: @${badver}" -- --workspace "$ws"
+  assert_no_out "先頭ゼロの版を追従済みとして黙殺しない（${badver}）" '版マーカーの指摘なし' -- --workspace "$ws"
+  assert_no_out "先頭ゼロの版を「テンプレートより新しい」に化けさせない（${badver}）" 'テンプレートより新しい' -- --workspace "$ws"
+done
+
+# 非数字の混入・全角数字も形式不正
+i=0
+for badver in 1.2.3a 0.20.x ０.20.0; do
+  i=$((i + 1))
+  ws="$(mkmarker "nondigit-$i" "$badver")"
+  assert_out "非数字を含む版を形式不正として報告する（${badver}）" '版マーカーの形式が不正' -- --workspace "$ws"
+done
+
+# 版の前後に空白があるマーカーは形（MARKER_RE）の段階で不正
+ws="$(mkws verspace)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@ 0.20.0 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "版の前に空白があるマーカーを形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+
+# **受理し続けること**: 正当な 0 を含む版は形式不正にしない（過剰な厳格化の回帰）
+ws="$(mkmarker zeroesok "$tplver")"
+assert_no_out "正当な現行版（0 を含む）は報告しない" '版マーカー:' -- --workspace "$ws"
+
+ws="$(mkmarker zeroesold 0.0.1)"
+assert_no_out "正当な 0 を含む古い版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "正当な 0 を含む古い版は追従対象として報告する" '生成物は @0.0.1' -- --workspace "$ws"
+
+ws="$(mkmarker zeroonly 0.0.0)"
+assert_no_out "すべて 0 の版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "すべて 0 の版は追従対象として報告する" '生成物は @0.0.0' -- --workspace "$ws"
+
+ws="$(mkmarker bignum 10.20.30)"
+assert_no_out "多桁の版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "多桁の版は「テンプレートより新しい」として報告する" 'テンプレートより新しい' -- --workspace "$ws"
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -1,3 +1,5 @@
+<!-- flywheel-template: challenge-ledger.md@0.20.0 -->
+
 # 課題台帳（Challenge Ledger）
 
 > このエージェントが扱う課題の台帳（正本）。人間は**共有ソース**に課題を書き、このエージェントが**自分に関係する分だけ**ここへ取り込む（ingestion）。

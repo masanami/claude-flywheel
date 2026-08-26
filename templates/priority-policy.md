@@ -1,3 +1,5 @@
+<!-- flywheel-template: priority-policy.md@0.20.0 -->
+
 # タスク優先度の決定方針（Priority Policy）
 
 > このエージェントが課題（`challenge-ledger.md`）の**優先度判定・着手順の選び方**を決める方針ステート。

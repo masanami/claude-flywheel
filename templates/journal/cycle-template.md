@@ -1,3 +1,5 @@
+<!-- flywheel-template: journal/cycle-template.md@0.20.0 -->
+
 <!--
 cycle-template.md — journal/YYYY-MM-DD-cycle.md の雛形。
 run-cycle step 6 がコピーして日付・内容を埋める。セクション構成・順序は変えない（index.jsonl のフィールドと対応）。
