@@ -200,7 +200,7 @@ Flywheel の各フェーズに沿って定義する。
 - **OQ-01 管理基盤の選定**:
   - **課題台帳**は「各エージェントのリポジトリ内のファイル＝正本」を当面の方針とする（§5）。人間は共有ソースに集約し、各エージェントが自分に関係する分だけ取り込む。課題ソースは差し替え可能とし、外部ドキュメント（Notion/Doc/Slack 等）化は後続。分類タグ・ステータスは正本（内部）で管理する。
   - **実行タスク・進捗**をどこで管理するか（GitHub Issue/PR 中心 / ファイル / 併用）は未決。論点: 自律実行との親和性、人間の可視性、履歴、既存 harness スキル（create-ticket 等）との接続。
-- **OQ-05 ポジションの記述項目**: 担当ドメイン / ミッション・目標 / 関心範囲 / 権限 / 関係 をどう定義・記述するか。 → **確定**: [templates/position.md](../templates/position.md)（closed）。
+- **OQ-05 ポジションの記述項目**: 担当ドメイン / ミッション・目標 / 関心範囲 / 権限 / 接続ツール / 関係 をどう定義・記述するか。 → **確定**: [templates/position.md](../templates/position.md)（closed。接続ツール欄＝対話前提スキルの対話相手の宣言は [#107](https://github.com/masanami/claude-flywheel/issues/107) で追加）。
 - **OQ-06 課題台帳のフォーマット**: オーケストレーターがルーティング判断できる項目（関連ドメイン・サービス、完了条件、緊急度 等）。 → **確定**: [docs/challenge-ledger-format.md](challenge-ledger-format.md)（closed）。
 - **OQ-07 ブートストラップ**: ドメイン地図づくり（FR-09）を誰が・どの順序で行い、ポジション定義へつなげるか。 → **確定**: [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) スキル（closed）。
 - **OQ-02 承認ポイントの粒度**: どの操作を「要承認」とするかの具体的な線引き。 → **確定**: FR-22 の精緻化（[#24](https://github.com/masanami/claude-flywheel/issues/24)）と [templates/position.md](../templates/position.md) の権限欄（closed）。
