@@ -805,6 +805,96 @@ case "$out" in
 esac
 # 変異を入れない通常実行では両方とも出る（変異注入の対照）
 assert_out "対照: 変異なしでは版マーカーの報告が出る" '版マーカー:' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 17. 版の形式（semver）の受理・非受理（PR #119 レビュー指摘 1）
+#
+# 版が semver でないマーカーは docs/template-version-marker.md §5 状態 5 ＝形式不正。
+# **要**: 欠けた要素を 0 で補って比較すると `@0.20` が `@0.20.0` と一致し、
+# 形式不正であるべきマーカーが「追従済み」として黙殺される（報告が消える）。
+# ---------------------------------------------------------------------------
+
+# 正当な 3 要素は受理し続ける（受理方向を壊さない）
+ws="$(mkws semverok)"
+tplver="$(sed -n '1p' "$REPO_ROOT/templates/CLAUDE.md" | sed 's/.*@//; s/ -->.*//')"
+{ printf '%s\n\n' "<!-- flywheel-template: CLAUDE.md@${tplver} -->"; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_no_out "3 要素の正当な版は受理する（報告しない）" '版マーカー:' -- --workspace "$ws"
+
+# 2 要素は形式不正。**「テンプレートと一致」に化けない**ことがこの検査の要。
+ws="$(mkws semver2)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@0.20 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "2 要素の版を形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+assert_out "2 要素の版は semver でないことを示す" '版が semver でない: @0.20' -- --workspace "$ws"
+
+# 4 要素・接頭辞つき・数値でない — いずれも形式不正
+ws="$(mkws semver4)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@0.20.0.1 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "4 要素の版を形式不正として報告する" '版が semver でない: @0.20.0.1' -- --workspace "$ws"
+
+ws="$(mkws semverv)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@v0.20.0 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "接頭辞つきの版を形式不正として報告する" '版が semver でない: @v0.20.0' -- --workspace "$ws"
+
+ws="$(mkws semverword)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@latest -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "数値でない版を形式不正として報告する" '版が semver でない: @latest' -- --workspace "$ws"
+
+# 版が空（`@` の後ろが無い）はマーカーの形自体が壊れている扱い（状態 5）
+ws="$(mkws semverempty)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@ -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "版が空のマーカーを形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 18. 内容ベース検出器との協調が positions/*.md でも発火する（PR #119 レビュー指摘 2）
+#
+# §6 の協調（マーカーは古いが重要項目は追従済み → 「マーカー行だけ直せばよい」と読める形に
+# 落とす）は、CLAUDE.md と positions/*.md の両方が対象。照合はワークスペース相対パスで
+# 行うため、**content_ok に積む値の形が marker_notes 側とずれると黙って発火しなくなる**。
+# ---------------------------------------------------------------------------
+
+# 宣言項目が揃った（＝内容チェックは追従済みの）ポジションで、版だけ古い場合
+ws="$(mkws coordpos)"
+mkdir -p "$ws/positions"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+assert_out "版が古いポジションを追従対象として報告する（前提）" '版マーカー: positions/sample.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_out "ポジションでも協調ノートが出る" '版マーカー: positions/sample.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# 対照: 宣言項目が欠けているポジションでは協調ノートを出さない（無条件に出す実装を弾く）
+ws="$(mkws coordposng)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '<!-- flywheel-template: position.md@0.1.0 -->' \
+  '' \
+  '# ポジション: sample' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **開発フロー（接続ツール）**: `claude-flywheel`' > "$ws/positions/sample.md"
+assert_out "宣言項目が欠けたポジションは追従対象として報告する（前提）" '版マーカー: positions/sample.md はテンプレートに追従していない' -- --workspace "$ws"
+assert_no_out "宣言項目が欠けたポジションには協調ノートを出さない" '重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# CLAUDE.md 側の協調は既存どおり動く（回帰）
+ws="$(mkws coordclaude)"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
+assert_out "CLAUDE.md 側の協調ノートも出る" '版マーカー: CLAUDE.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+
+# 存在しないパス（実装のタイプミス）を content_ok に積んでいないことの直接確認:
+# ワークスペースに `positions/migrate-workspace.rb` は存在しないので、協調ノートは
+# 必ず実在するポジションの相対パスで出る。
+ws="$(mkws coordpath)"
+mkdir -p "$ws/positions"
+/usr/bin/ruby -e '
+  s = File.read(ARGV[0], encoding: "UTF-8").sub(/@[0-9]+\.[0-9]+\.[0-9]+/, "@0.1.0")
+  File.write(ARGV[1], s)
+' "$REPO_ROOT/templates/position.md" "$ws/positions/harness.md"
+assert_out "協調ノートは実在するポジションの相対パスで出る" '版マーカー: positions/harness.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
+assert_no_out "スクリプト名を混入した固定値を content_ok に積まない" 'positions/migrate-workspace.rb' -- --workspace "$ws"
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]

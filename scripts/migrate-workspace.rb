@@ -949,23 +949,22 @@ rescue SystemCallError, ArgumentError
   [:none]
 end
 
-# semver を整数配列にする（比較できない形は nil）。
+# semver（`<major>.<minor>.<patch>`）を整数配列にする。**3 要素ちょうどだけを受理する**
+# （それ以外は nil ＝形式不正）。要素数を可変にして欠けた分を 0 で補うと、`@0.20` が
+# `@0.20.0` と一致してしまい、形式不正であるべきマーカーが「追従済み」として黙殺される。
+# 版の値はプラグインの `version`（`.claude-plugin/plugin.json`）であり一貫して 3 要素。
+# prerelease（`-rc1` 等）は現に使っておらず、優先順位規則が要るため受理しない。
 def semver(v)
-  return nil unless v =~ /\A\d+(\.\d+)*\z/
+  return nil unless v =~ /\A\d+\.\d+\.\d+\z/
   v.split(".").map(&:to_i)
 end
 
-# a <=> b（どちらかが semver でなければ nil）。
+# a <=> b（どちらかが semver でなければ nil）。要素数は 3 で揃うため配列比較で足りる。
 def semver_cmp(a, b)
   pa = semver(a)
   pb = semver(b)
   return nil if pa.nil? || pb.nil?
-  n = [pa.size, pb.size].max
-  (0...n).each do |i|
-    c = (pa[i] || 0) <=> (pb[i] || 0)
-    return c unless c.zero?
-  end
-  0
+  pa <=> pb
 end
 
 # 見出しの正規化。利用先は見出しに**連番**と**補足の丸括弧**を足す（実運用の
@@ -1156,7 +1155,9 @@ def scaffold_report(ws, templates)
     # （欠落の少ないもの）の欠落を報告する＝人が直すべき節を指せるようにする。
     missing = sections.map { |s| POSITION_TOOL_ITEMS.reject { |label| s.include?(label) } }.min_by(&:size)
     if missing.empty?
-      content_ok << "positions/migrate-workspace.rb"
+      # marker_notes はワークスペース相対パスで照合する（固定値を積むと協調ノートが
+      # 黙って発火しなくなる）。
+      content_ok << path.sub(/\A#{Regexp.escape(ws)}\/?/, "")
       next
     end
     notes << "`positions/#{File.basename(path)}`: §接続ツールに宣言項目が無い（欠けている宣言項目: #{missing.join(' / ')}）" \
