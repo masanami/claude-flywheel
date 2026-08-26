@@ -49,7 +49,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 
 1. カレントワークスペースを確認する（既存ファイルを上書きしない。あれば差分を提示して承認を得る）。
 2. `${CLAUDE_PLUGIN_ROOT}/templates/` 配下のうち、**上記ツリーに列挙したファイル/ディレクトリのみ**を対応パスへ生成する（既存ファイルは上書きしない）。`templates/position.md` はここでは生成しない（利用先へコピーする雛形ではなく、手順4で bootstrap 時にその場で参照する雛形）。**特別扱いが必要な項目のみ**:
-   - `templates/CLAUDE.md` → `./CLAUDE.md`: 既存があれば追記/マージ。テンプレート内のプレースホルダのうち**エージェント名はワークスペース名またはユーザーへの確認で埋める**。ポジション概要など bootstrap 後に決まる項目はプレースホルダのまま残し、手順4で bootstrap-domain-map の実行を案内する。
+   - `templates/CLAUDE.md` → `./CLAUDE.md`: 既存があれば追記/マージ。テンプレート内のプレースホルダのうち**エージェント名はワークスペース名またはユーザーへの確認で埋める**。ポジション概要など bootstrap 後に決まる項目はプレースホルダのまま残し、手順4で bootstrap-domain-map の実行を案内する。**既存 CLAUDE.md の §意思決定の主体が旧 1 軸（課題のスコープだけで分岐し「単一 repo 完結なら子が意思決定者」とする形）のままなら、手順1のとおり差分を提示して承認を得たうえで、テンプレートの 2 軸（スキルの性質 × 課題のスコープ）へ差し替える**（§再実行のスクリプトはこの差分を検出するが書き換えないため、ここで手当てする）。
    - `templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ生成。初期は内部台帳直接記入だけでも可）。
    - `templates/settings.json` → `./.claude/settings.json`（非自明なパス対応）。既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージする。
    - `templates/cadence.json` → `./.flywheel/cadence.json`（非自明なパス対応）。
@@ -78,7 +78,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 4. **再実行なら §再実行（テンプレート追従）を実行する**（`challenge-ledger.md` が既にあった場合。初回 scaffold ではスキップ）。
 5. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
-   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。
+   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。**その場で §接続ツール（実作業の委譲先）を人間に確定させる**——「対話前提スキルの対話相手（親 | 人間）と該当スキル」「子に意思決定を委譲してよいスキル」「人間へ上げる問いの種類」の 3 項目。**プレースホルダのまま残さない**（未記入だと run-cycle は安全側＝親がユーザー役に倒れ、実装フローまで往復が発生する）。確定できない項目は「未宣言」と明記して残す（推測で埋めない）。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
    - タスクの優先度判定・着手順の方針を状況に応じて切り替えたい場合は、生成された `priority-policy.md` の「現在のモード」（`active:` 行）を編集してコミットする（既定は `normal`）。**切り替えの意思決定は人間のみ**が行う（run-cycle 手順1・手順2が毎周参照する）。編集は人間が直接行うか、対話セッションで人間から明示指示を受けたエージェントが代行してよい（自律実行〔cron〕中のエージェントは読むだけで自分の判断では書き換えない）。
    - 定期自走を始めるには `/claude-flywheel:start-day` を実行する（`.flywheel/cadence.json` を読み込み、初回 `run-cycle` の実行とセッション内 cron の登録までを行う。詳細は `runtime/README.md`）。

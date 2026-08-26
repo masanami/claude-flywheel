@@ -888,6 +888,25 @@ def scaffold_report(ws, templates)
     notes << "`.claude/settings.json`: `Bash(claude -p:*)` の allow が無い（自走委譲が分類器でブロックされる）" unless body.include?("Bash(claude -p:*)")
   end
 
+  # 意思決定の主体（#107）: 旧 1 軸（課題のスコープだけ）の CLAUDE.md は、対話前提スキルでも
+  # 単一 repo 完結なら子が決めてよい、と読める。書き換えはせず検出して報告する。
+  claude_md = File.join(ws, "CLAUDE.md")
+  if File.exist?(claude_md)
+    body = File.read(claude_md, encoding: "UTF-8")
+    if body.include?("## 意思決定の主体") && !body.include?("スキルの性質")
+      notes << "`CLAUDE.md`: §意思決定の主体が旧 1 軸（課題のスコープのみ）のまま（対話前提スキルでも単一 repo なら子が決める、と読める）。" \
+               "`<plugin>/templates/CLAUDE.md` の 2 軸（スキルの性質 × 課題のスコープ）へ手で追従する"
+    end
+  end
+
+  # ポジションの §接続ツール（#107）: 対話前提スキルの対話相手の宣言場所。
+  # 未宣言でも run-cycle は安全側（親がユーザー役）に倒れるため、ブロックではなく報告に留める。
+  Dir.glob(File.join(ws, "positions", "*.md")).sort.each do |path|
+    next if File.read(path, encoding: "UTF-8").include?("接続ツール")
+    notes << "`positions/#{File.basename(path)}`: §接続ツール（実作業の委譲先）が無い＝対話前提スキルの対話相手が未宣言" \
+             "（run-cycle は未宣言を安全側＝親がユーザー役として扱う）。`<plugin>/templates/position.md` の §接続ツール を追記する"
+  end
+
   dockerfile = File.join(ws, "container/Dockerfile")
   if File.exist?(dockerfile)
     body = File.read(dockerfile, encoding: "UTF-8")

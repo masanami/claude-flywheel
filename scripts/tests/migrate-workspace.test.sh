@@ -448,6 +448,27 @@ assert_out "不足している scaffold 物を検出する" '不足: CLAUDE.md' 
 /usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
 assert_same "scaffold 追従レポートは検出のみで書き換えない" "$tmp/scaffold-gitignore.orig" "$ws/.gitignore"
 
+# 意思決定の主体（#107）: 旧 1 軸の CLAUDE.md ・§接続ツールの無いポジションを検出する
+ws="$(mkws decision)"
+mkdir -p "$ws/positions"
+printf '%s\n' '## 意思決定の主体（課題のスコープで所在が分岐する）' '- 単一 repo 完結の課題（子が意思決定者）' > "$ws/CLAUDE.md"
+printf '%s\n' '# ポジション: sample' '## 4. 権限（Human-in-the-loop）' > "$ws/positions/sample.md"
+cp "$ws/CLAUDE.md" "$tmp/decision-claude.orig"
+cp "$ws/positions/sample.md" "$tmp/decision-position.orig"
+assert_out "旧 1 軸の CLAUDE.md を検出する" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_out "§接続ツールの無いポジションを検出する" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+/usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
+assert_same "旧 1 軸の CLAUDE.md を書き換えない（検出のみ）" "$tmp/decision-claude.orig" "$ws/CLAUDE.md"
+assert_same "ポジションを書き換えない（検出のみ）" "$tmp/decision-position.orig" "$ws/positions/sample.md"
+
+# 2 軸へ追従済み・§接続ツールを持つポジションでは報告しない（誤検出しない）
+ws="$(mkws decisionok)"
+mkdir -p "$ws/positions"
+cp "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
+cp "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+assert_no_out "2 軸へ追従済みの CLAUDE.md は報告しない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_no_out "§接続ツールを持つポジションは報告しない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+
 ws="$(mkws docdrift)"
 mkdir -p "$ws/runtime"
 printf '%s\n' '# 旧い runtime/README.md' > "$ws/runtime/README.md"
