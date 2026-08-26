@@ -11,6 +11,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
+| [runtime-text-conventions.md](./runtime-text-conventions.md) | 実行時テキスト（`skills/` `templates/`）と docs の書き分け（[#117](https://github.com/masanami/claude-flywheel/issues/117)）: 判定軸「この文を削るとモデルの振る舞いが変わるか」と、実行時テキストから `docs/` を参照しない規約。検査は [scripts/tests/runtime-text-refs.test.sh](../scripts/tests/runtime-text-refs.test.sh) | 確定 |
 | [noop-cycle-batching.md](./noop-cycle-batching.md) | no-op 周の軽量化（[#82](https://github.com/masanami/claude-flywheel/issues/82)）: 変化ゼロの周のコミットを次の周へ束ねる設計、3 案の比較と採用根拠、「変化なし」の機械的定義 | 確定 |
 | [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: 実装済みの最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較（採否は人間判断・未決） | ドラフト |
 | [template-version-marker.md](./template-version-marker.md) | テンプレート版マーカー（[#118](https://github.com/masanami/claude-flywheel/issues/118)）: scaffold 生成物に `flywheel-template` マーカーを刻み、追従検出を項目ごとの手書き検出器から汎用検出へ移す設計。粒度・形式・置き場所・既存世代の扱い・内容ベース検出器との併用の決定 | 確定 |
