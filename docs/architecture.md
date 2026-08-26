@@ -241,9 +241,11 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
     # 対象クローンを cwd にして非対話起動する。設定は cwd から解決されるので
     # 「親で起動して --add-dir で足す」のは不可（対象の settings.json が効かない）。
     # --allowedTools は付けない（Bash は対象 repo の settings.json に統治させる）。
+    # --max-budget-usd は必須（費用ガード・下記）。
     cd .flywheel/repos/<name>
     claude -p "（ブリーフ: 目標・recall した map/tacit/reference・完了条件）" \
-      --permission-mode acceptEdits
+      --permission-mode acceptEdits \
+      --max-budget-usd 100
     ```
 
 - **ブリーフに前提知識を必ず含める**: 独立セッションは文脈を引き継がないため、recall した `map` / `tacit` / `reference` と完了条件を**ブリーフに明記**して渡す（run-cycle 実行ステップ ＝ §5.2 step 4 / SKILL.md step 3、課題1ボトルネックB の解）。
@@ -256,12 +258,29 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
 - **【完了報告の様式】待機・監視の宣言を最終出力にして終了させない**: headless セッションは**最終応答の確定と同時にバックグラウンドの処理・エージェントごと終了し、以後の通知は届かない**。「CI 完了を待機しています」等の中間宣言を最終出力にすると、完了報告が欠損して親が成果を再調査する手戻りになるほか、未合流の非同期作業が道連れで中断される。【意思決定の主体】が入力側の停止（選択肢待ち）を防ぐのに対し、こちらは出力側の停止（外部イベント待ちのまま終了）を防ぐ。原則を次に固定する:
   - **合流してから終了する**: バックグラウンド処理・サブエージェントを起動したら、最終応答の確定前に必ず合流（完了確認）させる。合流できない場合（ハング・完了が外部イベント依存で見込みが立たない等）は、待ち続けず明示的に中断し、未完了の事実と回収手段（作業ブランチ・残した状態）を完了報告に含めて終了する。
   - **外部待ちは状態報告で終える**: CI・外部レビュー・人間承認（FR-22 境界）等、自力で進められない待ちに達したら、待機せず**その時点の状態（成果物の URL・コミット SHA・品質ゲート結果・置いた仮定・意思決定・未検証事項）を要約して終了**する（全工程の完了を待つのではない。FR-22 で保留した提案もこの報告で可視化される）。
-  - **接続規約（実装）**: ブリーフ規約として、委譲時に必ず「待機・監視で終了しない」と完了報告の必須項目を渡すことをテンプレ化する（run-cycle SKILL.md step 3・`templates/CLAUDE.md`・flywheel-init が scaffold）。repo 固有の外部イベント事情（PR CI の有無等）は memory（`map`/`tacit`）に置き、recall して併記する。
-  - 対応: [#33](https://github.com/masanami/claude-flywheel/issues/33)。
+  - **裏返しの失敗（ポーリング）を同じ場所で塞ぐ**: 「待機宣言で終了するな」だけを渡すと、子は完了通知が来るまで状態確認を叩き続ける側へ倒れる。**同じ指示の裏表であり、片方だけを規定すると必ずもう片方へ倒れる**。1 ツール呼び出し ＝ 1 ターン ＝ コンテキスト全体の読み直しであり、間隔・上限の無い待機は費用が**二乗的に**積み上がる（実測: テストファイル 1 本の追加課題〔`+726/-0`〕で 2,447 ターン・API 換算 $539.54。ツール呼び出し 2,444 件のうち `git diff --stat HEAD` が 2,276 件＝93%。同時期の同種課題は $49.99 / $60.48 で約 9 倍。[#112](https://github.com/masanami/claude-flywheel/issues/112)）。ブリーフでは**両方を対で**渡す: 合流のための待機は ① 30〜60 秒に 1 回 ② 軽いコマンド（例: `git log --oneline -1`）③ 最大 30 回 ④ 上限で打ち切り実状態を報告して終了。
+  - **接続規約（実装）**: ブリーフ規約として、委譲時に必ず「待機・監視で終了しない」＋「ポーリングでターンを維持し続けない」と完了報告の必須項目を渡すことをテンプレ化する（run-cycle SKILL.md step 3・`templates/CLAUDE.md`・flywheel-init が scaffold）。repo 固有の外部イベント事情（PR CI の有無等）は memory（`map`/`tacit`）に置き、recall して併記する。
+  - 対応: [#33](https://github.com/masanami/claude-flywheel/issues/33) / [#112](https://github.com/masanami/claude-flywheel/issues/112)。
+- **【費用ガード】委譲コマンドに `--max-budget-usd` を必須化する（機械的ガード）**: 上の【完了報告の様式】は**散文の規律**であり、遵守は子の解釈に依存する。`--max-budget-usd` は依存しない。**役割分担は「散文で望ましい振る舞いを指示し、フラグで最悪ケースの費用を機械的に打ち切る」**——散文だけでは破られたときに歯止めが無く、フラグだけでは望ましい振る舞い（合流してから終了する）が伝わらないため、両方を置く。
+  - **既定値は 100**（USD）。課題の規模に応じて増減してよいが、**無指定では起動しない**（run-cycle SKILL.md step 3 の起動形に含める）。
+  - **上限は 1 回の `claude -p` 起動ごと**に効き、`--resume` は別起動としてカウンタが 0 に戻る。返り値の `total_cost_usd` も**その起動分のみ**を返す（1 委譲あたりの累計は親が積算して journal に記録する）。
+  - **返り値の判別契約**（`--output-format json`。上から順に最初に一致した行を採る）:
+
+    | 判定 | 条件 | 意味 |
+    | --- | --- | --- |
+    | 上限到達 | `subtype` == `error_max_budget_usd` | 費用ガードが発動して途中終了。併せて `is_error: true` / 終了コード 1 / `terminal_reason: "budget_exhausted"` / `errors: ["Reached maximum budget ($N)"]`。**`result` フィールドは存在しない**（＝子の報告は必ず欠損する）。`session_id` は返るので `--resume` で続行できる |
+    | 週次クォータ超過 | `result` が `You've hit your weekly limit` を含む | サブスク枠の週次クォータ超過。`subtype` は `success` のまま返ることがあるため本文で判定する。枠が回復するまで即座の再委譲は同じ結果になる |
+    | 異常終了 | `is_error: true` | 実装失敗・環境エラー |
+    | 正常完了 | 上記いずれにも一致しない | — |
+
+    上限到達は**専用 subtype を持つため、実装失敗・週次クォータ超過と機械的に判別できる**。上限到達・異常終了でも**成果（コミット・ブランチ・PR）が残っていることがある**ため、失敗と決めつけて再委譲しない（二重実行になる）。実状態の確定は【委譲結果の照合】に一本化する（上限到達では `result` が無いので外部実状態のみで照合する）。
+  - **確証レベル**: 上限到達の 4 フィールドと `result` 欠落・終了コード・`total_cost_usd` の起動単位は claude 2.1.246 で**実測確認済み**。週次クォータ超過の行は [#112](https://github.com/masanami/claude-flywheel/issues/112) 起票者の実測に基づく（本リポジトリでは未再現）。
+  - 対応: [#112](https://github.com/masanami/claude-flywheel/issues/112)。
 - **【委譲結果の照合】親は子の完了報告を外部実状態と照合してから台帳・journal を更新する**: 子の報告は自己申告であり、欠損・実態とのずれが起こりうる。親は台帳・journal へ反映する前に**成果物の存在と内容（PR・ブランチ・コミット等）と作業用クローンのローカル状態（未コミット変更＝中断で残った作業）を読み取りで確認**し、食い違えば**実状態を正**として差分を journal（判断と根拠）に記録する。報告のみ欠損した場合は cwd＝作業用クローンから `claude -p --resume <session-id>` で報告を再取得できる（session_id を journal に控える用途の一つ）。品質ゲートの実行は検証ステップ（§5.2 step 5）に一本化し、照合は FR-32（人間の最終確認）を代替しない（ブリーフ規約だけでは子の遵守を保証できないための防御の多層化）。
   - 対応: [#34](https://github.com/masanami/claude-flywheel/issues/34)。
 - **同一クローンへの委譲は直列化する**: cwd を `.flywheel/repos/<name>` に固定するため、同じ repo に複数の独立セッションを**同時に**走らせると worktree / ブランチが衝突する。run-cycle は冪等（着手中ステータスで二重実行しない・§5.2）なので **1 repo ＝ 同時に 1 委譲セッション**を原則とし、repo をまたぐ委譲のみ並列にする。同一 repo の並列度を上げたい場合は **session ごとに `git worktree` / clone を分離**する（必要になってからの将来課題＝YAGNI）。
 - **課金前提**: `claude -p` はサブスク枠で動作する前提（2026-06 時点。Agent SDK 課金の一時停止に依存。再開時は代替をそのとき再検討）。クロスツール エグゼキュータ（[#15](https://github.com/masanami/claude-flywheel/issues/15)：Claude→codex exec 等）は pluggable な 1 バックエンド候補として別管理。
+  - **`total_cost_usd` は「API 換算値」であって請求額ではない（運用者向けの読み方）**: 返り値・journal に出る `total_cost_usd`（および `modelUsage[].costUSD`）は、同じトークン消費を **API の従量課金レート（`costBasis: "list"`）で換算したらいくらか**を表す。上記のとおり `claude -p` はサブスク枠で動くため、**サブスク契約下ではこの金額は課金されず、意味するのは週次クォータの消費量**である。枠を使い切った場合の返り値は `result` に `You've hit your weekly limit · resets <時刻>` が入る形で現れ、請求は発生しない。したがって「委譲 1 件で $539 かかった」は**「週次クォータを $539 相当ぶん消費した」と読む**（【費用ガード】の `--max-budget-usd` もこの換算値に対する上限であり、請求上限ではない）。API キー課金で動かす構成に切り替えた場合のみ、この値は実課金額に一致する。
 - 対応: 接続ツール IF（AO-05）/ [#12](https://github.com/masanami/claude-flywheel/issues/12)（委譲先 cwd）/ [#13](https://github.com/masanami/claude-flywheel/issues/13) / [#18](https://github.com/masanami/claude-flywheel/issues/18)（委譲 spawn の権限前提）/ [#27](https://github.com/masanami/claude-flywheel/issues/27)（クローン trust 前提）。
 
 ### 3.10 自己改善（内省）ループ
