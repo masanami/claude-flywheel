@@ -895,6 +895,66 @@ mkdir -p "$ws/positions"
 ' "$REPO_ROOT/templates/position.md" "$ws/positions/harness.md"
 assert_out "協調ノートは実在するポジションの相対パスで出る" '版マーカー: positions/harness.md — 重要項目の内容チェックでは追従済み' -- --workspace "$ws"
 assert_no_out "スクリプト名を混入した固定値を content_ok に積まない" 'positions/migrate-workspace.rb' -- --workspace "$ws"
+
+# ---------------------------------------------------------------------------
+# 19. 版の各要素の正規形（PR #119 再レビュー指摘）
+#
+# §17 は**要素数**の軸だけを洗っており、**要素の正規形**の軸を見ていなかった。
+# `00.20.0` は 3 要素なので §17 の検査を通り、`to_i` で `[0, 20, 0]` になって
+# `0.20.0` と一致する——**形式不正であるべきマーカーが「追従済み」として黙殺される**。
+# 帰結は §17 が塞いだものと同一。各要素は `0` または `[1-9]\d*` に限る。
+# ---------------------------------------------------------------------------
+
+# マーカーの版だけを差し替えたワークスペースを作る: mkmarker <名前> <版文字列>
+mkmarker() {
+  ws="$tmp/$1"
+  rm -rf "$ws"
+  mkdir -p "$ws"
+  { printf '%s\n\n' "<!-- flywheel-template: CLAUDE.md@$2 -->"; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+  echo "$ws"
+}
+
+tplver="$(sed -n '1p' "$REPO_ROOT/templates/CLAUDE.md" | sed 's/.*@//; s/ -->.*//')"
+
+# 先頭ゼロは形式不正。**「テンプレートと一致」にも「新しい」にも化けない**ことが要。
+i=0
+for badver in 00.20.0 01.02.03 0.00.0 0.20.00 000.0.0; do
+  i=$((i + 1))
+  ws="$(mkmarker "leadzero-$i" "$badver")"
+  # bash 3.2 は全角文字直前の変数展開でブレース必須（${badver}）
+  assert_out "先頭ゼロの版を形式不正として報告する（${badver}）" "版が semver でない: @${badver}" -- --workspace "$ws"
+  assert_no_out "先頭ゼロの版を追従済みとして黙殺しない（${badver}）" '版マーカーの指摘なし' -- --workspace "$ws"
+  assert_no_out "先頭ゼロの版を「テンプレートより新しい」に化けさせない（${badver}）" 'テンプレートより新しい' -- --workspace "$ws"
+done
+
+# 非数字の混入・全角数字も形式不正
+i=0
+for badver in 1.2.3a 0.20.x ０.20.0; do
+  i=$((i + 1))
+  ws="$(mkmarker "nondigit-$i" "$badver")"
+  assert_out "非数字を含む版を形式不正として報告する（${badver}）" '版マーカーの形式が不正' -- --workspace "$ws"
+done
+
+# 版の前後に空白があるマーカーは形（MARKER_RE）の段階で不正
+ws="$(mkws verspace)"
+{ printf '%s\n\n' '<!-- flywheel-template: CLAUDE.md@ 0.20.0 -->'; sed '1,2d' "$REPO_ROOT/templates/CLAUDE.md"; } > "$ws/CLAUDE.md"
+assert_out "版の前に空白があるマーカーを形式不正として報告する" '版マーカーの形式が不正' -- --workspace "$ws"
+
+# **受理し続けること**: 正当な 0 を含む版は形式不正にしない（過剰な厳格化の回帰）
+ws="$(mkmarker zeroesok "$tplver")"
+assert_no_out "正当な現行版（0 を含む）は報告しない" '版マーカー:' -- --workspace "$ws"
+
+ws="$(mkmarker zeroesold 0.0.1)"
+assert_no_out "正当な 0 を含む古い版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "正当な 0 を含む古い版は追従対象として報告する" '生成物は @0.0.1' -- --workspace "$ws"
+
+ws="$(mkmarker zeroonly 0.0.0)"
+assert_no_out "すべて 0 の版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "すべて 0 の版は追従対象として報告する" '生成物は @0.0.0' -- --workspace "$ws"
+
+ws="$(mkmarker bignum 10.20.30)"
+assert_no_out "多桁の版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
+assert_out "多桁の版は「テンプレートより新しい」として報告する" 'テンプレートより新しい' -- --workspace "$ws"
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]
