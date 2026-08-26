@@ -66,6 +66,8 @@
 | 実行時テキストに行動を変えない補足が混ざっていないこと | **検査できない**（「行動を変えるか」は文の意味に依存する） | 書く時点の判断／PR レビュー（人間・自動レビューツール） |
 | `skills/` `templates/` から `docs/` 配下を参照していないこと | **検査できる** | [`scripts/tests/runtime-text-refs.test.sh`](../scripts/tests/runtime-text-refs.test.sh) |
 
+**検査は拡張子で絞らない**。禁じているのは「`docs/` 配下を指すこと」であり、`.md` だけを見ると `docs/schema.json` や `docs/generated/index.html` のような非 Markdown を足した時点で静かに穴が開く。面の呼称としての素の `docs/`（「人間が読む面 `docs/`」等）はパスではないので誤検出しない。
+
 **禁止語（`Issue #NNN` 等）の不在検査は採らない**。本リポジトリのスキルは Issue 番号・PR 番号を**入力として受け取り**、記入例としても書く（`関連Issue: claude-flywheel#87` 等）ため、語彙で判定するには allowlist が要る。その allowlist は規約本文とは別に維持される**第 2 のリスト**になり、ずれても誰も気付かない。機械で固定するのは `docs/` 参照という**構文的に判定できる 1 点**に絞る。
 
 ## 7. 除外の規則（allowlist を作らない）

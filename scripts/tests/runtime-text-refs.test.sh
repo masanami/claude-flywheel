@@ -8,6 +8,8 @@
 #   - 読み取り専用。書き込みはすべて一時ディレクトリ内で完結する。
 #
 # 検査の要:
+#   - **検出は拡張子で絞らない**。規約が禁じているのは「docs/ 配下を指すこと」であり、
+#     `.md` だけを見ると非 Markdown（生成物・スキーマ）を足した時点で静かに穴が開く。
 #   - **本規約が機械で守れるのは「docs/ 参照の不在」だけ**。「行動を変えない補足が混ざって
 #     いないこと」は文の意味に依存し、決定的スクリプトでは検査できない（境界は正本 §6）。
 #     テストが緑であることを「書き分けができている」と読み替えないための線引きを、
@@ -31,10 +33,13 @@ cd "$REPO_ROOT" || exit 1
 
 CONV_DOC="docs/runtime-text-conventions.md"
 
-# docs/ 配下の Markdown への参照。`docs/` の直前が英数・`/`・`-`・`.` の場合は別パスの
-# 一部（例: `some/docs/x.md`）なので対象外にはせず、そのまま拾う（本リポジトリの
-# 実行時テキストが他リポジトリの docs を指す必要は無いため、広く拾って良い）。
-DOCS_REF_RE='docs/[A-Za-z0-9_./-]*\.md'
+# docs/ 配下への参照。**拡張子で絞らない** — 規約が禁じているのは「docs/ 配下を指すこと」
+# であり、`docs/generated/index.html` や `docs/schema.json` を素通りさせると、非 Markdown を
+# 足した時点で静かに穴が開く。パス文字が 1 文字以上続く場合だけ拾うので、面の呼称としての
+# 素の `docs/`（例: 「人間が読む面 `docs/`」）は誤検出しない。`docs/` の直前が英数の場合
+# （例: `some/docs/x.md`）も対象外にはせず拾う（本リポジトリの実行時テキストが他リポジトリの
+# docs を指す必要は無いため、広く拾って良い）。
+DOCS_REF_RE='docs/[A-Za-z0-9_.-][A-Za-z0-9_./-]*'
 
 # 行全体が HTML コメントである行（前後の空白と Markdown の引用記号 `> ` を剥がして判定）。
 # **行末に付けたコメントは該当しない** — 規範行の末尾にコメントを足せば検査を抜けられる、
@@ -93,12 +98,22 @@ mkdir -p "$TMP/surface"
 n="$(scan strict "$TMP/surface/violations.md" | grep -c .)"
 assert_eq "(A) 既知の違反形 3 行をすべて検出する" "3" "$n"
 
+# 非 Markdown の docs/ 参照も違反（拡張子で絞ると足した時点で静かに穴が開く）
+{
+  printf '%s\n' '- スキーマの正本は `docs/schema.json` を参照。'
+  printf '%s\n' '- 生成物の一覧は `docs/generated/index.html` にある。'
+  printf '%s\n' '- 契約は `docs/contracts` 配下を参照。'
+} > "$TMP/surface/nonmd.md"
+assert_eq "(A) 非 Markdown の docs/ 参照 3 行も検出する" "3" \
+  "$(scan strict "$TMP/surface/nonmd.md" | grep -c .)"
+
 # 正当形（誤検出してはいけない）
 {
   printf '%s\n' '- 台帳の記入形式は現在フェーズ 1 ＝ 1 行形式（形 B）を既定とする。'
   printf '%s\n' '- 関連Issue は `<owner>/<repo>#<番号>` で書く（例: `masanami/claude-flywheel#87`）。'
   printf '%s\n' '- `README.md` より推定、のように出典ファイル名だけを書く形は対象外。'
   printf '%s\n' '- `scripts/migrate-workspace.rb` のような実行時に読むスクリプトの参照は対象外。'
+  printf '%s\n' '- 面の呼称としての素の `docs/` は参照ではないので対象外（人間が読む面 `docs/`）。'
 } > "$TMP/surface/legit.md"
 n="$(scan strict "$TMP/surface/legit.md" | grep -c .)"
 assert_eq "(A) 正当形を違反と誤検出しない" "0" "$n"
