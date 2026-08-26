@@ -1,3 +1,5 @@
+<!-- flywheel-template: challenge-sources.md@0.20.0 -->
+
 # 課題の取り込み元（challenge sources）
 
 > このエージェントが課題を**取り込む外部ソース**の宣言。`ingest-challenges` スキルがこれを読み、

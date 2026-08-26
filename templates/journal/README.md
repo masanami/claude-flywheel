@@ -1,3 +1,5 @@
+<!-- flywheel-template: journal/README.md@0.20.0 -->
+
 # journal — サイクルジャーナル【成果物】
 
 `run-cycle` が 1 周ごとに残す**行動の履歴（append-only）**。台帳（`challenge-ledger.md`）が「課題の現在状態」を表すのに対し、journal は「その状態にどう至ったか」を表す。可観測性（FR-50・NFR-02）を担う仕組みの一つ。
