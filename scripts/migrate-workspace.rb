@@ -855,6 +855,29 @@ SCAFFOLD_PATHS = [
   "positions", "memory", "journal", "runtime", "container"
 ].freeze
 
+# ポジション §接続ツール（実作業の委譲先）の必須宣言項目（`templates/position.md` の正本）。
+POSITION_TOOL_ITEMS = [
+  "対話前提スキルの対話相手",
+  "子に意思決定を委譲してよいスキル",
+  "人間へ上げる問いの種類",
+].freeze
+
+# 見出し `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）
+# を返す。無ければ nil。フェンス・HTML コメント内の `#` 行は見出しと見なさない。
+# 「文書のどこかに語がある」ではなく「その節にあるか」を判定するための土台。
+def markdown_section(body, title_re)
+  lines = body.split("\n", -1)
+  inc = annotate_exclusions(lines)
+  levels = lines.each_with_index.map do |line, i|
+    marks = inc[i] ? line[/\A\#+(?=[ \t])/] : nil
+    marks&.length
+  end
+  start = (0...lines.size).find { |i| levels[i] && lines[i] =~ title_re }
+  return nil if start.nil?
+  finish = ((start + 1)...lines.size).find { |i| levels[i] && levels[i] <= levels[start] }
+  lines[start...(finish || lines.size)].join("\n")
+end
+
 def scaffold_report(ws, templates)
   notes = []
 
@@ -890,10 +913,12 @@ def scaffold_report(ws, templates)
 
   # 意思決定の主体（#107）: 旧 1 軸（課題のスコープだけ）の CLAUDE.md は、対話前提スキルでも
   # 単一 repo 完結なら子が決めてよい、と読める。書き換えはせず検出して報告する。
+  # **判定は節単位で行う**: 文書全体の部分一致だと、無関係な本文に「スキルの性質」があるだけで
+  # 旧 1 軸の節が「追従済み」に化ける（偽陰性 = 旧動作が残ったまま報告されない）。
   claude_md = File.join(ws, "CLAUDE.md")
   if File.exist?(claude_md)
-    body = File.read(claude_md, encoding: "UTF-8")
-    if body.include?("## 意思決定の主体") && !body.include?("スキルの性質")
+    section = markdown_section(File.read(claude_md, encoding: "UTF-8"), /意思決定の主体/)
+    if section && !section.include?("スキルの性質")
       notes << "`CLAUDE.md`: §意思決定の主体が旧 1 軸（課題のスコープのみ）のまま（対話前提スキルでも単一 repo なら子が決める、と読める）。" \
                "`<plugin>/templates/CLAUDE.md` の 2 軸（スキルの性質 × 課題のスコープ）へ手で追従する"
     end
@@ -901,10 +926,21 @@ def scaffold_report(ws, templates)
 
   # ポジションの §接続ツール（#107）: 対話前提スキルの対話相手の宣言場所。
   # 未宣言でも run-cycle は安全側（親がユーザー役）に倒れるため、ブロックではなく報告に留める。
+  # ここも**見出しと宣言項目を構造的に**見る（本文中に「接続ツール」の語があるだけの
+  # ポジションを「宣言済み」と誤認しない。値が `未宣言` であることは宣言項目の欠落と区別する
+  # ＝ flywheel-init / bootstrap-domain-map が許す正規の状態であり、移行対象ではない）。
   Dir.glob(File.join(ws, "positions", "*.md")).sort.each do |path|
-    next if File.read(path, encoding: "UTF-8").include?("接続ツール")
-    notes << "`positions/#{File.basename(path)}`: §接続ツール（実作業の委譲先）が無い＝対話前提スキルの対話相手が未宣言" \
-             "（run-cycle は未宣言を安全側＝親がユーザー役として扱う）。`<plugin>/templates/position.md` の §接続ツール を追記する"
+    section = markdown_section(File.read(path, encoding: "UTF-8"), /接続ツール/)
+    if section.nil?
+      notes << "`positions/#{File.basename(path)}`: §接続ツール（実作業の委譲先）が無い＝対話前提スキルの対話相手が未宣言" \
+               "（run-cycle は未宣言を安全側＝親がユーザー役として扱う）。`<plugin>/templates/position.md` の §接続ツール を追記する"
+      next
+    end
+    missing = POSITION_TOOL_ITEMS.reject { |label| section.include?(label) }
+    next if missing.empty?
+    notes << "`positions/#{File.basename(path)}`: §接続ツールに宣言項目が無い（欠けている宣言項目: #{missing.join(' / ')}）" \
+             "＝ run-cycle は宣言なしを安全側（親がユーザー役）として扱う。`<plugin>/templates/position.md` の §接続ツール を参照して追記する" \
+             "（確定していない項目は `未宣言` と記入する＝推測で埋めない）"
   end
 
   dockerfile = File.join(ws, "container/Dockerfile")

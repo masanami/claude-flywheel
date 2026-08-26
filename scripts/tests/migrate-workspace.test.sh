@@ -468,6 +468,46 @@ cp "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
 cp "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
 assert_no_out "2 軸へ追従済みの CLAUDE.md は報告しない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
 assert_no_out "§接続ツールを持つポジションは報告しない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+assert_no_out "テンプレート準拠のポジションは宣言項目の欠落を報告しない" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+
+# 偽陰性の回帰: 判定は**節単位**で行う。無関係な本文に語が出るだけでは警告を抑制させない
+# （文書全体の部分一致だと、旧 1 軸のまま・宣言項目なしのワークスペースが「追従済み」に化ける）。
+ws="$(mkws decisionfalseneg)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ベースライン' \
+  '' \
+  '## 用語メモ' \
+  '' \
+  '- 「スキルの性質」という言い回しをここで使っている（意思決定の主体の節とは無関係）。' \
+  '' \
+  '## 意思決定の主体（課題のスコープで所在が分岐する）' \
+  '' \
+  '- 単一 repo 完結の課題（子が意思決定者）' > "$ws/CLAUDE.md"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 4. 権限（Human-in-the-loop）' \
+  '' \
+  '- 実作業は接続ツールへ委譲する（見出しではなく本文中の言及）。' > "$ws/positions/sample.md"
+assert_out "節の外の「スキルの性質」では旧 1 軸の CLAUDE.md を見逃さない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_out "本文中の「接続ツール」では §接続ツールの欠落を見逃さない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+
+# §接続ツールの見出しはあっても、宣言項目が欠けていれば未宣言として報告する
+ws="$(mkws decisionitems)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **開発フロー（接続ツール）**: `claude-harness`' \
+  '' \
+  '## 6. 関係' \
+  '' \
+  '- **対話前提スキルの対話相手**: この節は §接続ツールの外なので宣言として数えない。' > "$ws/positions/sample.md"
+assert_out "§接続ツールの宣言項目の欠落を検出する" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+assert_out "欠落している宣言項目を名指しで報告する" '欠けている宣言項目: 対話前提スキルの対話相手' -- --workspace "$ws"
 
 ws="$(mkws docdrift)"
 mkdir -p "$ws/runtime"
