@@ -863,8 +863,12 @@ POSITION_TOOL_ITEMS = [
 ].freeze
 
 # 見出しが `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）
-# を**すべて**返す（無ければ空配列）。フェンス・HTML コメント内の `#` 行は見出しと見なさない。
-# 「文書のどこかに語がある」ではなく「その節にあるか」を判定するための土台。
+# を**すべて**返す（無ければ空配列）。「文書のどこかに語がある」ではなく「その節にあるか」を
+# 判定するための土台。
+#
+# **返す本文からはフェンス（``` … ```）・HTML コメントの中身を除く**（見出し判定だけでなく
+# 中身の照合にも同じ除外を効かせる）。テンプレートは記入例を提示する形を採るため、除外しないと
+# 雛形をコピーしただけの未記入ポジションが「宣言済み」に化ける（偽陰性）。
 #
 # **最初に一致した見出しで一意化しない**: 同じ語を含む無関係な小見出しが前方にあると
 # 後方の本物の節へ到達できず、宣言済みのワークスペースを未宣言と誤報する（偽陽性）。
@@ -883,7 +887,7 @@ def markdown_sections(body, title_re)
   starts = (0...lines.size).select { |i| levels[i] && lines[i] =~ title_re }
   starts.map do |start|
     finish = ((start + 1)...lines.size).find { |i| levels[i] && levels[i] <= levels[start] }
-    lines[start...(finish || lines.size)].join("\n")
+    (start...(finish || lines.size)).select { |i| inc[i] }.map { |i| lines[i] }.join("\n")
   end
 end
 
