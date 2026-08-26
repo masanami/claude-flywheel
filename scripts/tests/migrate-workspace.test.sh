@@ -448,6 +448,162 @@ assert_out "不足している scaffold 物を検出する" '不足: CLAUDE.md' 
 /usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
 assert_same "scaffold 追従レポートは検出のみで書き換えない" "$tmp/scaffold-gitignore.orig" "$ws/.gitignore"
 
+# 意思決定の主体（#107）: 旧 1 軸の CLAUDE.md ・§接続ツールの無いポジションを検出する
+ws="$(mkws decision)"
+mkdir -p "$ws/positions"
+printf '%s\n' '## 意思決定の主体（課題のスコープで所在が分岐する）' '- 単一 repo 完結の課題（子が意思決定者）' > "$ws/CLAUDE.md"
+printf '%s\n' '# ポジション: sample' '## 4. 権限（Human-in-the-loop）' > "$ws/positions/sample.md"
+cp "$ws/CLAUDE.md" "$tmp/decision-claude.orig"
+cp "$ws/positions/sample.md" "$tmp/decision-position.orig"
+assert_out "旧 1 軸の CLAUDE.md を検出する" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_out "§接続ツールの無いポジションを検出する" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+/usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply >/dev/null 2>&1
+assert_same "旧 1 軸の CLAUDE.md を書き換えない（検出のみ）" "$tmp/decision-claude.orig" "$ws/CLAUDE.md"
+assert_same "ポジションを書き換えない（検出のみ）" "$tmp/decision-position.orig" "$ws/positions/sample.md"
+
+# 2 軸へ追従済み・§接続ツールを持つポジションでは報告しない（誤検出しない）
+ws="$(mkws decisionok)"
+mkdir -p "$ws/positions"
+cp "$REPO_ROOT/templates/CLAUDE.md" "$ws/CLAUDE.md"
+cp "$REPO_ROOT/templates/position.md" "$ws/positions/sample.md"
+assert_no_out "2 軸へ追従済みの CLAUDE.md は報告しない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_no_out "§接続ツールを持つポジションは報告しない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+assert_no_out "テンプレート準拠のポジションは宣言項目の欠落を報告しない" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+
+# 偽陰性の回帰: 判定は**節単位**で行う。無関係な本文に語が出るだけでは警告を抑制させない
+# （文書全体の部分一致だと、旧 1 軸のまま・宣言項目なしのワークスペースが「追従済み」に化ける）。
+ws="$(mkws decisionfalseneg)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ベースライン' \
+  '' \
+  '## 用語メモ' \
+  '' \
+  '- 「スキルの性質」という言い回しをここで使っている（意思決定の主体の節とは無関係）。' \
+  '' \
+  '## 意思決定の主体（課題のスコープで所在が分岐する）' \
+  '' \
+  '- 単一 repo 完結の課題（子が意思決定者）' > "$ws/CLAUDE.md"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 4. 権限（Human-in-the-loop）' \
+  '' \
+  '- 実作業は接続ツールへ委譲する（見出しではなく本文中の言及）。' > "$ws/positions/sample.md"
+assert_out "節の外の「スキルの性質」では旧 1 軸の CLAUDE.md を見逃さない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+assert_out "本文中の「接続ツール」では §接続ツールの欠落を見逃さない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+
+# §接続ツールの見出しはあっても、宣言項目が欠けていれば未宣言として報告する
+ws="$(mkws decisionitems)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **開発フロー（接続ツール）**: `claude-harness`' \
+  '' \
+  '## 6. 関係' \
+  '' \
+  '- **対話前提スキルの対話相手**: この節は §接続ツールの外なので宣言として数えない。' > "$ws/positions/sample.md"
+assert_out "§接続ツールの宣言項目の欠落を検出する" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+assert_out "欠落している宣言項目を名指しで報告する" '欠けている宣言項目: 対話前提スキルの対話相手' -- --workspace "$ws"
+
+# 偽陽性の回帰: 見出しに同じ語を含む**無関係な節が先にある**ワークスペースを未宣言と誤報しない
+# （節を「最初に語が一致した見出し」で一意化すると、後方にある本物の節へ到達できない。
+# 実運用のポジションに §3 配下の `### 接続ツール（…）` と §5 の `## 接続ツール（…）` が
+# 併存する形が実在した）。同語の見出しはすべて候補として検査し、いずれかが満たせば追従済み。
+ws="$(mkws decisiondup)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 3. 関心範囲（スコープ）' \
+  '' \
+  '### 接続ツール（実作業をどう回すか・リポジトリで分岐する）' \
+  '' \
+  '- リポジトリごとに接続ツールを使い分ける（宣言項目は持たない小見出し）。' \
+  '' \
+  '## 4. 権限（Human-in-the-loop）' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **対話前提スキルの対話相手**: `親（flywheel エージェント）`' \
+  '- **子に意思決定を委譲してよいスキル**: `/para-impl`' \
+  '- **人間へ上げる問いの種類**: 製品方針' > "$ws/positions/sample.md"
+printf '%s\n' \
+  '# ベースライン' \
+  '' \
+  '### 意思決定の主体（旧い見出しが前方に残っている）' \
+  '' \
+  '- 単一 repo 完結の課題（子が意思決定者）' \
+  '' \
+  '## 意思決定の主体（スキルの性質 × 課題のスコープで所在が分岐する）' \
+  '' \
+  '- スキルの性質と課題のスコープの 2 軸で分岐する。' > "$ws/CLAUDE.md"
+assert_no_out "同語の小見出しが先にあっても §接続ツールの宣言を見つける" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+assert_no_out "同語の小見出しがあっても §接続ツールを未宣言と誤報しない" '対話前提スキルの対話相手が未宣言' -- --workspace "$ws"
+assert_no_out "同名の節が複数あっても 2 軸へ追従済みの CLAUDE.md を誤報しない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+
+# ただし「候補が複数ある」こと自体は免罪符にしない: どの候補も満たさなければ報告する
+ws="$(mkws decisiondupng)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '### 接続ツール（小見出し）' \
+  '' \
+  '- 宣言項目は無い。' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '- **開発フロー（接続ツール）**: `claude-harness`' > "$ws/positions/sample.md"
+printf '%s\n' \
+  '# ベースライン' \
+  '' \
+  '### 意思決定の主体（小見出し）' \
+  '' \
+  '- 旧 1 軸のまま。' \
+  '' \
+  '## 意思決定の主体（課題のスコープで所在が分岐する）' \
+  '' \
+  '- 単一 repo 完結の課題（子が意思決定者）' > "$ws/CLAUDE.md"
+assert_out "どの候補も宣言項目を満たさなければ報告する" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+assert_out "どの候補も 2 軸でなければ旧 1 軸として報告する" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+
+# コードフェンス・HTML コメントの中のラベルは宣言として数えない（テンプレートは記入例を
+# 提示する形を採るため、雛形をコピーしただけの未記入ポジションが「宣言済み」に化ける）。
+ws="$(mkws decisionfence)"
+mkdir -p "$ws/positions"
+printf '%s\n' \
+  '# ポジション: sample' \
+  '' \
+  '## 5. 接続ツール（実作業の委譲先）' \
+  '' \
+  '記入例:' \
+  '' \
+  '```markdown' \
+  '- **対話前提スキルの対話相手**: `親（flywheel エージェント）`' \
+  '- **子に意思決定を委譲してよいスキル**: `/para-impl`' \
+  '- **人間へ上げる問いの種類**: 製品方針' \
+  '```' \
+  '' \
+  '<!--' \
+  '- **対話前提スキルの対話相手**: コメントアウトされた下書き' \
+  '-->' > "$ws/positions/sample.md"
+printf '%s\n' \
+  '# ベースライン' \
+  '' \
+  '## 意思決定の主体（課題のスコープで所在が分岐する）' \
+  '' \
+  '- 単一 repo 完結の課題（子が意思決定者）' \
+  '' \
+  '```markdown' \
+  '（新テンプレートの引用）スキルの性質 × 課題のスコープで分岐する' \
+  '```' > "$ws/CLAUDE.md"
+assert_out "フェンス内のラベルは §接続ツールの宣言として数えない" '§接続ツールに宣言項目が無い' -- --workspace "$ws"
+assert_out "フェンス内の「スキルの性質」は 2 軸への追従として数えない" '§意思決定の主体が旧 1 軸' -- --workspace "$ws"
+
 ws="$(mkws docdrift)"
 mkdir -p "$ws/runtime"
 printf '%s\n' '# 旧い runtime/README.md' > "$ws/runtime/README.md"

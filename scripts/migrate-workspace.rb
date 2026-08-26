@@ -855,6 +855,42 @@ SCAFFOLD_PATHS = [
   "positions", "memory", "journal", "runtime", "container"
 ].freeze
 
+# ポジション §接続ツール（実作業の委譲先）の必須宣言項目（`templates/position.md` の正本）。
+POSITION_TOOL_ITEMS = [
+  "対話前提スキルの対話相手",
+  "子に意思決定を委譲してよいスキル",
+  "人間へ上げる問いの種類",
+].freeze
+
+# 見出しが `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）
+# を**すべて**返す（無ければ空配列）。「文書のどこかに語がある」ではなく「その節にあるか」を
+# 判定するための土台。
+#
+# **返す本文からはフェンス（``` … ```）・HTML コメントの中身を除く**（見出し判定だけでなく
+# 中身の照合にも同じ除外を効かせる）。テンプレートは記入例を提示する形を採るため、除外しないと
+# 雛形をコピーしただけの未記入ポジションが「宣言済み」に化ける（偽陰性）。
+#
+# **最初に一致した見出しで一意化しない**: 同じ語を含む無関係な小見出しが前方にあると
+# 後方の本物の節へ到達できず、宣言済みのワークスペースを未宣言と誤報する（偽陽性）。
+# 実運用のポジションに §3 配下の `### 接続ツール（…）` と §5 の `## 接続ツール（…）` が
+# 併存する形が実在した。節番号は利用先でずれるため見出し番号にも依存できない。そこで
+# **候補をすべて返し、呼び出し側は「いずれかが要件を満たせば追従済み」と判定する**
+# （見出しレベルの浅さ等で「正しい節」を推測すると、推測を外した分がそのまま誤報になる。
+# 検査の目的は「宣言がどこかの §… にあるか」であって節の同一性の確定ではない）。
+def markdown_sections(body, title_re)
+  lines = body.split("\n", -1)
+  inc = annotate_exclusions(lines)
+  levels = lines.each_with_index.map do |line, i|
+    marks = inc[i] ? line[/\A\#+(?=[ \t])/] : nil
+    marks&.length
+  end
+  starts = (0...lines.size).select { |i| levels[i] && lines[i] =~ title_re }
+  starts.map do |start|
+    finish = ((start + 1)...lines.size).find { |i| levels[i] && levels[i] <= levels[start] }
+    (start...(finish || lines.size)).select { |i| inc[i] }.map { |i| lines[i] }.join("\n")
+  end
+end
+
 def scaffold_report(ws, templates)
   notes = []
 
@@ -886,6 +922,40 @@ def scaffold_report(ws, templates)
   if File.exist?(settings)
     body = File.read(settings, encoding: "UTF-8")
     notes << "`.claude/settings.json`: `Bash(claude -p:*)` の allow が無い（自走委譲が分類器でブロックされる）" unless body.include?("Bash(claude -p:*)")
+  end
+
+  # 意思決定の主体（#107）: 旧 1 軸（課題のスコープだけ）の CLAUDE.md は、対話前提スキルでも
+  # 単一 repo 完結なら子が決めてよい、と読める。書き換えはせず検出して報告する。
+  # **判定は節単位で行う**: 文書全体の部分一致だと、無関係な本文に「スキルの性質」があるだけで
+  # 旧 1 軸の節が「追従済み」に化ける（偽陰性 = 旧動作が残ったまま報告されない）。
+  claude_md = File.join(ws, "CLAUDE.md")
+  if File.exist?(claude_md)
+    sections = markdown_sections(File.read(claude_md, encoding: "UTF-8"), /意思決定の主体/)
+    if !sections.empty? && sections.none? { |s| s.include?("スキルの性質") }
+      notes << "`CLAUDE.md`: §意思決定の主体が旧 1 軸（課題のスコープのみ）のまま（対話前提スキルでも単一 repo なら子が決める、と読める）。" \
+               "`<plugin>/templates/CLAUDE.md` の 2 軸（スキルの性質 × 課題のスコープ）へ手で追従する"
+    end
+  end
+
+  # ポジションの §接続ツール（#107）: 対話前提スキルの対話相手の宣言場所。
+  # 未宣言でも run-cycle は安全側（親がユーザー役）に倒れるため、ブロックではなく報告に留める。
+  # ここも**見出しと宣言項目を構造的に**見る（本文中に「接続ツール」の語があるだけの
+  # ポジションを「宣言済み」と誤認しない。値が `未宣言` であることは宣言項目の欠落と区別する
+  # ＝ flywheel-init / bootstrap-domain-map が許す正規の状態であり、移行対象ではない）。
+  Dir.glob(File.join(ws, "positions", "*.md")).sort.each do |path|
+    sections = markdown_sections(File.read(path, encoding: "UTF-8"), /接続ツール/)
+    if sections.empty?
+      notes << "`positions/#{File.basename(path)}`: §接続ツール（実作業の委譲先）が無い＝対話前提スキルの対話相手が未宣言" \
+               "（run-cycle は未宣言を安全側＝親がユーザー役として扱う）。`<plugin>/templates/position.md` の §接続ツール を追記する"
+      next
+    end
+    # いずれかの候補節が 3 項目を揃えていれば追従済み。揃っていなければ、最も惜しい候補
+    # （欠落の少ないもの）の欠落を報告する＝人が直すべき節を指せるようにする。
+    missing = sections.map { |s| POSITION_TOOL_ITEMS.reject { |label| s.include?(label) } }.min_by(&:size)
+    next if missing.empty?
+    notes << "`positions/#{File.basename(path)}`: §接続ツールに宣言項目が無い（欠けている宣言項目: #{missing.join(' / ')}）" \
+             "＝ run-cycle は宣言なしを安全側（親がユーザー役）として扱う。`<plugin>/templates/position.md` の §接続ツール を参照して追記する" \
+             "（確定していない項目は `未宣言` と記入する＝推測で埋めない）"
   end
 
   dockerfile = File.join(ws, "container/Dockerfile")
