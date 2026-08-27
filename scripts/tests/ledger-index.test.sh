@@ -6,8 +6,9 @@
 #   - 依存: bash（macOS 標準の 3.2 でも可）・ruby・git。テストフレームワーク不使用。
 #   - すべて一時ディレクトリ内で完結し、リポジトリの状態を変更しない。
 #
-# 本テストは docs/ledger-load-strategy.md §6 の T1〜T8 を実装する。**投影スクリプトより
-# 先に書き、足した時点で落ちること**を確認してから実装した（§7 の決定）。
+# 本テストは docs/ledger-load-strategy.md §6 の T1〜T9 を実装する。**T1〜T8 は投影スクリプトより
+# 先に書き、足した時点で落ちること**を確認してから実装した（§7 の決定）。T9 は PR #128 の
+# レビューで見つかった「宣言した版と実測がずれる」事故を受けて後から足した。
 #
 #   T1 経路表の完全性   contracts/ledger-read-scope.tsv に 7 ステータス全ての行があること
 #   T2 投影の全域性     出力行数 ＝ 台帳のエントリ数（^### \[・フェンス除外）
@@ -425,6 +426,81 @@ eq "頑健性: 値にタブが混ざっても列数がずれない" \
    "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | awk -F'\t' '{print NF}')" "10"
 eq "頑健性: タブは空白へ正規化する（詰めて別語にしない）" \
    "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | cut -f5)" "svc a"
+
+# ===========================================================================
+# T9 実測表の自己整合: docs/ledger-load-strategy.md §1.2 が「宣言した版」で測られているか
+# ===========================================================================
+# なぜここに置くか: この doc は本機能の設計記録であり、本スイートは既に SKILL.md・
+# テンプレート・contracts を読んでいる。1 ドキュメントのために 10 個目のスイートを
+# 増やすより、機能の契約と同じ場所で守るほうが見落としにくい。
+#
+# なぜ**バイト**で照合するか: tok は tiktoken（本リポジトリの依存に無い）が要るが、
+# バイト数はトークナイザ非依存で `git show | wc -c` だけで検算できる。実際に起きた事故
+# （§1.1 が `5024ec8` を宣言しているのに §1.2 には別の版の値が入っていた）は
+# バイト列でも同じようにずれるため、これで検出できる。
+#
+# ワークスペース側のファイル（`aa0ac68` の台帳等）は別リポジトリにあり本リポジトリからは
+# 参照できない。**照合できるのは本リポジトリ由来の行＝ SKILL.md だけ**であり、残りは
+# 表の内部整合（行の合計＝小計・小計−台帳＝派生定数・§5 の before＝§1.2 の小計）で守る。
+DOC="$REPO_ROOT/docs/ledger-load-strategy.md"
+if [ ! -f "$DOC" ]; then
+  bad "T9: 設計記録 docs/ledger-load-strategy.md が在る" "not found: $DOC"
+else
+  # §1.1 の版の表が SKILL.md に対して宣言している SHA
+  declared="$(ruby -e '
+    s = File.read(ARGV[0], encoding: "UTF-8")
+    m = s[/^\| `skills\/run-cycle\/SKILL\.md`[^|]*\|[^`]*`([0-9a-f]{7,40})`/, 1]
+    print m.to_s' "$DOC")"
+  if [ -z "$declared" ]; then
+    bad "T9: §1.1 が SKILL.md の測定版を SHA で宣言している" "版の表から SHA を取り出せない"
+  else
+    ok "T9: §1.1 が SKILL.md の測定版を SHA で宣言している（${declared}）"
+    if ( cd "$REPO_ROOT" && git cat-file -e "${declared}^{commit}" 2>/dev/null ); then
+      actual="$(cd "$REPO_ROOT" && git show "${declared}^{commit}:skills/run-cycle/SKILL.md" | wc -c | tr -d ' ')"
+      stated="$(ruby -e '
+        s = File.read(ARGV[0], encoding: "UTF-8")
+        sec = s[/### 1\.2 .*?(?=### 1\.3 )/m].to_s
+        row = sec.lines.find { |l| l.include?("skills/run-cycle/SKILL.md") }
+        print row.to_s.split("|")[3].to_s.gsub(/[^0-9]/, "")' "$DOC")"
+      eq "T9: §1.2 の SKILL.md のバイト数が宣言した版の実測と一致する" "$stated" "$actual"
+    else
+      bad "T9: 宣言された SHA が解決できる" "この環境に ${declared} が無く検算できない（浅いクローン等）"
+    fi
+  fi
+
+  # 表の内部整合（バイト・tok とも）: 各行の合計 = 小計セル
+  ruby -e '
+    doc = File.read(ARGV[0], encoding: "UTF-8")
+    sec = doc[/### 1\.2 .*?(?=### 1\.3 )/m].to_s
+    n = ->(x) { x.to_s.gsub(/[^0-9]/, "") }
+    sb = st = nil; b = t = 0
+    sec.lines.each do |l|
+      next unless l.start_with?("|")
+      next if l.include?("---") || l.include?("区分")
+      c = l.split("|")
+      if l.include?("小計") then sb, st = n.(c[3]).to_i, n.(c[4]).to_i
+      else
+        next if n.(c[3]).empty? || n.(c[4]).empty?
+        b += n.(c[3]).to_i; t += n.(c[4]).to_i
+      end
+    end
+    # 派生定数と §5 の before
+    ledger = doc[/\*\*台帳以外の固定文脈 ＝ ([\d,]+) − ([\d,]+) ＝ ([\d,]+) tok\*\*/]
+    m = Regexp.last_match
+    before5 = doc[/\| \*\*before\*\*（全文ロード） \|[^|]*\|[^|]*\| \*\*([\d,]+)\*\* \|/, 1]
+    puts "rows_b=#{b} rows_t=#{t} sub_b=#{sb} sub_t=#{st}"
+    puts "const_from=#{m ? m[1].delete(",") : ""} const_sub=#{m ? m[2].delete(",") : ""} const_val=#{m ? m[3].delete(",") : ""}"
+    puts "before5=#{before5.to_s.delete(",")}"
+  ' "$DOC" > "$tmp/tbl.txt"
+  . "$tmp/tbl.txt"
+  eq "T9: §1.2 の各行のバイトの合計 = 小計セル" "$rows_b" "$sub_b"
+  eq "T9: §1.2 の各行の tok の合計 = 小計セル" "$rows_t" "$sub_t"
+  eq "T9: 派生定数の引かれる数 = §1.2 の tok 小計" "$const_from" "$sub_t"
+  eq "T9: 派生定数の値 = 小計 − 台帳（算術が成り立つ）" \
+     "$const_val" "$((const_from - const_sub))"
+  # 実際に起きたずれ: §5 の before が §1.2 の小計と食い違っていた
+  eq "T9: §5 の before（固定文脈）= §1.2 の tok 小計" "$before5" "$sub_t"
+fi
 
 printf '\npassed: %s / failed: %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
