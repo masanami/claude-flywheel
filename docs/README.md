@@ -49,7 +49,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [challenge-sources.md](../templates/challenge-sources.md) | 課題の取り込み元宣言の雛形（任意・外部ソース ingestion 用） |
-| [priority-policy.md](../templates/priority-policy.md) | タスク優先度の決定方針の雛形（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycle が手順1/2で参照。不在時は現状どおりエージェント裁量） |
+| [priority-policy.md](../templates/priority-policy.md) | タスク優先度の決定方針の雛形（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycle は**手順0 で [priority-policy-resolve.sh](../scripts/priority-policy-resolve.sh) を実行して適用方針モードを 1 つの解決結果に確定**し、**手順1/2 はその解決結果のみを参照**する〔適用条件を後続手順で再判定しない〕。不在・未追跡・未コミットの変更あり・Git 検証エラー・未定義モードのいずれもエージェント裁量へフォールバック） |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
@@ -68,6 +68,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱。環境要因の失敗は exit 0＝best-effort、引数エラーは exit 2＝イベント未記録。[#98](https://github.com/masanami/claude-flywheel/issues/98)） |
 | [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
 | [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start` とともに警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |
+| [priority-policy-resolve.sh](../scripts/priority-policy-resolve.sh) | `priority-policy.md` の適用条件を検証し**適用方針モード**を 1 つの解決結果として返す（run-cycle 手順0 が呼ぶ。控えた SHA から読み**作業ツリーは開かない**。フォールバック 5 分類と、サイクルレポートへ転記する `report=` 文言の正本。読み取り専用。[#97](https://github.com/masanami/claude-flywheel/issues/97)） |
 | [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。許可パスの正本は [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt)。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
 | [validate-artifact.rb](../scripts/validate-artifact.rb) | run-cycle 成果物のフォーマット契約バリデータ（台帳・アーカイブ・journal・jsonl。run-cycle 手順6 が書き込み後・コミット前に呼ぶ。契約は [contracts/README.md](../contracts/README.md)。[#91](https://github.com/masanami/claude-flywheel/issues/91)） |
 | [migrate-workspace.rb](../scripts/migrate-workspace.rb) | 既存ワークスペースを現行テンプレートの構造へ追従させる（台帳・アーカイブの構造マイグレーション＋ scaffold 追従レポート。既定は dry-run。flywheel-init の再実行から呼ばれる。[#88](https://github.com/masanami/claude-flywheel/issues/88)） |
