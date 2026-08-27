@@ -414,6 +414,12 @@ assert_field "report（未定義モード）" report \
 echo "== 7. 構造不変条件: フォールバック 5 分類の行の完全性（双方向） =="
 
 listed="$(bash "$SCRIPT" --list-fallbacks 2>/dev/null)"
+listed_exit=$?
+
+# 宣言の取得は**終了状態まで**検査する。stdout だけを見ると、正しい一覧を出したあとに
+# 非 0 で終わる変異（呼び出し側が宣言を取得できない状態）がこの検査を素通りする。
+if [ "$listed_exit" -eq 0 ]; then pass "--list-fallbacks は exit 0 で終了する"
+else fail "--list-fallbacks は exit 0 で終了する" "got=$listed_exit"; fi
 expected="missing
 untracked
 dirty
@@ -487,6 +493,10 @@ else fail "実行不能では stdout が空" "stdout: $out126"; fi
 echo "== 9. 構造不変条件: スクリプトが返す exit の行の完全性（双方向） =="
 
 listed_exits="$(bash "$SCRIPT" --list-exits 2>/dev/null)"
+listed_exits_exit=$?
+
+if [ "$listed_exits_exit" -eq 0 ]; then pass "--list-exits は exit 0 で終了する"
+else fail "--list-exits は exit 0 で終了する" "got=$listed_exits_exit"; fi
 expected_exits="0
 1
 2"
