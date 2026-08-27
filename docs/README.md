@@ -49,7 +49,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [CLAUDE.md](../templates/CLAUDE.md) | エージェントのベースライン（ポジション要約・記憶INDEX参照・recall手順） |
 | [challenge-ledger.md](../templates/challenge-ledger.md) | 課題台帳の雛形 |
 | [challenge-sources.md](../templates/challenge-sources.md) | 課題の取り込み元宣言の雛形（任意・外部ソース ingestion 用） |
-| [priority-policy.md](../templates/priority-policy.md) | タスク優先度の決定方針の雛形（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycle が手順1/2で参照。不在時は現状どおりエージェント裁量） |
+| [priority-policy.md](../templates/priority-policy.md) | タスク優先度の決定方針の雛形（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycle は**手順0 で [priority-policy-resolve.sh](../scripts/priority-policy-resolve.sh) を実行して適用方針モードを 1 つの解決結果に確定**し、**手順1/2 はその解決結果のみを参照**する〔適用条件を後続手順で再判定しない〕。不在・未追跡・未コミットの変更あり・Git 検証エラー・未定義モードのいずれもエージェント裁量へフォールバック） |
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |

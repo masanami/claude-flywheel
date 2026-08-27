@@ -8,13 +8,16 @@
 #
 # 使い方:
 #   scripts/priority-policy-resolve.sh [--workspace <dir>] [--file <name>]
-#   scripts/priority-policy-resolve.sh --list-fallbacks
+#   scripts/priority-policy-resolve.sh --list-fallbacks | --list-exits
 #
 #   --workspace       エージェント repo のルート（既定: `.`）。この直下の <file> を見る
 #   --file            方針ファイル名（既定: `priority-policy.md`）。vendoring・テスト用の
 #                     フックであり、run-cycle は既定のまま呼ぶ
 #   --list-fallbacks  フォールバック分類の**宣言**を1行1件で出力して終了（exit 0）。
 #                     テストが「宣言」と「振る舞い」の一致を双方向で固定するために使う
+#   --list-exits      本スクリプト自身が返す終了コードの**宣言**（0/1/2）。同上。
+#                     126/127 は含めない（シェルが返す「起動できなかった」の値であり、
+#                     このとき stdout は空＝`report=` を取得できない）
 #
 # なぜ作業ツリーを読まないか（本スクリプトの要）:
 #   検証（追跡済み・差分なし）と読み込みの間に作業ツリーが編集されると、検証を通した
@@ -45,7 +48,9 @@
 #         扱う**（fail-closed。「検査不能」を「適用できた」と読み替えない）。この場合
 #         `fallback=` は出さない＝5分類は exit 1 のときだけ現れる
 #   起動自体に失敗した場合（exit 126/127 等＝実行不能）も exit 2 と同じ「検査不能」として
-#   扱う（ゲートが効かない環境では従来どおりエージェント裁量へ縮退する）。
+#   扱う（ゲートが効かない環境では従来どおりエージェント裁量へ縮退する）。**ただしこの経路は
+#   本スクリプトが1行も実行されないため stdout が空で、`report=` を取得できない**——
+#   呼び出し側は「起動できなかった事実と stderr」を自分でレポートへ書く（run-cycle 手順0）。
 #
 # フォールバック5分類（**この一覧が正本**。増減したら
 # scripts/tests/priority-policy-resolve.test.sh の双方向の完全性検査が落ちる）:
@@ -67,7 +72,7 @@
 
 set -uo pipefail
 
-USAGE="usage: $0 [--workspace <dir>] [--file <name>] | $0 --list-fallbacks"
+USAGE="usage: $0 [--workspace <dir>] [--file <name>] | $0 --list-fallbacks | $0 --list-exits"
 
 # フォールバック分類の宣言（正本）。順序も含めてテストが固定する。
 FALLBACKS="missing
@@ -75,6 +80,15 @@ untracked
 dirty
 git-error
 undefined-mode"
+
+# 本スクリプト**自身**が返す終了コードの宣言（正本）。テストが宣言と振る舞いの一致を
+# 双方向で固定する。**126/127 は含めない**——あれはシェルが「起動できなかった」ことを
+# 表すために返す値であり、本スクリプトの返り値ではない。この 3 つが
+# 「stdout に `report=` を出せる exit」の集合そのものであり、それ以外の exit で
+# 呼び出し側が `report=` を期待してはならない、という境界を担う。
+EXITS="0
+1
+2"
 
 warn() { echo "priority-policy-resolve: $1" >&2; }
 
@@ -119,6 +133,7 @@ POLICY_FILE="priority-policy.md"
 while [ $# -gt 0 ]; do
   case "$1" in
     --list-fallbacks) printf '%s\n' "${FALLBACKS}"; exit 0 ;;
+    --list-exits)     printf '%s\n' "${EXITS}"; exit 0 ;;
     --workspace) [ $# -ge 2 ] || { warn "${USAGE}"; die "--workspace の値がありません"; }
                  WORKSPACE="$2"; shift 2 ;;
     --file)      [ $# -ge 2 ] || { warn "${USAGE}"; die "--file の値がありません"; }
