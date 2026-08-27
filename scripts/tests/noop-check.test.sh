@@ -116,6 +116,15 @@ assert_contains() { # assert_contains <名前> <ファイル> <部分文字列>
   fi
 }
 
+# assert_not_contains <名前> <ファイル> <部分文字列>
+assert_not_contains() {
+  if grep -qF -- "$3" "$2" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); echo "FAIL - $1"; echo "       残っている: $3"
+  else
+    PASS=$((PASS + 1)); echo "ok   - $1"
+  fi
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -608,10 +617,11 @@ assert_contains "SKILL 手順6 が「保留してよいのは exit 0 のとき�
 assert_contains "SKILL 手順6 が起動失敗を判定不能として扱う縮退規定を持つ" "$SKILL_MD" "exit 126/127 等＝ruby 未導入・実行不能"
 assert_contains "SKILL 手順6 が判定後に判明する事象の取り消し条件を持つ" "$SKILL_MD" "保留の取り消し条件"
 assert_contains "SKILL 手順6 が検算の範囲を pending_index_lines で広げる規定を持つ" "$SKILL_MD" 'pending_index_lines'
-assert_contains "SKILL 手順6 が保留分を含むコミットのメッセージ規定を持つ" "$SKILL_MD" "束ねたサイクル名をコミットメッセージ本文に列挙する"
+assert_contains "SKILL 手順6 が保留分を含むコミットのメッセージ規定を持つ" "$SKILL_MD" "束ねたサイクル名を列挙する"
 assert_contains "SKILL 出力節が「書き出しは毎周・コミットは変化のあった周」を明記する" "$SKILL_MD" "Git コミットは変化のあった周にまとめる"
 assert_contains "SKILL 手順6 の許可パスがパス正本ファイルを出典にしている" "$SKILL_MD" 'contracts/cycle-commit-paths.txt'
-assert_contains "SKILL 手順6 が commit_path の利用を規定する" "$SKILL_MD" 'commit_path=<path>'
+# 手順6 は pathspec を自分で組み立てず、コミッタへ委ねる（コミッタが正本から導く）。
+assert_contains "SKILL 手順6 がコミッタへ pathspec の導出を委ねている" "$SKILL_MD" 'cycle-commit.sh'
 assert_contains "journal README が保留の規則を持つ" "$JOURNAL_README" "書き出しは毎周・Git コミットは変化のあった周にまとめる"
 assert_contains "contracts README の --tail 規定が保留分まで広がっている" "$CONTRACTS_MD" 'pending_index_lines'
 assert_contains "contracts README にパス正本が構成物として載っている" "$CONTRACTS_MD" 'cycle-commit-paths.txt'
@@ -641,12 +651,13 @@ else
   echo "       script: $(echo "$commit_out" | tr '\n' ' ')"
   echo "       file:   $(echo "$paths_listed" | tr '\n' ' ')"
 fi
-while IFS= read -r p; do
-  [ -n "$p" ] || continue
-  assert_contains "SKILL の許可パス記述に正本の [commit] が現れる: ${p}" "$SKILL_MD" "\`$p\`"
-done <<EOF
-$paths_listed
-EOF
+# **SKILL 側にパスを書き写さない**ことを固定する（以前はここで「正本の各パスが SKILL にも
+# 現れること」を要求していたが、それは正本と SKILL という 2 つのリストを同期させる要求だった。
+# 現在は cycle-commit.sh が正本から pathspec を導くため、SKILL に列挙は不要であり、
+# 列挙が復活したら再び同期ずれの余地が生まれる）。
+assert_contains "SKILL 手順6 が許可パスの正本ファイルを指している" "$SKILL_MD" 'contracts/cycle-commit-paths.txt'
+assert_not_contains "SKILL 手順6 が許可パスを書き写していない" "$SKILL_MD" \
+  '現在は `challenge-ledger.md` / `challenge-archive.md` / `memory` / `journal` / `positions`'
 
 # .md のセクション見出しは validate-artifact.rb（契約）と同一の文字列でなければならない
 # （どちらかだけを改名すると、条件4 の検査が静かに素通しになる）。

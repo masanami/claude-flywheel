@@ -487,7 +487,7 @@ assert_case "runs の --expect-cycle は --since-last-cycle-start 必須（無�
 # 走るため、追記後・追加コミット前の journal-md 再検証の規定が SKILL に存在することを固定する
 # （規定が消えると、壊れた補記がコミットゲートを素通りする）。
 SKILL_MD="$REPO_ROOT/skills/run-cycle/SKILL.md"
-if grep '追加で Git コミット' "$SKILL_MD" | grep -q '再検証.*journal-md\|journal-md.*再検証'; then
+if grep '追加コミットする' "$SKILL_MD" | grep -q 'コミッタで再検証\|再検証.*コミッタ'; then
   PASS=$((PASS + 1))
   echo "ok   - SKILL 手順6: 事後補記の追加コミット前に journal-md 再検証の規定がある"
 else
@@ -499,7 +499,7 @@ fi
 # バリデータの起動自体が失敗し 3 値契約のどれでもない exit（126/127 等）になるため、
 # run-cycle 手順6 に「起動失敗＝検査不能（exit 2 と同じ扱い・コミットは止めない）」の
 # 縮退規則があることを固定する（規定が消えると未定義動作に戻る）。
-if grep '書き込み後・コミット前の検算' "$SKILL_MD" | grep -q '126/127.*検査不能\|検査不能.*126/127'; then
+if grep '検算とサイクルコミット\|起動自体の失敗' "$SKILL_MD" | grep -q '126/127.*検査不能\|検査不能.*126/127'; then
   PASS=$((PASS + 1))
   echo "ok   - SKILL 手順6: バリデータ起動失敗（126/127 等）を検査不能として扱う縮退規則がある"
 else
