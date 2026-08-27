@@ -193,7 +193,15 @@ mkdir -p "$ws/newdir"
 printf 'x\n' > "$ws/newdir/a.txt"
 write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
 custom_paths="$tmp/custom-paths.txt"
-{ sed 's/^positions$/positions\nnewdir/' "$PATHS_FILE"; } > "$custom_paths"
+# 置換の RHS で `\n` を改行に展開するのは POSIX の保証外（BSD/GNU の拡張）。
+# awk で行を追加して環境差を持ち込まない。
+awk '{print} /^positions$/{print "newdir"}' "$PATHS_FILE" > "$custom_paths"
+if [ "$(grep -c '^newdir$' "$custom_paths")" -eq 1 ]; then
+  pass "前提確認: 正本の複製に newdir 行が 1 行だけ足されている"
+else
+  fail "前提確認: 正本の複製に newdir 行が 1 行だけ足されている" \
+       "$(grep -n 'newdir' "$custom_paths" | tr '\n' ' ')"
+fi
 run commit --workspace "$ws" --cycle 2026-08-27-cycle --paths-file "$custom_paths"
 assert_exit "正本を差し替えたコミットも成功する" 0
 assert_committed "正本へ足した newdir/ がコミット対象になる（pathspec を正本から導いている）" "$ws" "newdir/a.txt"
@@ -261,18 +269,41 @@ else fail "分類（noop-check）と pathspec（cycle-commit）が同じ集合�
 # リテラルの前置一致なので食い違う。ここで黙って通すと許可パス外が履歴へ入るため、
 # 検出して fail-closed に倒れなければならない（グロブは正本の記法として想定していない、
 # ということをテストで固定する意味も持つ）。
+# **範囲外は履歴に入れない**（コミット後に気づくのでは fail-closed とは言えない）。
+# 正本にグロブを書くと git の pathspec 解釈がリテラル照合より広くなるため、
+# 「そもそもコミットを作らない」ことを確かめる。
 ws="$(new_ws postverify)" || setup_fail "$(setup_reason)"
 write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
 printf 'secret\n' > "$ws/out-of-scope.md"
 glob_paths="$tmp/glob-paths.txt"
 printf '[commit]\n*.md\njournal\n\n[exclude]\npriority-policy.md\n' > "$glob_paths"
+before="$(git -C "$ws" rev-parse HEAD)"
 run commit --workspace "$ws" --cycle 2026-08-27-cycle --paths-file "$glob_paths"
-assert_exit "pathspec が正本より広く解釈された場合は exit 1（コミット後の再検証が捕まえる）" 1
-if printf '%s\n' "$RUN_OUT" | grep -q '^violation=commit-scope:'; then
-  pass "許可パス外の混入を violation=commit-scope として報告する"
+assert_exit "正本にグロブがあるときはコミットしない" 1
+assert_field "グロブ検出時は committed=no" committed no
+if [ "$(git -C "$ws" rev-parse HEAD)" = "$before" ]; then
+  pass "**コミットを作らない**（範囲外を履歴へ残さない）"
 else
-  fail "許可パス外の混入を violation=commit-scope として報告する" "stdout: $RUN_OUT"
+  fail "**コミットを作らない**（範囲外を履歴へ残さない）" \
+       "HEAD が進んだ: $(git -C "$ws" diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ' ')"
 fi
+if printf '%s\n' "$RUN_OUT" | grep -q '^violation=paths-file:'; then
+  pass "正本のグロブを violation=paths-file として報告する"
+else
+  fail "正本のグロブを violation=paths-file として報告する" "stdout: $RUN_OUT"
+fi
+
+# 逆に、**pathspec が選ばない**範囲外ファイルが呼び出し前からステージされていても、
+# サイクルは止めない（人間が別作業でステージしている場合に自走を止めない）。
+# 止めるべきは「コミットに入る範囲外」であって「ステージされているだけ」ではない。
+ws="$(new_ws prestage)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+printf 'secret\n' > "$ws/out-of-scope.md"
+git -C "$ws" add -A -- out-of-scope.md >/dev/null 2>&1 || setup_fail "範囲外ファイルの stage に失敗"
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "pathspec が選ばない範囲外がステージ済みでもサイクルは止めない" 0
+assert_not_committed "ステージ済みの範囲外はコミットに含まれない" "$ws" "out-of-scope.md"
+assert_committed "同じ周の許可パス内はコミットされる" "$ws" "journal/2026-08-27-cycle.md"
 
 echo "== 4. 検算の fail-closed =="
 
@@ -484,6 +515,106 @@ assert_exit "変更が無い周は exit 0（失敗ではない）" 0
 assert_field "変更が無い周は verify=ok" verify ok
 if [ "$(git -C "$ws" rev-parse HEAD)" = "$after_first" ]; then pass "空コミットを作らない（HEAD が進まない）"
 else fail "空コミットを作らない（HEAD が進まない）"; fi
+
+echo "== 11.1 指摘2: --md は正本の範囲を上書きできない =="
+
+# amend は「当周の journal .md だけ」を対象にするが、その対象は**正本の [commit] 範囲内**で
+# なければならない。呼び出し側の --md が正本を上書きできると、正本が唯一の権威である
+# という前提が崩れる（指摘1 と同じ根＝正本の権威に呼び出し側の入力が割り込める）。
+ws="$(new_ws md-scope)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "前提: 通常コミットは成功する" 0
+# 正本外（journal/ ではない場所）の .md を --md で渡す
+mkdir -p "$ws/outside"
+journal_md 2026-08-27-cycle > "$ws/outside/2026-08-27-cycle.md"
+before="$(git -C "$ws" rev-parse HEAD)"
+run amend --workspace "$ws" --cycle 2026-08-27-cycle --md "outside/2026-08-27-cycle.md"
+assert_exit "正本の範囲外を --md に渡したら exit 2（検査不能）" 2
+assert_field "正本外の --md ではコミットしない" committed no
+if [ "$(git -C "$ws" rev-parse HEAD)" = "$before" ]; then pass "正本外の --md で HEAD が進まない"
+else fail "正本外の --md で HEAD が進まない" \
+       "$(git -C "$ws" diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ' ')"; fi
+
+# commit 側でも同じく拒否する（--md は検証対象の指定であり、正本の外は指せない）
+ws="$(new_ws md-scope-commit)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+mkdir -p "$ws/outside"; journal_md x > "$ws/outside/x.md"
+run commit --workspace "$ws" --cycle 2026-08-27-cycle --md "outside/x.md"
+assert_exit "commit でも正本外の --md は exit 2" 2
+assert_field "commit でも正本外の --md ではコミットしない" committed no
+
+# 相対パスからの脱出も拒否する
+ws="$(new_ws md-escape)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle --md "../escape.md"
+assert_exit ".. を含む --md は exit 2" 2
+run commit --workspace "$ws" --cycle 2026-08-27-cycle --md "/etc/passwd"
+assert_exit "絶対パスの --md は exit 2" 2
+
+echo "== 11.2 指摘3: --tail が無くても保留範囲を自力で算出する =="
+
+# pending_index_lines を渡せない周でも、未コミットの index レコード数はコミッタ自身が
+# git から算出できる。既定 1 へ黙って縮退すると、古い保留分が未検証のままコミットされる。
+ws="$(new_ws tail-derive)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-26-cycle 2026-08-26 1
+printf '{"date":"2026-08-26","seq":"NOT-A-NUMBER"}\n' > "$ws/journal/index.jsonl"  # 末尾より前になる
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+before="$(git -C "$ws" rev-parse HEAD)"
+run commit --workspace "$ws" --cycle 2026-08-27-cycle \
+  --md "journal/2026-08-26-cycle.md" --md "journal/2026-08-27-cycle.md"
+assert_exit "--tail 未指定でも保留範囲を算出して違反を検出する" 1
+if [ "$(git -C "$ws" rev-parse HEAD)" = "$before" ]; then pass "算出した範囲の違反で HEAD が進まない"
+else fail "算出した範囲の違反で HEAD が進まない"; fi
+if printf '%s\n' "$RUN_OUT" | grep -q '^tail='; then pass "算出した検証レコード数を tail= として出す"
+else fail "算出した検証レコード数を tail= として出す" "stdout: $RUN_OUT"; fi
+
+# 渡された --tail が算出値より小さければ、**安全側（大きいほう）**を採る
+ws="$(new_ws tail-max)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-26-cycle 2026-08-26 1
+printf '{"date":"2026-08-26","seq":"NOT-A-NUMBER"}\n' > "$ws/journal/index.jsonl"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle --tail 1 \
+  --md "journal/2026-08-26-cycle.md" --md "journal/2026-08-27-cycle.md"
+assert_exit "--tail 1 を渡されても算出値が大きければそちらを使う" 1
+
+# index.jsonl が HEAD に無い（未追跡）周では、**全レコードが未コミット**。
+# ここを「HEAD 側 0 件」と数えないと算出が 0 になり、既定 1 へ落ちて古い分を見逃す。
+ws="$(new_ws tail-untracked)" || setup_fail "$(setup_reason)"
+git -C "$ws" rm -q --cached journal/index.jsonl >/dev/null 2>&1 || setup_fail "index.jsonl の untrack に失敗"
+git -C "$ws" commit -qm untrack-index >/dev/null 2>&1 || setup_fail "untrack のコミットに失敗"
+printf '{"date":"2026-08-26","seq":"NOT-A-NUMBER"}\n' > "$ws/journal/index.jsonl"   # 末尾より前
+journal_md 2026-08-26-cycle > "$ws/journal/2026-08-26-cycle.md"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+before="$(git -C "$ws" rev-parse HEAD)"
+run commit --workspace "$ws" --cycle 2026-08-27-cycle \
+  --md "journal/2026-08-26-cycle.md" --md "journal/2026-08-27-cycle.md"
+assert_exit "index.jsonl が未追跡でも全レコードを検証範囲に入れる" 1
+assert_field "未追跡 index の算出 tail は全レコード数" tail 2
+if [ "$(git -C "$ws" rev-parse HEAD)" = "$before" ]; then pass "未追跡 index の違反で HEAD が進まない"
+else fail "未追跡 index の違反で HEAD が進まない"; fi
+
+# 通常の周（保留なし）は 1 レコードのまま
+ws="$(new_ws tail-normal)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "保留の無い周は従来どおり成功する" 0
+assert_field "保留の無い周の tail は 1" tail 1
+
+echo "== 11.3 指摘4: 非 Git ワークスペースは検査不能 =="
+
+nongit="$tmp/not-a-repo"; mkdir -p "$nongit/journal"
+run commit --workspace "$nongit" --cycle 2026-08-27-cycle
+assert_exit "Git 作業ツリーでなければ exit 2（「変更なし」と読み替えない）" 2
+assert_field "非 Git では committed=no" committed no
+if [ -n "$RUN_ERR" ]; then pass "非 Git は stderr に理由を書く"; else fail "非 Git は stderr に理由を書く"; fi
+
+# ワークスペースが Git トップでない場合も検査不能（noop-check.rb と同じ規律。
+# パスは workspace 相対で解決するため、サブディレクトリだと分類がずれる）
+ws="$(new_ws subdir-top)" || setup_fail "$(setup_reason)"
+mkdir -p "$ws/journal/sub"
+run commit --workspace "$ws/journal" --cycle 2026-08-27-cycle
+assert_exit "Git トップでないワークスペースは exit 2" 2
 
 echo "== 12. 出力契約と exit の行の完全性（双方向） =="
 

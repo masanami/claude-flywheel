@@ -19,8 +19,10 @@
 #   --md <path>         検証する journal `.md`（workspace 相対。繰り返し可。
 #                       既定: `journal/<cycle>.md`）。**保留分を束ねる周は
 #                       noop-check.rb の `pending_md_file=` を全件渡す**
-#   --tail <n>          `journal-index` の検証レコード数（既定: 1）。保留分を束ねる周は
-#                       noop-check.rb の `pending_index_lines=` を渡す
+#   --tail <n>          `journal-index` の検証レコード数の**下限**。省略可——未コミットの
+#                       レコード数はスクリプトが Git から算出し、渡された値より大きければ
+#                       そちらを採る（安全側）。既定 1 へ黙って縮退すると、古い保留分の
+#                       index レコードが未検証のままコミットされる
 #   --expect-ids <ids>  アーカイブへ移動した課題 ID（カンマ区切り）。指定した周だけ
 #                       `challenge-archive.md` を検証する（追記分の ID 一致＝移動漏れの不在まで）
 #   --paths-file <p>    許可パスの正本（既定: 本スクリプトからの相対
@@ -35,6 +37,22 @@
 #   約束する代わりに、構造としてそうなっている（Issue #96 の P1 が再発しない形）。
 #   正本が読めない・`[commit]` が空なら**コミットしない**（推測でパスを組み立てない＝fail-closed）。
 #
+# **正本の権威を呼び出し側が上書きできないこと**:
+#   `--md` は「どの journal `.md` を検証するか」の指定であって、許可範囲の指定ではない。
+#   正本の範囲外（`..`・絶対パス・`[commit]` の外）を渡されたら exit 2 で止める。
+#   `amend` の pathspec も「正本の範囲内に限った `--md`」であり、正本そのもの（`CANON_PATHS`）は
+#   どのサブコマンドでも書き換えない。
+#
+# **範囲外を履歴に入れない（3 層）**:
+#   1. 正本のエントリに pathspec magic / 絶対パス / `..` があれば**コミットしない**（exit 1）。
+#      `--literal-pathspecs` を渡すため magic は git に解釈されないが、それは「黙って何にも
+#      マッチしない死んだエントリ」になることを意味する。静かに効かないより明示的に止める
+#   2. **ステージ後・コミット前**に、この pathspec で実際にコミットへ入る集合を git に問い合わせ、
+#      すべて正本のリテラル範囲内であることを確かめる（exit 1・**コミットは作らない**）
+#   3. コミット後に `git diff-tree` で内容を読み直し、出所から証明する（最後の砦）
+#   fail-closed の意味は「あとで気づく」ではなく「そもそも作らない」。層 2 が主で、
+#   層 1 は原因を分かりやすくするため、層 3 は層 1・2 を素通りした場合の最終検出。
+#
 # **`git add` を先に行う理由**:
 #   `git commit -- <pathspec>` は未追跡ファイルを自動でステージしない。当周新規作成した
 #   `journal/YYYY-MM-DD-cycle.md` や即アーカイブによる `challenge-archive.md` への追記が
@@ -42,16 +60,13 @@
 #   続けて**同じ pathspec を付けた** `git commit -- <pathspec>` を打つ（pathspec 指定時は
 #   `--only` 相当が既定となり、許可パス外がステージ済みでもコミットへ混入しない）。
 #
-# **コミット後の再検証**:
-#   `git rev-parse HEAD` で SHA を控え、`git diff-tree` でコミット内容を読み直して
-#   **許可パス外が 1 件も含まれていないこと**を確認する。含まれていたら stderr へ出し exit 1。
-#   「ステージしていないから入らないはず」で終わらせず、出所（実際のコミット）で証明する。
-#
+
 # 出力（stdout・`key=value`。呼び出し側は `report=` をサイクルレポートへ転記する）:
 #   committed=yes|no          **常に出力**。exit code から推測させない
 #   commit_sha=<sha>          committed=yes のとき
 #   verify=ok|violation|uncheckable|skipped
 #   commit_path=<path>        pathspec に使った許可パス（正本の `[commit]` をそのまま）
+#   tail=<n>                  `journal-index` の検証に実際に使ったレコード数（算出結果）
 #   bundled_cycle=<name>      このコミットに入るサイクル名（2 件以上なら本文へ列挙）
 #   violation=<行>            verify=violation のとき、バリデータ出力を 1 行ずつ
 #   report=<1行>              サイクルレポートへ転記する文言
@@ -60,7 +75,8 @@
 #   - 0 = 要求した操作を完了（verify: 違反なし／commit・amend: コミット済み、または
 #         変更が無く・dry-run でコミット不要だった）
 #   - 1 = **契約違反によりコミットしていない**（fail-closed）。許可パス外の混入検出もここ
-#   - 2 = 検査不能（バリデータが exit 2／**起動自体の失敗＝exit 126/127 等**／正本が読めない等）。
+#   - 2 = 検査不能（バリデータが exit 2／**起動自体の失敗＝exit 126/127 等**／正本が読めない／
+#         **Git 作業ツリーでない・トップでない**／`--md` が正本の範囲外）。
 #         **検査不能はコミットを止めない**——`commit` はコミットを実行したうえで exit 2 を返す
 #         （「検査不能」を「違反なし」と読み替えないが、ゲートが効かない環境で自走を止めない）。
 #         ただし**正本が読めない場合だけはコミットしない**（pathspec を推測できないため）。
@@ -144,6 +160,8 @@ COMMIT_SHA=""
 VERIFY="skipped"
 VIOLATIONS=""
 COMMIT_PATHS=""
+CANON_PATHS=""
+DERIVED_TAIL=0
 BUNDLED=""
 REPORT=""
 
@@ -151,6 +169,7 @@ emit_and_exit() {
   echo "committed=${COMMITTED}"
   [ -n "${COMMIT_SHA}" ] && echo "commit_sha=${COMMIT_SHA}"
   echo "verify=${VERIFY}"
+  echo "tail=${TAIL}"
   if [ -n "${COMMIT_PATHS}" ]; then
     printf '%s' "${COMMIT_PATHS}" | while IFS= read -r p; do
       [ -n "${p}" ] && echo "commit_path=${p}"
@@ -174,6 +193,16 @@ emit_and_exit() {
 # 許可パスの正本（noop-check.rb と同じファイル・同じ経路）
 # ---------------------------------------------------------------------------
 
+# has_pathspec_magic <path> — 正本のエントリとして受け付けない形か
+# `--literal-pathspecs` を渡すため magic は git に解釈されないが、それは「黙って何にも
+# マッチしない死んだエントリ」になることを意味する。静かに効かないより、明示的に止める。
+has_pathspec_magic() {
+  case "$1" in
+    *'*'*|*'?'*|*'['*|*']'*|:*|/*|*'..'*) return 0 ;;
+  esac
+  return 1
+}
+
 load_commit_paths() {
   if [ ! -r "${PATHS_FILE}" ]; then
     return 1
@@ -195,6 +224,87 @@ load_commit_paths() {
   done < "${PATHS_FILE}"
   [ -n "${out}" ] || return 1
   COMMIT_PATHS="${out}"
+  CANON_PATHS="${out}"   # 正本の範囲（以後どのサブコマンドでも書き換えない）
+  return 0
+}
+
+# check_paths_magic — 正本のエントリに pathspec magic / 絶対パス / `..` が無いこと
+check_paths_magic() {
+  bad=""
+  while IFS= read -r p; do
+    [ -n "${p}" ] || continue
+    if has_pathspec_magic "${p}"; then bad="${bad}${p}
+"; fi
+  done <<EOF
+${CANON_PATHS}
+EOF
+  [ -n "${bad}" ] || return 0
+  while IFS= read -r b; do
+    [ -n "${b}" ] && VIOLATIONS="${VIOLATIONS}paths-file: 許可パスの正本に pathspec magic / 絶対パス / .. を含むエントリがあります（ワークスペース相対のリテラルパスだけを書く）: ${b}
+"
+  done <<EOF
+${bad}
+EOF
+  return 1
+}
+
+# in_canon_scope <path> — 正本の範囲（リテラル前置一致）に含まれるか
+in_canon_scope() {
+  while IFS= read -r p; do
+    [ -n "${p}" ] || continue
+    case "$1" in
+      "${p}"|"${p}"/*) return 0 ;;
+    esac
+  done <<EOF
+${CANON_PATHS}
+EOF
+  return 1
+}
+
+# check_md_scope — `--md` が正本の範囲内のワークスペース相対パスであること。
+# 呼び出し側の入力が正本の権威に割り込めないようにする（amend が COMMIT_PATHS を
+# MD_LIST で置き換える経路が、正本外のファイルをコミットしうる穴だった）。
+check_md_scope() {
+  bad=""
+  while IFS= read -r md; do
+    [ -n "${md}" ] || continue
+    case "${md}" in
+      /*|*'..'*) bad="${bad}${md}
+"; continue ;;
+    esac
+    in_canon_scope "${md}" || bad="${bad}${md}
+"
+  done <<EOF
+${MD_LIST}
+EOF
+  [ -n "${bad}" ] || return 0
+  while IFS= read -r b; do
+    [ -n "${b}" ] && VIOLATIONS="${VIOLATIONS}md-scope: --md は許可パスの正本の範囲内（ワークスペース相対）でなければなりません: ${b}
+"
+  done <<EOF
+${bad}
+EOF
+  return 1
+}
+
+# derive_tail — 未コミットの index レコード数を git から算出する。
+# 呼び出し側が pending_index_lines を渡せない周に既定 1 へ黙って縮退すると、
+# 古い保留分の index レコードが**未検証のまま**コミットされる（範囲除外型の検算は
+# 空虚に真になる）。算出できるものは自分で算出する。
+derive_tail() {
+  idx="journal/index.jsonl"
+  [ -f "${WORKSPACE}/${idx}" ] || { DERIVED_TAIL=0; return 0; }
+  cur="$(grep -c . "${WORKSPACE}/${idx}" 2>/dev/null)"
+  [ -n "${cur}" ] || cur=0
+  if git_plain cat-file -e "HEAD:${idx}" >/dev/null 2>&1; then
+    old="$(git_plain show "HEAD:${idx}" 2>/dev/null | grep -c . )"
+    [ -n "${old}" ] || old=0
+  else
+    old=0   # 未追跡／HEAD に無い＝全レコードが未コミット
+  fi
+  d=$((cur - old))
+  [ "${d}" -ge 0 ] || d=0
+  DERIVED_TAIL="${d}"
   return 0
 }
 
@@ -269,7 +379,12 @@ EOF
 # ---------------------------------------------------------------------------
 
 # git_ws <args...>
-git_ws() { git -C "${WORKSPACE}" "$@"; }
+# 正本のエントリは**常にリテラル**として渡す。pathspec magic（`*` 等）を git に解釈させると、
+# 正本のリテラル照合より広い集合が選ばれ、範囲外がコミットに入りうる。
+git_ws() { git -C "${WORKSPACE}" --literal-pathspecs "$@"; }
+# 検査用（pathspec を伴わない読み取り）。--literal-pathspecs の有無で挙動は変わらないが
+# 意図を分けておく。
+git_plain() { git -C "${WORKSPACE}" "$@"; }
 
 # stage_allowed — 許可パスのみを明示的にステージする（未追跡も拾う）
 stage_allowed() {
@@ -293,6 +408,38 @@ staged_in_scope() {
 ${COMMIT_PATHS}
 EOF
   [ "${n}" -eq 1 ]
+}
+
+# check_staged_scope — **コミット前に**、この pathspec で実際にコミットへ入る集合を
+# git に問い合わせ、すべて正本のリテラル範囲内であることを確かめる。
+# コミット後の検証（verify_commit_contents）だけでは、範囲外がいったん履歴に入ってしまう。
+# fail-closed の意味は「あとで気づく」ではなく「そもそも作らない」。
+check_staged_scope() {
+  set --
+  while IFS= read -r p; do
+    [ -n "${p}" ] || continue
+    set -- "$@" "${p}"
+  done <<EOF
+${COMMIT_PATHS}
+EOF
+  files="$(git_ws diff --cached --name-only -- "$@" 2>/dev/null)"
+  [ -n "${files}" ] || return 0
+  bad=""
+  while IFS= read -r f; do
+    [ -n "${f}" ] || continue
+    in_canon_scope "${f}" || bad="${bad}${f}
+"
+  done <<EOF
+${files}
+EOF
+  [ -n "${bad}" ] || return 0
+  while IFS= read -r b; do
+    [ -n "${b}" ] && VIOLATIONS="${VIOLATIONS}staged-scope: コミットに入る集合に許可パス外が含まれています（コミットは行いません）: ${b}
+"
+  done <<EOF
+${bad}
+EOF
+  return 1
 }
 
 # build_message — コミットメッセージを組み立てる。束ねたサイクルが 2 件以上なら本文へ列挙する
@@ -394,11 +541,53 @@ EOF
 
 collect_bundled
 
+# **Git 作業ツリーであること**を先に確かめる（noop-check.rb と同じ規律）。
+# 非 Git だと git add は黙って失敗し git diff は空を返すため、そのまま進むと
+# 「変更なし・正常（exit 0）」に化ける——検査不能を正常と読み替えない。
+top="$(git_plain rev-parse --show-toplevel 2>/dev/null)"
+if [ $? -ne 0 ] || [ -z "${top}" ]; then
+  VERIFY="uncheckable"
+  REPORT="サイクルコミット: 実施せず（Git 作業ツリーではありません: ${WORKSPACE}）"
+  warn "Git 作業ツリーではありません: ${WORKSPACE}"
+  emit_and_exit 2
+fi
+# パスはワークスペース相対で解決するため、トップ以外だと分類がずれる
+ws_abs="$(cd "${WORKSPACE}" 2>/dev/null && pwd -P)"
+top_abs="$(cd "${top}" 2>/dev/null && pwd -P)"
+if [ "${ws_abs}" != "${top_abs}" ]; then
+  VERIFY="uncheckable"
+  REPORT="サイクルコミット: 実施せず（--workspace が Git 作業ツリーのトップではありません。トップ: ${top_abs}）"
+  warn "--workspace が Git 作業ツリーのトップではありません（トップ: ${top_abs}）: ${WORKSPACE}"
+  emit_and_exit 2
+fi
+
 if ! load_commit_paths; then
   VERIFY="uncheckable"
   REPORT="サイクルコミット: 実施せず（許可パスの正本を読めないか [commit] が空のため。正本: ${PATHS_FILE}）"
   warn "許可パスの正本を読めないか [commit] が空です: ${PATHS_FILE}"
   emit_and_exit 2
+fi
+
+# 正本のエントリが pathspec magic / 絶対パス / .. を含まないこと（**コミットしない**）
+if ! check_paths_magic; then
+  VERIFY="violation"
+  REPORT="サイクルコミット: 実施せず（許可パスの正本に pathspec magic 等があり、リテラル範囲より広く解釈されうるため）"
+  warn "許可パスの正本に pathspec magic / 絶対パス / .. を含むエントリがあります: ${PATHS_FILE}"
+  emit_and_exit 1
+fi
+
+# `--md` が正本の範囲内であること（呼び出し側の入力が正本の権威に割り込めないようにする）
+if ! check_md_scope; then
+  VERIFY="uncheckable"
+  REPORT="サイクルコミット: 実施せず（--md が許可パスの正本の範囲外です）"
+  warn "--md が許可パスの正本の範囲外です"
+  emit_and_exit 2
+fi
+
+# 検証レコード数は自分で算出し、渡された値より大きければそちらを採る（安全側）
+derive_tail
+if [ "${DERIVED_TAIL}" -gt "${TAIL}" ]; then
+  TAIL="${DERIVED_TAIL}"
 fi
 
 case "${SUBCMD}" in
@@ -438,6 +627,8 @@ fi
 
 # amend は journal .md の追記だけを対象にする（index.jsonl は 1 周 1 行スキーマを崩さない）
 if [ "${SUBCMD}" = "amend" ]; then
+  # **正本（CANON_PATHS）は書き換えない**。amend の pathspec は「正本の範囲内に限った
+  # MD_LIST」であり、MD_LIST 自体は上で check_md_scope を通っている。
   COMMIT_PATHS="$(printf '%s' "${MD_LIST}" | grep . )
 "
   [ -n "${MESSAGE}" ] || MESSAGE="chore(cycle): ${CYCLE} の事後補記"
@@ -449,6 +640,13 @@ if ! staged_in_scope; then
   REPORT="サイクルコミット: 実施せず（許可パスに変更がありません）"
   [ "${VERIFY_RC}" -eq 2 ] && emit_and_exit 2
   emit_and_exit 0
+fi
+
+if ! check_staged_scope; then
+  VERIFY="violation"
+  REPORT="サイクルコミット: 実施せず（コミットに入る集合に許可パス外が含まれています。正本かステージ内容を確認する）"
+  warn "コミットに入る集合に許可パス外が含まれています"
+  emit_and_exit 1
 fi
 
 if ! commit_allowed; then
