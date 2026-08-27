@@ -10,6 +10,7 @@
 | バリデータ | [`../scripts/validate-artifact.rb`](../scripts/validate-artifact.rb) | 全成果物の決定的検証（Markdown 検査＋スキーマの解釈実行） |
 | ゴールデンフィクスチャ | [`fixtures/`](./fixtures/) | 正例（受理されるべき正規形）と誤例（実際に起きた事故の再現） |
 | サイクルコミットのパス集合（**vendoring 対象外**。消費者は読まない） | [`cycle-commit-paths.txt`](./cycle-commit-paths.txt) | run-cycle 手順6 の許可パス（`git add` / pathspec）と [`../scripts/noop-check.rb`](../scripts/noop-check.rb) の dirty パス分類の**単一正本**。両者がずれると「許可パス内の変更が『変化なし』と判定される」事故になるため 1 箇所に置く（[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
+| 台帳の読み込み範囲（**vendoring 対象外**。消費者は読まない） | [`ledger-read-scope.tsv`](./ledger-read-scope.tsv) | run-cycle 手順0〜4 が課題台帳のどこまでを開くかの経路表（ステータス → `index` / `full` / `index-then-full`）の**単一正本**。手順0 は [`../scripts/ledger-index.rb`](../scripts/ledger-index.rb) の投影（索引）を読み、この表が `full` を指すステータスだけ本文を開く。行の無いステータスは全文を開く（fail-closed）。語彙は `templates/challenge-ledger.md` のステータス行と一致していなければならず、[`../scripts/tests/ledger-index.test.sh`](../scripts/tests/ledger-index.test.sh) が双方向で固定する（[#122](https://github.com/masanami/claude-flywheel/issues/122)） |
 
 ## 正本のレイヤリング
 
