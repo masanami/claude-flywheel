@@ -552,6 +552,97 @@ assert_exit ".. を含む --md は exit 2" 2
 run commit --workspace "$ws" --cycle 2026-08-27-cycle --md "/etc/passwd"
 assert_exit "絶対パスの --md は exit 2" 2
 
+echo "== 11.1b --md は「journal 配下の .md ファイル」の形でなければならない =="
+
+# `--md` は「どの journal `.md` を検証するか」の指定。正本の範囲内であることに加えて、
+# **引数の形**（通常ファイル・`.md`）まで縛らないと、`--md journal`（ディレクトリ）が
+# 正本の `journal` エントリに完全一致して通ってしまう。amend は MD_LIST を pathspec に
+# 使うため、これが通ると **journal 配下がまるごとコミット対象**になる
+# （`journal/index.jsonl` を対象にしない、という amend の不変条件が壊れる）。
+
+ws="$(new_ws md-dir)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal"
+assert_exit "--md にディレクトリを渡したら exit 2" 2
+assert_field "ディレクトリの --md ではコミットしない" committed no
+
+# amend での実害を直接固定する: --md journal が通ると journal 配下がまるごと入る
+ws="$(new_ws md-dir-amend)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "前提: 通常コミットが成功する" 0
+printf -- '- 事後補記\n' >> "$ws/journal/2026-08-27-cycle.md"
+index_line 2026-08-27 2 >> "$ws/journal/index.jsonl"
+printf 'memo\n' > "$ws/journal/scratch.txt"
+before="$(git -C "$ws" rev-parse HEAD)"
+run amend --workspace "$ws" --cycle 2026-08-27-cycle --md "journal"
+assert_exit "amend に --md journal を渡したら exit 2" 2
+if [ "$(git -C "$ws" rev-parse HEAD)" = "$before" ]; then
+  pass "--md journal で amend がコミットを作らない（journal 配下の巻き込みが起きない）"
+else
+  fail "--md journal で amend がコミットを作らない" \
+       "コミット内容: $(git -C "$ws" diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ' ')"
+fi
+
+ws="$(new_ws md-jsonl)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/index.jsonl"
+assert_exit "--md に .md 以外（index.jsonl）を渡したら exit 2" 2
+# **スコープ検査で落ちていること**を証明する。バリデータが内容で落ちているだけなら、
+# 内容が journal-md 契約を満たす .md 以外のファイルは素通りしてしまう（偽陽性）。
+if printf '%s\n' "$RUN_OUT" | grep -q '^violation=md-scope:'; then
+  pass "index.jsonl はスコープ検査で落ちる（バリデータの偶然ではない）"
+else
+  fail "index.jsonl はスコープ検査で落ちる（バリデータの偶然ではない）" "stdout: $RUN_OUT"
+fi
+
+# 決定的な検査: journal 配下・正本の範囲内・**内容は journal-md 契約を満たす**が
+# 拡張子が .md でないファイル。バリデータは通してしまうので、形の検査だけが止められる。
+ws="$(new_ws md-ext)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+journal_md 2026-08-27-cycle > "$ws/journal/notes.txt"
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/notes.txt"
+assert_exit "内容が契約を満たしても .md でなければ exit 2" 2
+assert_field "内容が契約を満たす非 .md でもコミットしない" committed no
+
+# ディレクトリ検査と拡張子検査は**別々に**必要。
+# 拡張子だけだと `.md` で終わるディレクトリが通り、ディレクトリ検査だけだと
+# `.md.bak` のようなファイルが通る。両方を独立に固定する。
+ws="$(new_ws md-dir-named-md)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+mkdir -p "$ws/journal/archive.md" || setup_fail "ディレクトリ作成に失敗"
+printf 'x\n' > "$ws/journal/archive.md/inner.txt"
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/archive.md"
+assert_exit ".md で終わる**ディレクトリ**も exit 2（拡張子検査だけでは弾けない）" 2
+assert_field ".md ディレクトリではコミットしない" committed no
+
+ws="$(new_ws md-suffix)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+journal_md 2026-08-27-cycle > "$ws/journal/2026-08-27-cycle.md.bak"
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/2026-08-27-cycle.md.bak"
+assert_exit ".md を**含む**だけのファイルは exit 2（末尾一致でなければならない）" 2
+assert_field ".md.bak ではコミットしない" committed no
+
+ws="$(new_ws md-dotdot)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/../x.md"
+assert_exit "journal/../x.md は exit 2" 2
+
+# 受理方向: 正規の形は通る（自分の正規出力を自分が受理しない欠陥の予防）
+ws="$(new_ws md-ok)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run verify --workspace "$ws" --cycle 2026-08-27-cycle --md "journal/2026-08-27-cycle.md"
+assert_exit "journal 配下の .md は通る" 0
+
+# 存在しない .md は拒否しない（--dry-run 周は journal を書き出さないため）が、
+# **黙って検証範囲から落ちない**よう skipped_md= で可視化する
+ws="$(new_ws md-missing)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run verify --workspace "$ws" --cycle 2026-08-27-cycle \
+  --md "journal/2026-08-27-cycle.md" --md "journal/2026-08-26-cycle.md"
+assert_exit "存在しない .md があっても止めない（dry-run パリティ）" 0
+assert_field "検証できなかった .md を skipped_md= で可視化する" skipped_md "journal/2026-08-26-cycle.md"
+
 echo "== 11.2 指摘3: --tail が無くても保留範囲を自力で算出する =="
 
 # pending_index_lines を渡せない周でも、未コミットの index レコード数はコミッタ自身が

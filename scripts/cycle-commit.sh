@@ -18,7 +18,9 @@
 #   --cycle <name>      当周のサイクル名（`YYYY-MM-DD-cycle[-N]`。必須）
 #   --md <path>         検証する journal `.md`（workspace 相対。繰り返し可。
 #                       既定: `journal/<cycle>.md`）。**保留分を束ねる周は
-#                       noop-check.rb の `pending_md_file=` を全件渡す**
+#                       noop-check.rb の `pending_md_file=` を全件渡す**。
+#                       **ディレクトリ不可・`.md` 必須・`..` 不可・正本の範囲内**
+#                       （形が違えば exit 2。理由は check_md_scope のコメント）
 #   --tail <n>          `journal-index` の検証レコード数の**下限**。省略可——未コミットの
 #                       レコード数はスクリプトが Git から算出し、渡された値より大きければ
 #                       そちらを採る（安全側）。既定 1 へ黙って縮退すると、古い保留分の
@@ -67,6 +69,7 @@
 #   verify=ok|violation|uncheckable|skipped
 #   commit_path=<path>        pathspec に使った許可パス（正本の `[commit]` をそのまま）
 #   tail=<n>                  `journal-index` の検証に実際に使ったレコード数（算出結果）
+#   skipped_md=<path>         存在せず検証できなかった `--md`（黙って範囲から落とさない）
 #   bundled_cycle=<name>      このコミットに入るサイクル名（2 件以上なら本文へ列挙）
 #   violation=<行>            verify=violation のとき、バリデータ出力を 1 行ずつ
 #   report=<1行>              サイクルレポートへ転記する文言
@@ -162,6 +165,7 @@ VIOLATIONS=""
 COMMIT_PATHS=""
 CANON_PATHS=""
 DERIVED_TAIL=0
+SKIPPED_MD=""
 BUNDLED=""
 REPORT=""
 
@@ -178,6 +182,11 @@ emit_and_exit() {
   if [ -n "${BUNDLED}" ]; then
     printf '%s' "${BUNDLED}" | while IFS= read -r c; do
       [ -n "${c}" ] && echo "bundled_cycle=${c}"
+    done
+  fi
+  if [ -n "${SKIPPED_MD}" ]; then
+    printf '%s' "${SKIPPED_MD}" | while IFS= read -r m; do
+      [ -n "${m}" ] && echo "skipped_md=${m}"
     done
   fi
   if [ -n "${VIOLATIONS}" ]; then
@@ -261,9 +270,26 @@ EOF
   return 1
 }
 
-# check_md_scope — `--md` が正本の範囲内のワークスペース相対パスであること。
+# check_md_scope — `--md` が「正本の範囲内にある journal の `.md` ファイル」であること。
 # 呼び出し側の入力が正本の権威に割り込めないようにする（amend が COMMIT_PATHS を
 # MD_LIST で置き換える経路が、正本外のファイルをコミットしうる穴だった）。
+#
+# **範囲だけでなく「引数の形」も縛る理由**: 正本の範囲検査は前置一致なので、
+# 正本のエントリ `journal` に対して `--md journal`（ディレクトリそのもの）が
+# 完全一致で通る。amend はそれを pathspec に使うため、**journal 配下がまるごと
+# コミット対象**になり「amend は `journal/index.jsonl` を対象にしない」という
+# 不変条件が壊れる。
+#
+# 形の制約は**パスの列挙ではない**ので、正本と同期が必要な第 2 のリストにはならない
+# （正本に行を足しても、この関数は書き換えなくてよい）:
+#   - ディレクトリでないこと（`--md journal` を弾く）
+#   - `.md` で終わること（`--md journal/index.jsonl` を弾く）
+#   - ワークスペース相対で `..` を含まないこと
+#   - 正本の `[commit]` 範囲内にあること
+#
+# 拡張子で弾くのは**バリデータ任せにできない**ため。`journal/notes.txt` のように
+# 内容が journal-md 契約を満たしていればバリデータは通してしまい、
+# 「たまたま落ちていただけ」の検査になる。
 check_md_scope() {
   bad=""
   while IFS= read -r md; do
@@ -272,6 +298,15 @@ check_md_scope() {
       /*|*'..'*) bad="${bad}${md}
 "; continue ;;
     esac
+    case "${md}" in
+      *.md) ;;
+      *) bad="${bad}${md}
+"; continue ;;
+    esac
+    if [ -d "${WORKSPACE}/${md}" ]; then
+      bad="${bad}${md}
+"; continue
+    fi
     in_canon_scope "${md}" || bad="${bad}${md}
 "
   done <<EOF
@@ -279,7 +314,7 @@ ${MD_LIST}
 EOF
   [ -n "${bad}" ] || return 0
   while IFS= read -r b; do
-    [ -n "${b}" ] && VIOLATIONS="${VIOLATIONS}md-scope: --md は許可パスの正本の範囲内（ワークスペース相対）でなければなりません: ${b}
+    [ -n "${b}" ] && VIOLATIONS="${VIOLATIONS}md-scope: --md は許可パスの正本の範囲内にある .md ファイル（ワークスペース相対・ディレクトリ不可）でなければなりません: ${b}
 "
   done <<EOF
 ${bad}
@@ -345,10 +380,17 @@ EOF
 verify_artifacts() {
   mode="$1"
 
-  # journal .md（保留分を束ねる周は複数）
+  # journal .md（保留分を束ねる周は複数）。
+  # 存在しない .md は拒否しない（--dry-run 周は journal を書き出さないため）が、
+  # **黙って検証範囲から落とさない**——範囲除外型の検算は空虚に真になるので、
+  # 検証できなかった対象は skipped_md= として可視化する。
   while IFS= read -r md; do
     [ -n "${md}" ] || continue
-    [ -f "${WORKSPACE}/${md}" ] || continue
+    if [ ! -f "${WORKSPACE}/${md}" ]; then
+      SKIPPED_MD="${SKIPPED_MD}${md}
+"
+      continue
+    fi
     run_validator journal-md "${WORKSPACE}/${md}"
   done <<EOF
 ${MD_LIST}
