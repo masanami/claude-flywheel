@@ -1,4 +1,4 @@
-<!-- flywheel-template: journal/README.md@0.20.0 -->
+<!-- flywheel-template: journal/README.md@0.23.0 -->
 
 # journal — サイクルジャーナル【成果物】
 
@@ -44,7 +44,7 @@ journal/
 | --- | --- | --- |
 | `date` | string (`YYYY-MM-DD`) | 実行日 |
 | `seq` | number | 同日内の連番（**1 始まり**。`seq: 1` はファイル名にサフィックスを付けない＝ `YYYY-MM-DD-cycle.md`、`seq: 2` から `-2` を付ける） |
-| `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }`。`to` は**正規のステータス語彙のみ**（`未分類 / 分類済 / 計画承認待ち / 着手中 / 検証中 / 完了確認待ち / 完了`）。「分類済（着手可能）」のような補足はカッコ書きで付けず `decisions` 等の別欄へ書く（自由記述が混ざると reflect や観測プレーンの機械集計が効かなくなる） |
+| `touched_issues` | `array<object>` | `{ "id": "C-002-4", "from": "分類済", "to": "計画承認待ち" }`。`to` は**正規のステータス語彙のみ**（`未分類 / 分類済 / 計画承認待ち / 着手中 / 検証中 / 完了確認待ち / 完了 / 人間対応待ち`）。「分類済（着手可能）」のような補足はカッコ書きで付けず `decisions` 等の別欄へ書く（自由記述が混ざると reflect や観測プレーンの機械集計が効かなくなる） |
 | `delegations` | `array<object>` | `{ "repo": "<name>", "skill": "<skill名>", "session_id": "<事前採番して --session-id で指定した UUID>", "result": "<結果1行>" }` |
 | `pr_urls` | `array<string>` | 作成した PR / ブランチの URL |
 | `pending_approvals` | `array<object>` | `{ "gate": "FR-13", "issue": "C-003", "summary": "<1行>" }` |

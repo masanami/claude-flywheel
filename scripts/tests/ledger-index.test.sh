@@ -11,8 +11,9 @@
 # レビューで見つかった「宣言した版と実測がずれる」事故を受けて後から足した。
 # T10 は別ドキュメント（docs/human-hold-representation.md §5）由来で、#116 の実装の前段として
 # 足した（既に存在していた未固定の複製を塞ぐもので、語彙の増減とは独立に効く）。
+# T11〜T13 も同 §5 由来で、#116 の本体（保留ステータス `人間対応待ち` の追加）と同時に足した。
 #
-#   T1 経路表の完全性   contracts/ledger-read-scope.tsv に 7 ステータス全ての行があること
+#   T1 経路表の完全性   contracts/ledger-read-scope.tsv に全ステータスの行があること
 #   T2 投影の全域性     出力行数 ＝ 台帳のエントリ数（^### \[・フェンス除外）
 #   T3 受理方向         contracts/fixtures/ledger/valid/* の全正例を exit 0 で全件投影
 #   T4 エントリ境界     隣接エントリを巻き込まないこと（変異注入で検出できることまで）
@@ -20,7 +21,11 @@
 #   T6 sync-free        索引がファイルとして生成されないこと（正本は台帳 1 つ）
 #   T7 語彙の一致       ステータス語彙が正本・記入例の遷移列・SKILL.md・経路表で一致（双方向）
 #   T8 列の完全性       索引で足りると宣言した判定に要る列が出力に存在すること
-#   T10 enum の一致     journal-index スキーマの touched_issues.to の enum が正本と一致（双方向）
+#   T10 enum の一致     journal-index スキーマの touched_issues.to の enum と、その散文正本
+#                       （templates/journal/README.md）の列挙が正本と一致（双方向）
+#   T11 否定検査        保留ステータス（track=side）が SKILL.md 手順3 の対象条件に現れないこと
+#   T12 語彙駆動        保留ステータスの経路表が index / index-then-full であること
+#   T13 真理値表        (ステータス, 「人間の回答」の非空) と手順1 の前進が SKILL.md と一致
 
 set -u
 set -o pipefail
@@ -41,6 +46,7 @@ SCHEMA_JSON="$REPO_ROOT/contracts/schemas/journal-index.schema.json"
 SKILL_MD="$REPO_ROOT/skills/run-cycle/SKILL.md"
 LEDGER_TEMPLATE="$REPO_ROOT/templates/challenge-ledger.md"
 FORMAT_DOC="$REPO_ROOT/docs/challenge-ledger-format.md"
+JOURNAL_README="$REPO_ROOT/templates/journal/README.md"
 VALID_FIXTURES="$REPO_ROOT/contracts/fixtures/ledger/valid"
 
 PASS=0
@@ -69,7 +75,8 @@ fi
 run() { "$SCRIPT" "$@" 2>"$tmp/stderr"; }
 
 # ---------------------------------------------------------------------------
-# 素材: 7 ステータスを 1 件ずつ持つ台帳（記入例フェンス付き）
+# 素材: 全ステータスを 1 件ずつ持つ台帳（記入例フェンス付き）。**語彙を増やしたらここも 1 件足す**
+# （T4 の svc は a,b,c,… の順に振る＝列の値がエントリ順とずれていないかを一括で見るため）。
 # ---------------------------------------------------------------------------
 make_entry() { # $1=id $2=status $3=svc $4=repos $5=ingested(y/-) $6=approvals(例 "x ")
   local id="$1" st="$2" svc="$3" repos="$4" ing="$5" ap1="$6" ap2="$7"
@@ -138,9 +145,10 @@ HEAD
   make_entry "C-5" "検証中"       "svc-e"  "o/r3"                  ""                                    "x" " "
   make_entry "C-6" "完了確認待ち" "svc-f"  "o/r3"                  ""                                    "x" "x"
   make_entry "C-7" "完了"         "svc-g"  "o/r4"                  ""                                    "x" "x"
+  make_entry "C-8" "人間対応待ち" "svc-h"  "o/r4"                  ""                                    "x" " "
 } > "$LEDGER"
 
-ENTRY_COUNT=7
+ENTRY_COUNT=8
 
 # ===========================================================================
 # T2 投影の全域性
@@ -151,7 +159,7 @@ body="$(printf '%s\n' "$out" | tail -n +2)"          # ヘッダ行を除く
 eq "T2: 出力行数 = エントリ数（フェンス内の記入例を数えない）" \
    "$(printf '%s\n' "$body" | grep -c .)" "$ENTRY_COUNT"
 eq "T2: ID が順序どおり全件そろう" \
-   "$(printf '%s\n' "$body" | cut -f1 | tr '\n' ',')" "C-1,C-2,C-3,C-4,C-5,C-6,C-7,"
+   "$(printf '%s\n' "$body" | cut -f1 | tr '\n' ',')" "C-1,C-2,C-3,C-4,C-5,C-6,C-7,C-8,"
 hasnt "T2: フェンス内の記入例 C-001 を拾わない" "$out" "C-001"
 
 # 全域性の変異検査: 1 件消したら出力も 1 件減る（数え方が定数に固定されていないこと）
@@ -159,11 +167,11 @@ cp "$LEDGER" "$tmp/ledger.bak"                        # 復元用バックアッ
 ruby -e '
   src, dst = ARGV
   lines = File.read(src, encoding: "UTF-8").split("\n", -1)
-  s = lines.index { |l| l.start_with?("### [C-7]") }
+  s = lines.index { |l| l.start_with?("### [C-8]") }
   File.write(dst, (lines[0...s]).join("\n"))
-' "$LEDGER" "$tmp/ledger-6.md"
+' "$LEDGER" "$tmp/ledger-7.md"
 eq "T2: エントリを 1 件削ると出力も 1 件減る（定数固定でない）" \
-   "$(run "$tmp/ledger-6.md" | tail -n +2 | grep -c .)" "6"
+   "$(run "$tmp/ledger-7.md" | tail -n +2 | grep -c .)" "7"
 
 # ===========================================================================
 # T5 否定検査: 引用行が混ざらない
@@ -215,12 +223,12 @@ while [ $i -le $ENTRY_COUNT ]; do
   [ "$(printf '%s\n' "$r" | cut -f5)" = "svc-$(printf '\\x%02x' $((0x60 + i)) | printf '%b' "$(cat)")" ] || true
   i=$((i + 1))
 done
-# svc は a..g の順に振ってある。列の値がエントリ順とずれていないかを一括で見る。
+# svc は a..h の順に振ってある。列の値がエントリ順とずれていないかを一括で見る。
 eq "T4: 各行の svc が自エントリの値（隣接エントリの巻き込みなし）" \
-   "$(printf '%s\n' "$body" | cut -f5 | tr '\n' ',')" "svc-a,svc-b,svc-c,svc-d,svc-e,svc-f,svc-g,"
+   "$(printf '%s\n' "$body" | cut -f5 | tr '\n' ',')" "svc-a,svc-b,svc-c,svc-d,svc-e,svc-f,svc-g,svc-h,"
 eq "T4: 各行の status が自エントリの値" \
    "$(printf '%s\n' "$body" | cut -f2 | tr '\n' ',')" \
-   "未分類,分類済,計画承認待ち,着手中,検証中,完了確認待ち,完了,"
+   "未分類,分類済,計画承認待ち,着手中,検証中,完了確認待ち,完了,人間対応待ち,"
 
 # 変異注入 (a): 見出しを `## [C-4]` へ降格させると、C-4 の本文が C-3 に吸収される。
 # 投影がこれを「7 件そろっている」と報告してはならない（件数が減る＝検出できる）。
@@ -374,7 +382,7 @@ else
     print rows.select { |r| r[1] == "main" }.sort_by { |r| r[2].to_i }.map { |r| r[0] }.join("\n")' \
     "$VOCAB_TSV")"
   canon_n="$(printf '%s\n' "$canon" | grep -c .)"
-  eq "T7: 語彙の正本が 7 値" "$canon_n" "7"
+  eq "T7: 語彙の正本が 8 値" "$canon_n" "8"
 fi
 
 # 空集合ガード: 正本が読めないと以下の包含検査はすべて空虚に真になる（0 件の照合は
@@ -508,6 +516,232 @@ EOF_SK
       "$(cat "$SKILL_MD")" "contracts/ledger-read-scope.tsv"
   has "T1: SKILL.md が投影スクリプトを呼んでいる" \
       "$(cat "$SKILL_MD")" "scripts/ledger-index.rb"
+
+  # -------------------------------------------------------------------------
+  # T10（続き）: 散文正本（templates/journal/README.md）の列挙 ＝ 語彙の正本
+  #   スキーマの enum には contracts/README.md が定める散文正本があり、そこにも同じ語彙が
+  #   全語列挙されている。**閉じた語彙の複製は「検査する箇所」ではなく「列挙する箇所」に
+  #   潜む**ため、enum だけを結線して散文を放置すると 2 本目のリストが黙ってずれる。
+  # -------------------------------------------------------------------------
+  if [ ! -f "$JOURNAL_README" ]; then
+    bad "T10: templates/journal/README.md が在る" "not found: $JOURNAL_README"
+  else
+    doc_vals="$(ruby -e '
+      s = File.read(ARGV[0], encoding: "UTF-8")
+      m = s[/正規のステータス語彙のみ\*\*（`([^`]*)`）/, 1]
+      abort "touched_issues.to の語彙列挙が見つからない" unless m
+      print m.split("/").map(&:strip).reject(&:empty?).join("\n")' "$JOURNAL_README" 2>"$tmp/doc_err")"
+    if [ -z "$doc_vals" ]; then
+      bad "T10: 散文正本から touched_issues.to の語彙列挙を取り出せる" "$(cat "$tmp/doc_err")"
+    else
+      eq "T10: 散文正本の列挙の件数が語彙の正本と一致" \
+         "$(printf '%s\n' "$doc_vals" | grep -c .)" "$canon_n"
+
+      miss_doc=""
+      while IFS= read -r st; do
+        [ -n "$st" ] || continue
+        printf '%s\n' "$doc_vals" | grep -qx "$st" || miss_doc="${miss_doc}${st} "
+      done <<EOF_CANON_DOC
+$canon
+EOF_CANON_DOC
+      eq "T10: 正本の全ステータスが散文正本の列挙に在る" "$miss_doc" ""
+
+      extra_doc=""
+      while IFS= read -r v; do
+        [ -n "$v" ] || continue
+        printf '%s\n' "$canon" | grep -qx "$v" || extra_doc="${extra_doc}${v} "
+      done <<EOF_DOC
+$doc_vals
+EOF_DOC
+      eq "T10: 散文正本の列挙に語彙外の値が無い" "$extra_doc" ""
+    fi
+  fi
+
+  # ===========================================================================
+  # T11 / T12 / T13 保留ステータス（track=side）と SKILL.md の保留規定の接続
+  #
+  # 由来: docs/human-hold-representation.md §5（#116）。散文仕様（SKILL.md）には型検査も
+  # コンパイラも効かないため、**構造不変条件**（否定検査・語彙駆動・真理値表）で守る。
+  #
+  # 「保留ステータス」を **track=side の全値**として引く（語彙駆動＝将来 side が増えても
+  # 自動で効く）。現在の side は「人間の入力待ちの保留」だけであり、この前提は語彙の正本
+  # （contracts/ledger-status-vocabulary.tsv）のコメントに明記してある。**当てはまらない
+  # side を足すと、ここが fail-closed で落ちて前提の見直しを促す**（黙って通らない）。
+  # ===========================================================================
+  canon_side="$(ruby -e '
+    rows = File.readlines(ARGV[0], encoding: "UTF-8")
+      .reject { |l| l.start_with?("#") || l.strip.empty? }
+      .map { |l| l.chomp.split("\t") }
+    print rows.select { |r| r[1] == "side" }.map { |r| r[0] }.join("\n")' "$VOCAB_TSV")"
+
+  # 空集合ガード: side が 0 件だと T11〜T13 はすべて空虚に真になる。
+  if [ -z "$canon_side" ]; then
+    bad "T11/T12/T13: 保留ステータス（track=side）が 1 つ以上ある（空集合ガード）" \
+        "side が 0 件のため以下の検査が空虚に真になる"
+  else
+    ok "T11/T12/T13: 保留ステータス（track=side）が 1 つ以上ある（空集合ガード）"
+    printf '%s\n' "$canon_side" > "$tmp/side.txt"
+
+    # -----------------------------------------------------------------------
+    # T11 否定検査: 保留ステータスが手順3（実行・委譲）の**対象条件**に現れない。
+    #   本 Issue の核心。対象条件に足すと、回答待ちの課題を毎周拾って再委譲する。
+    # -----------------------------------------------------------------------
+    step3_head="$(grep -m1 '^### 3\. ' "$SKILL_MD")"
+    if [ -z "$step3_head" ]; then
+      bad "T11: SKILL.md に手順3 の見出し（対象条件）が在る" "^### 3. で始まる行が無い"
+    else
+      # 空虚に真にならないこと: 対象条件がそもそもステータスを宣言している
+      has "T11: 手順3 の対象条件がステータスを宣言している（空虚に真にならないこと）" \
+          "$step3_head" "対象: ステータス"
+      hit_t11=""
+      while IFS= read -r st; do
+        [ -n "$st" ] || continue
+        case "$step3_head" in *"$st"*) hit_t11="${hit_t11}${st} " ;; esac
+      done < "$tmp/side.txt"
+      eq "T11: 保留ステータスが手順3 の対象条件に現れない（拾って再委譲しない）" "$hit_t11" ""
+    fi
+
+    # T11（対の肯定検査）: 手順3 の本文が「対象ではない」と名指しで除外している。
+    # 見出しから語を消しただけで本文に規定が無い状態を「合格」にしないため。
+    step3_body="$(awk '/^### 3\. /{f=1} /^### 4\. /{f=0} f' "$SKILL_MD")"
+    miss_excl=""
+    while IFS= read -r st; do
+      [ -n "$st" ] || continue
+      case "$step3_body" in
+        *"$st"*) ;;
+        *) miss_excl="${miss_excl}${st}(未言及) " ; continue ;;
+      esac
+      case "$step3_body" in
+        *対象ではない*) ;;
+        *) miss_excl="${miss_excl}${st}(除外規定なし) " ;;
+      esac
+    done < "$tmp/side.txt"
+    eq "T11: 手順3 の本文が保留ステータスを名指しで対象外と規定している" "$miss_excl" ""
+
+    # -----------------------------------------------------------------------
+    # T12 語彙駆動: 保留ステータスの経路表の行が index / index-then-full であること。
+    #   full にすると未回答の周に台帳本文を毎周開くことになり #122 の削減が打ち消される。
+    #   （行の存在そのものは T1 が全ステータスについて固定している）
+    # -----------------------------------------------------------------------
+    if [ ! -f "$SCOPE_TSV" ]; then
+      bad "T12: 経路表 contracts/ledger-read-scope.tsv が在る" "not found: $SCOPE_TSV"
+    else
+      bad_side_scope=""
+      while IFS= read -r st; do
+        [ -n "$st" ] || continue
+        sc="$(grep "^${st}	" "$SCOPE_TSV" | head -1 | cut -f2)"
+        case "$sc" in
+          index|index-then-full) ;;
+          "") bad_side_scope="${bad_side_scope}${st}=行なし " ;;
+          *) bad_side_scope="${bad_side_scope}${st}=${sc} " ;;
+        esac
+      done < "$tmp/side.txt"
+      eq "T12: 保留ステータスの読み込み範囲が index / index-then-full" "$bad_side_scope" ""
+    fi
+
+    # -----------------------------------------------------------------------
+    # T13 真理値表: (ステータス, 「人間の回答」の非空) → 手順1 が前進させる／させない。
+    #   SKILL.md 手順1 の表を機械で読み、意味と突き合わせる。**再保留した周**（前回の回答が
+    #   残っていた場合を含む＝保留時にクリアするため空）の行を必ず含めることまで固定する。
+    #   この行が落ちると、2 度目の保留で前回の回答のまま前進する退行が戻る（§3.1 (c)）。
+    # -----------------------------------------------------------------------
+    ruby -e '
+      lines = File.readlines(ARGV[0], encoding: "UTF-8").map(&:chomp)
+      hi = lines.index { |l| l =~ /\|\s*状況\s*\|\s*ステータス\s*\|/ && l.include?("手順1 の扱い") }
+      abort "手順1 の真理値表のヘッダが見つからない" if hi.nil?
+      out = []
+      ((hi + 1)...lines.size).each do |i|
+        l = lines[i].strip
+        break unless l.start_with?("|")
+        next if l =~ /\A\|[\s\-:|]+\|\z/
+        cells = l.split("|").map(&:strip)
+        cells.shift if cells.first.to_s.empty?
+        next if cells.size < 5
+        out << [cells[2].delete("`").strip, cells[3], cells[4], cells[1]].join("\t")
+      end
+      abort "真理値表のデータ行が 0 件" if out.empty?
+      print out.join("\n")' "$SKILL_MD" > "$tmp/truth.tsv" 2>"$tmp/truth_err"
+    if [ ! -s "$tmp/truth.tsv" ]; then
+      bad "T13: SKILL.md 手順1 の真理値表を機械で読める" "$(cat "$tmp/truth_err")"
+    else
+      ok "T13: SKILL.md 手順1 の真理値表を機械で読める（$(grep -c . "$tmp/truth.tsv") 行）"
+
+      # 表に造語が混ざらない（語彙駆動の双方向のうち「表 → 正本」の向き）
+      bad_truth_st=""
+      while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        tst="$(printf '%s\n' "$row" | cut -f1)"
+        printf '%s\n' "$canon" | grep -qx "$tst" || bad_truth_st="${bad_truth_st}${tst} "
+      done < "$tmp/truth.tsv"
+      eq "T13: 真理値表のステータス語がすべて正本の語彙に在る" "$bad_truth_st" ""
+
+      # 各保留ステータスについて、行の組み合わせと結論を数える
+      summary="$(ruby -e '
+        side = File.read(ARGV[0], encoding: "UTF-8").split("\n").reject { |x| x.strip.empty? }
+        rows = File.read(ARGV[1], encoding: "UTF-8").split("\n").reject { |x| x.strip.empty? }
+                   .map { |l| l.split("\t") }
+        adv  = ->(v) { v.include?("前進") && !v.include?("前進しない") }
+        stay = ->(v) { v.include?("前進しない") }
+        print(side.map { |s|
+          r = rows.select { |x| x[0] == s }
+          [ s,
+            r.size,
+            r.count { |x| x[1] == "非空" && adv.call(x[2]) },
+            r.count { |x| x[1] == "空"   && stay.call(x[2]) },
+            r.count { |x| (x[1] == "空" && adv.call(x[2])) || (x[1] == "非空" && stay.call(x[2])) },
+            r.count { |x| x[1] == "空" && stay.call(x[2]) && x[3].include?("再保留") },
+          ].join("\t")
+        }.join("\n"))' "$tmp/side.txt" "$tmp/truth.tsv")"
+
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        st="$(printf '%s\n' "$line" | cut -f1)"
+        n_all="$(printf '%s\n' "$line" | cut -f2)"
+        n_adv="$(printf '%s\n' "$line" | cut -f3)"
+        n_stay="$(printf '%s\n' "$line" | cut -f4)"
+        n_bad="$(printf '%s\n' "$line" | cut -f5)"
+        n_re="$(printf '%s\n' "$line" | cut -f6)"
+        if [ "$n_all" -ge 1 ]; then ok "T13: ${st} の行が真理値表に在る"
+        else bad "T13: ${st} の行が真理値表に在る" "0 行＝この保留ステータスの扱いが未定義"; fi
+        if [ "$n_adv" -ge 1 ]; then ok "T13: ${st} ＋ 回答が非空 → 前進する"
+        else bad "T13: ${st} ＋ 回答が非空 → 前進する" "該当行が無い（人間が答えても再開しない）"; fi
+        if [ "$n_stay" -ge 1 ]; then ok "T13: ${st} ＋ 回答が空 → 前進しない"
+        else bad "T13: ${st} ＋ 回答が空 → 前進しない" "該当行が無い（未回答のまま前進しうる）"; fi
+        eq "T13: ${st} の真理値表に取り違えの行が無い（空で前進・非空で停止）" "$n_bad" "0"
+        if [ "$n_re" -ge 1 ]; then ok "T13: ${st} の再保留した周（回答は必ず空・前進しない）が表に在る"
+        else bad "T13: ${st} の再保留した周（回答は必ず空・前進しない）が表に在る" \
+                 "該当行が無い＝2 度目の保留で前回の回答が残る退行を表が押さえていない"; fi
+      done <<EOF_SUMMARY
+$summary
+EOF_SUMMARY
+
+      # 表が依存している「保留に入るときのクリア」が規定として在ること。
+      # これが落ちると表の前提（再保留の周は回答が空）が成り立たない。
+      hold_rule="$(ruby -e '
+        lines = File.readlines(ARGV[0], encoding: "UTF-8").map(&:chomp)
+        s = lines.index { |l| l =~ /\A\s*-\s\*\*【保留の記録】/ }
+        abort "【保留の記録】の規定（箇条書きの定義行）が見つからない" if s.nil?
+        e = ((s + 1)...lines.size).find { |i| lines[i] =~ /\A\s*-\s\*\*【/ } || lines.size
+        print lines[s...e].join("\n")' "$SKILL_MD" 2>"$tmp/hold_err")"
+      if [ -z "$hold_rule" ]; then
+        bad "T13: 保留の規定（保留の記録）が SKILL.md に在る" "$(cat "$tmp/hold_err")"
+      else
+        ok "T13: 保留の規定（保留の記録）が SKILL.md に在る"
+        has "T13: 保留の規定が不可分の 1 操作だと明記している" "$hold_rule" "不可分"
+        miss_hold=""
+        while IFS= read -r st; do
+          [ -n "$st" ] || continue
+          case "$hold_rule" in *"$st"*) ;; *) miss_hold="${miss_hold}${st} " ;; esac
+        done < "$tmp/side.txt"
+        eq "T13: 保留の規定が遷移先の保留ステータスを名指ししている" "$miss_hold" ""
+        has "T13: 保留の規定が問いの上書きを含む" "$hold_rule" "人間への問い"
+        has "T13: 保留の規定が上書きだと明記している" "$hold_rule" "上書き"
+        has "T13: 保留の規定が回答欄を名指ししている" "$hold_rule" "人間の回答"
+        has "T13: 保留の規定が回答のクリアを含む（これが落ちると再保留で前回の回答が残る）" \
+            "$hold_rule" "空にする"
+      fi
+    fi
+  fi
 fi
 # ===========================================================================
 # T6 sync-free: 索引をファイルとして作らない（正本は台帳 1 つ）
