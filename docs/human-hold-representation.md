@@ -172,6 +172,10 @@ m.split("→").map(&:strip)
 `templates/challenge-ledger.md` は利用先へ scaffold される**人間が読む面**でもあるため、これは実害のある嘘になる。
 したがって案 A は「**語彙の正本を、遷移列とは別の明示的な列挙として持つ**」形へ符号化を変えるべきである（§6.1 の手順 1）。
 
+> **実装済み（§6.1 段 0・0'）**: 語彙の正本は [`contracts/ledger-status-vocabulary.tsv`](../contracts/ledger-status-vocabulary.tsv)（status / `track`＝`main` \| `side` / `order`）へ分離した。
+> 本節の表と §2.1 の行 1 は**分離前の実測の記録**であり、現在の抽出対象ではない。`→` 連鎖は**主経路の記入例**として残っており、`track=main` の語彙と**順序込みで一致すること**をテストが固定する（`ledger-index.test.sh` の T7）。
+> したがって A-1 / A-2（側道を直列に並べる嘘）は**この検査が落とす**ようになり、側道は `track=side` の行として語彙に入る一方で連鎖には並ばない。A-3 / A-4 が沈黙して失敗する問題も、連鎖が正本でなくなったことで消えている。
+
 ## 3. 保留のライフサイクルに必要な情報
 
 ### 3.1 状態遷移として何を表現する必要があるか
@@ -347,8 +351,8 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 
 | 段 | repo | 変更 | 完了条件 |
 | --- | --- | --- | --- |
-| **0** | claude-flywheel | **語彙の符号化を直す**: `templates/challenge-ledger.md:34` の語彙の正本を「遷移列の括弧」から**明示的な列挙**へ分離し、`scripts/tests/ledger-index.test.sh:313-317` の抽出器を新しい符号化に合わせる（§2.5。**この段だけは語彙を増やさず、符号化だけ変える**＝差分を 1 つの意図に保つ） | 既存 9 テストが緑・語彙は 7 値のまま |
-| **0'** | claude-flywheel | **T10（journal-index の enum ↔ 語彙の一致）を足す**（§5。現行 7 値で緑になる） | テストが緑・意図的に enum を 1 つ削ると赤になることを確認 |
+| **0** | claude-flywheel | **語彙の符号化を直す**: `templates/challenge-ledger.md:34` の語彙の正本を「遷移列の括弧」から**明示的な列挙**へ分離し、`scripts/tests/ledger-index.test.sh:313-317` の抽出器を新しい符号化に合わせる（§2.5。**この段だけは語彙を増やさず、符号化だけ変える**＝差分を 1 つの意図に保つ） | 既存 9 テストが緑・語彙は 7 値のまま。**実装済み**（正本は `contracts/ledger-status-vocabulary.tsv`。テンプレートは無改訂＝版マーカーの bump なし） |
+| **0'** | claude-flywheel | **T10（journal-index の enum ↔ 語彙の一致）を足す**（§5。現行 7 値で緑になる） | テストが緑・意図的に enum を 1 つ削ると赤になることを確認。**実装済み**（T10 は双方向＝enum に語彙外の値を足しても赤） |
 | **1** | claude-flywheel-board | `LedgerStatus` / `VALID_STATUSES` に `人間対応待ち` を追加、`needsHuman` の扱いを決定（推奨: **含める**）、`.status-dot` の色を追加、ledger テストに受理ケースを追加。**あわせて既存の vendoring ドリフト（`upstream-added: ledger-read-scope.tsv`）を解消** | `npm test` / `npm run lint` / `npm run typecheck` が緑。新ステータスのエントリがカードとして出る |
 | **2** | claude-flywheel | 語彙の追加本体: 語彙の正本（段 0 の新符号化）／`contracts/ledger-read-scope.tsv` に行追加（`scope` は `index-then-full` 推奨）／`contracts/schemas/journal-index.schema.json:22` の `enum`／`contracts/fixtures/ledger/valid/` に新ステータスの正例を追加／`docs/challenge-ledger-format.md` のステータス定義と承認プロトコル節／`templates/challenge-ledger.md` の記入例＋版マーカー bump／`scripts/migrate-workspace.rb:204-207` のフィールド順序 | 9 テスト＋新 T10〜T13 が緑 |
 | **3** | claude-flywheel | `skills/run-cycle/SKILL.md`: 手順1 に「`人間対応待ち` かつ `人間の回答` 非空 → `着手中` へ前進」を追加／`:170` `:175` の保留規定を「ステータス → `人間対応待ち`」に改め、**同じ操作で `人間への問い` を今回の問いで上書きし `人間の回答` を空にする**ことを**不可分の規定として明記**（§3.1 (c)・§4.1。この一文が落ちると再保留で前回の回答が残り、本 Issue と同型の空振り再開が戻る）／手順3 の対象条件と `--resume` の再開経路（§3.2 ＝ `runs.jsonl` の当該 `challenge` の最新 `delegate_start` から `session_id` を引く）を明記 | 同上。**この段から書き手が新ステータスを使い始める** |
