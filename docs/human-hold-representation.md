@@ -4,7 +4,7 @@
 > [#116](https://github.com/masanami/claude-flywheel/issues/116) が挙げる 3 案（＋本ドキュメントで追加した 1 案）を、
 > `claude-flywheel` と `claude-flywheel-board` の**実コードで波及先を確定**したうえで評価したものである。
 > 決定後も §4 の比較・§5 の不変条件・§6 の実装計画はそのまま**実装の入力**として使う（採否の記録は §4.5・§7）。
-> **未決の点は §7 の Q1〜Q4**（新ステータス名 / board の `needsHuman` / T10 の先行投入 / バリデータへの語彙検査）であり、これらは別途人間へ上げる。
+> **§7 の Q1〜Q4（新ステータス名 / board の `needsHuman` / T10 の先行投入 / バリデータへの語彙検査）も 2026-08-29 に決定済み**であり、本ドキュメントに未決の論点は残っていない。
 
 ## 0. 要旨
 
@@ -328,6 +328,13 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 
 本リポジトリの流儀（散文仕様を構造不変条件テストで守る）に沿うと、次を `scripts/tests/ledger-index.test.sh` に足せる。**いずれも語彙駆動＝将来ステータスが増えても自動で効く**。
 
+> **実装済み**: T10 は §6.1 段 0'、T11〜T13 は §6.1 段 2＋段 3 の PR で実装した。
+> 「保留ステータス」は語彙の正本の **`track=side` の全値**として引く（現在の side は `人間対応待ち` だけ。
+> この前提は `contracts/ledger-status-vocabulary.tsv` のコメントに明記してあり、当てはまらない side を足すと
+> テストが fail-closed で落ちて前提の見直しを促す）。あわせて T10 は、スキーマの `enum` だけでなく
+> **その散文正本（`templates/journal/README.md` の語彙列挙）**にも同じ双方向一致を張った——
+> 閉じた語彙の複製は「列挙する箇所」に潜むため、片方だけ結線すると 2 本目のリストが黙ってずれる。
+
 | # | 検査 | 型 | 何を防ぐか |
 | --- | --- | --- | --- |
 | T10 | **`contracts/schemas/journal-index.schema.json` の `touched_issues.to` の `enum` が語彙の正本と集合として一致する**（双方向） | 語彙駆動の接続漏れ | §2.2 で見つけた**現存する未固定の複製**。案 A の実装漏れ（＝保留した周のコミットが止まる）を、コミット時ではなくテスト時に見つける |
@@ -337,10 +344,11 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 
 **T10 は案の選択と独立に、いま入れてよい**（現行の 7 値でも一致検査として意味がある）。案 A を選ぶなら実装 PR の最初のコミットに含めるのが自然。
 
-また、`scripts/validate-artifact.rb` に「台帳の `- ステータス:` の値が語彙に含まれること」の検査を足すかは**別途の判断**とする。
+また、`scripts/validate-artifact.rb` に「台帳の `- ステータス:` の値が語彙に含まれること」の検査を足すかは、
+**2026-08-29 に人間が「今は足さない（据え置き）」と決定した**（§7 Q4）。
 現状は未検査であり（§2.2 実測）、タイプミス 1 つで board のカードが消える経路が空いている。
 ただし `contracts/README.md` の「検査項目は実際に事故った型に限定する（YAGNI）」に照らすと、**この型の事故はまだ起きていない**。
-本ドキュメントは「穴がある」という事実の記録に留め、追加の可否は起票を分ける。
+本ドキュメントは「穴がある」という事実の記録に留め、必要になった時点で別 Issue を起票する。
 
 ## 6. 選択後の実装計画
 
@@ -353,7 +361,7 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 | --- | --- | --- | --- |
 | **0** | claude-flywheel | **語彙の符号化を直す**: `templates/challenge-ledger.md:34` の語彙の正本を「遷移列の括弧」から**明示的な列挙**へ分離し、`scripts/tests/ledger-index.test.sh:313-317` の抽出器を新しい符号化に合わせる（§2.5。**この段だけは語彙を増やさず、符号化だけ変える**＝差分を 1 つの意図に保つ） | 既存 9 テストが緑・語彙は 7 値のまま。**実装済み**（正本は `contracts/ledger-status-vocabulary.tsv`。テンプレートは無改訂＝版マーカーの bump なし） |
 | **0'** | claude-flywheel | **T10（journal-index の enum ↔ 語彙の一致）を足す**（§5。現行 7 値で緑になる） | テストが緑・意図的に enum を 1 つ削ると赤になることを確認。**実装済み**（T10 は双方向＝enum に語彙外の値を足しても赤） |
-| **1** | claude-flywheel-board | `LedgerStatus` / `VALID_STATUSES` に `人間対応待ち` を追加、`needsHuman` の扱いを決定（推奨: **含める**）、`.status-dot` の色を追加、ledger テストに受理ケースを追加。**あわせて既存の vendoring ドリフト（`upstream-added: ledger-read-scope.tsv`）を解消** | `npm test` / `npm run lint` / `npm run typecheck` が緑。新ステータスのエントリがカードとして出る |
+| **1** | claude-flywheel-board | `LedgerStatus` / `VALID_STATUSES` に `人間対応待ち` を追加、`needsHuman` に**含める**（Q2 の決定）、`.status-dot` の色を追加、ledger テストに受理ケースを追加。**あわせて既存の vendoring ドリフト（`upstream-added: ledger-read-scope.tsv`）を解消** | `npm test` / `npm run lint` / `npm run typecheck` が緑。新ステータスのエントリがカードとして出る。**実装済み**（[claude-flywheel-board#166](https://github.com/masanami/claude-flywheel-board/pull/166) → `3545113` で main にマージ済み＝上流が語彙を足してもカードは消えない） |
 | **2** | claude-flywheel | 語彙の追加本体: 語彙の正本（段 0 の新符号化）／`contracts/ledger-read-scope.tsv` に行追加（`scope` は `index-then-full` 推奨）／`contracts/schemas/journal-index.schema.json:22` の `enum`／`contracts/fixtures/ledger/valid/` に新ステータスの正例を追加／`docs/challenge-ledger-format.md` のステータス定義と承認プロトコル節／`templates/challenge-ledger.md` の記入例＋版マーカー bump／`scripts/migrate-workspace.rb:204-207` のフィールド順序 | 9 テスト＋新 T10〜T13 が緑 |
 | **3** | claude-flywheel | `skills/run-cycle/SKILL.md`: 手順1 に「`人間対応待ち` かつ `人間の回答` 非空 → `着手中` へ前進」を追加／`:170` `:175` の保留規定を「ステータス → `人間対応待ち`」に改め、**同じ操作で `人間への問い` を今回の問いで上書きし `人間の回答` を空にする**ことを**不可分の規定として明記**（§3.1 (c)・§4.1。この一文が落ちると再保留で前回の回答が残り、本 Issue と同型の空振り再開が戻る）／手順3 の対象条件と `--resume` の再開経路（§3.2 ＝ `runs.jsonl` の当該 `challenge` の最新 `delegate_start` から `session_id` を引く）を明記 | 同上。**この段から書き手が新ステータスを使い始める** |
 | **4** | claude-flywheel-board | 段 2 の `contracts/` 変更を `npm run contracts:update` で取り直し、`MANIFEST.json` の `upstream.commit` を更新 | `npm test` 緑（`upstream-changed` / `upstream-added` が消える） |
@@ -378,18 +386,18 @@ board への波及が無いため単一 repo で閉じる。順序制約なし�
 2. `skills/run-cycle/SKILL.md` の保留規定を「ステータス → `計画承認待ち`」に変更。
 3. **チェックボックスのラベル問題を解決する必要がある**（§4.3）。ラベルを変えると `validate-artifact.rb:415-416` の必須検査と board の承認検出、および既存台帳の後方互換（旧ラベル `計画を承認（FR-13）` も受理する規定）に波及するため、**「波及ゼロ」は成立しなくなる**。
 
-## 7. 人間へ上げる問い
+## 7. 人間へ上げた問い（すべて決着済み）
 
 **どの案を採るか — 決着済み。** 推奨は**案 A**であり、**2026-08-29 に人間が案 A の採用を決定した**。実装は §6.1 の段取りに従う（board 先行）。
 
-**以下の Q1〜Q4 は未決であり、別途人間へ上げる。** 推奨欄は判断材料であって決定ではない。
+**Q1〜Q4 も同じく 2026-08-29 に人間が決定した。** 下表の「決定」列が正であり、本節に未決の論点は残っていない（推奨欄は決定に至った判断材料として残す）。
 
-| # | 問い | 案 A のときの推奨 |
-| --- | --- | --- |
-| Q1 | 新ステータスの名前 | `人間対応待ち`（Issue 本文の案のまま）。`計画承認待ち` / `完了確認待ち` と語形が揃う |
-| Q2 | board の `needsHuman` に含めるか | **含める**。含めないと「人間の入力待ち」なのに 🔔承認待ちフィルタに出ず、運用者が保留に気付けない |
-| Q3 | §5 の T10（journal-index の enum ↔ 語彙の一致）を先に入れるか | **入れる**。案の選択と独立に現存する穴 |
-| Q4 | `validate-artifact.rb` に台帳のステータス語彙検査を足すか | **今は足さない**（YAGNI。事故の実績が無い）。§5 に事実として記録するに留め、必要になったら別 Issue |
+| # | 問い | 提示した推奨（判断材料） | **決定**（2026-08-29） |
+| --- | --- | --- | --- |
+| Q1 | 新ステータスの名前 | `人間対応待ち`（Issue 本文の案のまま）。`計画承認待ち` / `完了確認待ち` と語形が揃う | **`人間対応待ち`**（推奨どおり） |
+| Q2 | board の `needsHuman` に含めるか | **含める**。含めないと「人間の入力待ち」なのに 🔔承認待ちフィルタに出ず、運用者が保留に気付けない | **含める**（推奨どおり。§6.1 段 1 ＝ [claude-flywheel-board#166](https://github.com/masanami/claude-flywheel-board/pull/166) で実装・マージ済み） |
+| Q3 | §5 の T10（journal-index の enum ↔ 語彙の一致）を先に入れるか | **入れる**。案の選択と独立に現存する穴 | **入れる**（推奨どおり。§6.1 段 0' ＝ [#131](https://github.com/masanami/claude-flywheel/pull/131) で実装・マージ済み） |
+| Q4 | `validate-artifact.rb` に台帳のステータス語彙検査を足すか | **今は足さない**（YAGNI。事故の実績が無い）。§5 に事実として記録するに留め、必要になったら別 Issue | **今は足さない（据え置き）**（推奨どおり。案 A の実装 PR のスコープ外とし、必要になった時点で別 Issue を起票する） |
 
 ## 8. 関連
 

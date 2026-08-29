@@ -16,6 +16,7 @@
 # 直し忘れは fail-closed で落ちる（「2 つのリストを同期させる」散文規定にはしない）:
 #   - contracts/ledger-read-scope.tsv               読み込み範囲の行を足す（T1）
 #   - contracts/schemas/journal-index.schema.json   touched_issues.to の enum（T10）
+#   - templates/journal/README.md の touched_issues  同 enum の散文正本（T10）
 #   - skills/run-cycle/SKILL.md                     各手順の対象条件（T7）
 #   - templates/challenge-ledger.md のステータス行   **track=main のときだけ**（T7）
 #   - docs/challenge-ledger-format.md のステータス行 **track=main のときだけ**（T7）
@@ -27,6 +28,12 @@
 #   side  側道の状態。主経路の途中から出入りし、直列の遷移列には並ばない。order は `-`
 #         とし、上記 2 ファイルの `→` 連鎖には**並べない**（並べると嘘になる。上記の分離の理由）
 #
+# **現在の side は「人間の入力待ちの保留」だけ**（`人間対応待ち`。#116 / 案 A）。
+# ledger-index.test.sh の T11〜T13 は、この意味を前提に side の全値を保留ステータスとして
+# 扱い、SKILL.md の保留規定（手順3 の対象外・経路表・手順1 の真理値表）との接続を固定する。
+# **これに当てはまらない side を足すときは、まず T11〜T13 の前提を見直すこと**（足すだけだと
+# 保留でない状態にも保留の規定を要求してテストが落ちる＝fail-closed で気付ける）。
+#
 #status	track	order
 未分類	main	1
 分類済	main	2
@@ -35,3 +42,4 @@
 検証中	main	5
 完了確認待ち	main	6
 完了	main	7
+人間対応待ち	side	-
