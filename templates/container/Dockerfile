@@ -19,9 +19,10 @@ FROM node:20-slim
 #   ruby パッケージは /usr/bin/ruby を提供するため shebang のパスが macOS ホストと一致する。
 #   未導入だとバリデータがインタプリタ不在で失敗し、契約の 3 値 exit（0/1/2）のどれでもない
 #   形でコミットゲートが不作動になる
-# - perl: ingest-challenges の取り込み元マーカー fp の算式
-#   （`shasum -a 256`。/usr/bin/shasum は perl パッケージ同梱）が前提とする。slim イメージの
-#   perl-base には shasum が含まれないため明示的に追加する
+# - perl: ingest-challenges の取り込み元マーカー fp の算式（`scripts/ingest-fp.sh`）が前提とする。
+#   同スクリプトは正規化に perl を直接使い、ハッシュに `shasum -a 256` を使う
+#   （/usr/bin/shasum は perl パッケージ同梱）。slim イメージの perl-base には shasum が
+#   含まれないため明示的に追加する
 # - ca-certificates / curl: gh の apt リポジトリ追加・HTTPS 通信に必要
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \

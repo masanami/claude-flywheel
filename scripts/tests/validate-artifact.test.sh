@@ -481,7 +481,8 @@ assert_case "runs の --expect-cycle は --since-last-cycle-start 必須（無�
 # --- 実行環境の前提（container モードのイメージがバリデータのランタイムを保証する） ---
 # run-cycle 手順6の検算は /usr/bin/ruby 前提（macOS 標準）。execution_mode: container の
 # ベースイメージ（node:20-slim）には ruby が無いため、Dockerfile 側の導入が契約の一部。
-# あわせて ingest の fp 算式（shasum -a 256）が前提とする perl も固定する。
+# あわせて ingest の fp 算式（`scripts/ingest-fp.sh`＝正規化に perl・ハッシュに shasum -a 256）が
+# 前提とする perl も固定する。
 
 # run-cycle 手順6 の事後補記経路（journal ⑤ への追記＋追加コミット）は本体の検算より後に
 # 走るため、追記後・追加コミット前の journal-md 再検証の規定が SKILL に存在することを固定する
@@ -612,10 +613,22 @@ assert_contains "ingest: 完了条件は形 D で転記し 1 行に潰さない"
 assert_contains "ingest: 形 A への切り替えは board 追随後と明記している" "$INGEST_MD" "**形 A（フィールド行の値を空にする複数行形式）へ切り替えるのは board の追随後**"
 assert_absent "ingest: 形 A（値を空にする）を今書けと指示していない" "$INGEST_MD" "フィールド行の値は空にし"
 
-# --- fp 正規化が ingest 自身の出力形（ブロック引用の説明）を対象に含むこと ---
-assert_contains "ingest: fp 正規化が継続行（インデント行＋引用行）を対象にする" "$INGEST_MD" "引用マーカー（\`> \`）を除去"
-assert_contains "ingest: 引用行を値に含める理由（更新検知が死ぬ）が明記されている" "$INGEST_MD" "永久にスキップされて人間記入欄が更新されない"
+# --- fp の入力は台帳ではなく外部ソース本文であること（Issue #130） ---
+# 旧版はここで「台帳の人間記入欄をどう正規化するか」を固定していた。散文の算式を読み手が毎周
+# 手で再実装し、同じ誤りが 4 回再発したため、入力を外部本文へ移し算式を実装（scripts/ingest-fp.sh）
+# へ固定した。以降ここが守るのは**算式の中身ではなく「算式を散文で再掲していないこと」**である。
+assert_contains "ingest: fp の入力が取得したての外部ソース本文である" "$INGEST_MD" "取得したての外部ソース本文"
+assert_contains "ingest: fp の算出をスクリプトへ委ねている" "$INGEST_MD" "scripts/ingest-fp.sh"
+assert_contains "ingest: 台帳の文字列を fp の入力にしないと明記している" "$INGEST_MD" "台帳に書いた文字列（説明・完了条件・緊急度）は**一切入力にしない**"
+assert_absent "ingest: 旧算式（人間記入欄の連結）が残っていない" "$INGEST_MD" "「説明・完了条件・緊急度」の値をこの順に改行 1 つで連結し"
+assert_absent "ingest: 算式を散文で再掲していない（shasum の直書き）" "$INGEST_MD" "| shasum -a 256 | cut -c1-12"
+# 移行の順序依存: 説明欄の要約化（PR2）より前に fp の移行が完了していなければならない
+assert_contains "ingest: 移行が説明欄の要約化より前という順序依存を明記している" "$INGEST_MD" "説明欄を要約に置き換えるより前に完了していなければならない"
+assert_contains "規定: fp の入力が外部 Issue 本文であると明記している" "$FORMAT_DOC" "取得したての外部 Issue 本文"
+assert_absent "規定: 旧い fp の定義（人間記入欄の指紋）が残っていない" "$FORMAT_DOC" "**人間記入欄**（説明・完了条件・緊急度）を正規化した指紋"
+# 引用行を値に含める要件は残る（消費側が説明を読めること）。ただし根拠は fp ではない。
 assert_contains "規定: 消費側読み取り規則が引用行を継続行に含める" "$FORMAT_DOC" "**引用行**（行頭が \`>\`）"
+assert_contains "規定: 引用行の要件が fp を根拠にしていないと明記している" "$FORMAT_DOC" "この要件は [fp（更新検知）]"
 assert_case "受理方向: ingest の説明形（（原文引用）＋ブロック引用）を含む台帳を受理" 0 - \
   -- ledger "$FIXTURES/ledger/valid/handwritten-and-ingested.md"
 
