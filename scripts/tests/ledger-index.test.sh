@@ -9,6 +9,8 @@
 # 本テストは docs/ledger-load-strategy.md §6 の T1〜T9 を実装する。**T1〜T8 は投影スクリプトより
 # 先に書き、足した時点で落ちること**を確認してから実装した（§7 の決定）。T9 は PR #128 の
 # レビューで見つかった「宣言した版と実測がずれる」事故を受けて後から足した。
+# T10 は別ドキュメント（docs/human-hold-representation.md §5）由来で、#116 の実装の前段として
+# 足した（既に存在していた未固定の複製を塞ぐもので、語彙の増減とは独立に効く）。
 #
 #   T1 経路表の完全性   contracts/ledger-read-scope.tsv に 7 ステータス全ての行があること
 #   T2 投影の全域性     出力行数 ＝ 台帳のエントリ数（^### \[・フェンス除外）
@@ -16,8 +18,9 @@
 #   T4 エントリ境界     隣接エントリを巻き込まないこと（変異注入で検出できることまで）
 #   T5 否定検査         出力に引用行（^>）が 1 行も混ざらないこと
 #   T6 sync-free        索引がファイルとして生成されないこと（正本は台帳 1 つ）
-#   T7 語彙の一致       ステータス語彙が正本・SKILL.md・経路表で一致（双方向）
+#   T7 語彙の一致       ステータス語彙が正本・記入例の遷移列・SKILL.md・経路表で一致（双方向）
 #   T8 列の完全性       索引で足りると宣言した判定に要る列が出力に存在すること
+#   T10 enum の一致     journal-index スキーマの touched_issues.to の enum が正本と一致（双方向）
 
 set -u
 set -o pipefail
@@ -33,8 +36,11 @@ TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$TESTS_DIR/../.." && pwd)"
 SCRIPT="$TESTS_DIR/../ledger-index.rb"
 SCOPE_TSV="$REPO_ROOT/contracts/ledger-read-scope.tsv"
+VOCAB_TSV="$REPO_ROOT/contracts/ledger-status-vocabulary.tsv"
+SCHEMA_JSON="$REPO_ROOT/contracts/schemas/journal-index.schema.json"
 SKILL_MD="$REPO_ROOT/skills/run-cycle/SKILL.md"
 LEDGER_TEMPLATE="$REPO_ROOT/templates/challenge-ledger.md"
+FORMAT_DOC="$REPO_ROOT/docs/challenge-ledger-format.md"
 VALID_FIXTURES="$REPO_ROOT/contracts/fixtures/ledger/valid"
 
 PASS=0
@@ -303,53 +309,185 @@ eq "T3: エントリ 0 件でもヘッダ行は出る（呼び出し側の解析
    "$(printf '%s\n' "$tpl_out" | head -1 | cut -f1)" "id"
 
 # ===========================================================================
-# T1 経路表の完全性 ＋ T7 語彙の一致
+# T7 語彙の正本 ＋ T1 経路表の完全性 ＋ T10 スキーマの enum
+#
+# 語彙の正本は contracts/ledger-status-vocabulary.tsv（#116。それ以前はテンプレートの
+# ステータス行の全角括弧内の `→` 連鎖が正本を兼ねており、**直列に並ばない状態（側道）を
+# 表現できない**符号化だった）。連鎖は「主経路の記入例」として人間が読む面に残っており、
+# ここでは**主経路の語彙と順序込みで一致すること**を固定する——記入例が嘘になったら落ちる。
+#
+# 閉じた語彙は「検査する箇所」ではなく「**全語を列挙する箇所**」に複製が潜む（enum・散文の
+# 連鎖・表の行）。語 1 つの grep では全部は出ないので、列挙箇所を名指しで正本へ結線する。
 # ===========================================================================
-if [ ! -f "$SCOPE_TSV" ]; then
-  bad "T1: 経路表 contracts/ledger-read-scope.tsv が在る" "not found: $SCOPE_TSV"
-else
-  scope_rows="$(grep -v '^#' "$SCOPE_TSV" | grep -c .)"
-  # 語彙の正本 = templates/challenge-ledger.md のステータス行の遷移列
-  canon="$(ruby -e '
+
+# ステータス行の `→` 連鎖を取り出す。テンプレートは `未分類（未分類 → … → 完了）`、
+# 仕様書は `未分類 → … → 完了` と形が違うため、括弧があればその中・無ければ値全体を読む。
+status_chain() {
+  ruby -e '
     s = File.read(ARGV[0], encoding: "UTF-8")
-    m = s[/^- ステータス: *[^（\n]*（([^）]*)）/, 1]
-    abort "status line not found" unless m
-    print m.split("→").map(&:strip).join("\n")' "$LEDGER_TEMPLATE")"
+    line = s[/^- ステータス:.*$/]
+    abort "status line not found" unless line
+    v = line.sub(/^- ステータス: */, "")
+    v = $1 if v =~ /（([^）]*)）/
+    print v.split("→").map(&:strip).join("\n")' "$1"
+}
+
+canon=""       # 語彙の正本（全ステータス・ファイル順）
+canon_main=""  # 主経路のみ（order 昇順）＝記入例の `→` 連鎖と突き合わせる列
+canon_n=0
+
+if [ ! -f "$VOCAB_TSV" ]; then
+  bad "T7: 語彙の正本 contracts/ledger-status-vocabulary.tsv が在る" "not found: $VOCAB_TSV"
+else
+  ok "T7: 語彙の正本 contracts/ledger-status-vocabulary.tsv が在る"
+
+  # 正本の自己整合。多バイトの列を扱うため awk ではなく ruby で読む（macOS awk の
+  # 多バイト等値比較を避ける＝contracts/README.md の実装言語の選定根拠と同じ理由）。
+  vocab_err="$(ruby -e '
+    rows = File.readlines(ARGV[0], encoding: "UTF-8")
+      .reject { |l| l.start_with?("#") || l.strip.empty? }
+      .map { |l| l.chomp.split("\t") }
+    errs = []
+    errs << "データ行が 0 件" if rows.empty?
+    errs << "列が 3 列でない行がある" if rows.any? { |r| r.size != 3 }
+    st = rows.map { |r| r[0] }
+    errs << "ステータスが重複している" if st.uniq.size != st.size
+    bad_track = rows.map { |r| r[1] }.reject { |t| %w[main side].include?(t) }.uniq
+    errs << "track が閉語彙（main / side）でない: #{bad_track.join(" ")}" unless bad_track.empty?
+    main = rows.select { |r| r[1] == "main" }
+    errs << "track=main の行が無い" if main.empty?
+    ord = main.map { |r| r[2] }
+    unless ord.all? { |o| o =~ /\A[0-9]+\z/ } && ord.map(&:to_i).sort == (1..main.size).to_a
+      errs << "main の order が 1 始まりの連番でない: #{ord.join(",")}"
+    end
+    bad_side = rows.select { |r| r[1] == "side" }.map { |r| r[2] }.reject { |o| o == "-" }
+    errs << "side の order が - でない: #{bad_side.join(",")}" unless bad_side.empty?
+    print errs.join(" / ")' "$VOCAB_TSV" 2>&1)"
+  eq "T7: 語彙の正本が自己整合（3 列・重複なし・track の閉語彙・main の order が連番）" \
+     "$vocab_err" ""
+
+  canon="$(grep -v '^#' "$VOCAB_TSV" | grep . | cut -f1)"
+  canon_main="$(ruby -e '
+    rows = File.readlines(ARGV[0], encoding: "UTF-8")
+      .reject { |l| l.start_with?("#") || l.strip.empty? }
+      .map { |l| l.chomp.split("\t") }
+    print rows.select { |r| r[1] == "main" }.sort_by { |r| r[2].to_i }.map { |r| r[0] }.join("\n")' \
+    "$VOCAB_TSV")"
   canon_n="$(printf '%s\n' "$canon" | grep -c .)"
-  eq "T7: 語彙の正本（テンプレートのステータス行）が 7 値" "$canon_n" "7"
-  eq "T1: 経路表の行数 = ステータス数（行の無いステータスが無い）" "$scope_rows" "$canon_n"
+  eq "T7: 語彙の正本が 7 値" "$canon_n" "7"
+fi
 
-  # 双方向: 正本の各値に行が在る / 経路表の各行が正本に在る
-  miss_row=""; miss_canon=""
-  while IFS= read -r st; do
-    [ -n "$st" ] || continue
-    grep -q "^${st}	" "$SCOPE_TSV" || miss_row="${miss_row}${st} "
-  done <<EOF_CANON
-$canon
-EOF_CANON
-  eq "T1: 正本の全ステータスに経路表の行が在る" "$miss_row" ""
+# 空集合ガード: 正本が読めないと以下の包含検査はすべて空虚に真になる（0 件の照合は
+# 「ずれが無い」と区別できない）。正本が空なら以降を pass にせず明示的に落とす。
+if [ -z "$canon" ]; then
+  bad "T1/T7/T10: 語彙の正本が非空（以降の一致検査が空虚に真にならないこと）" \
+      "canon が 0 件のため経路表・記入例・SKILL.md・enum の照合を実行できない"
+else
+  ok "T1/T7/T10: 語彙の正本が非空（空集合ガード）"
 
-  while IFS= read -r st; do
-    [ -n "$st" ] || continue
-    printf '%s\n' "$canon" | grep -qx "$st" || miss_canon="${miss_canon}${st} "
-  done <<EOF_ROWS
-$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f1)
-EOF_ROWS
-  eq "T7: 経路表の全ステータスが正本の語彙に在る（造語が混ざらない）" "$miss_canon" ""
-
-  # scope の閉語彙
-  bad_scope="$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f2 \
-    | grep -vx -e index -e full -e index-then-full | tr '\n' ' ')"
-  eq "T1: scope 列が閉語彙（index / full / index-then-full）" "$bad_scope" ""
-
-  # 空集合ガード: 3 値それぞれが少なくとも 1 行で使われている（表が退化していない）
-  for sc in index full index-then-full; do
-    c="$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f2 | grep -cx "$sc")"
-    if [ "$c" -ge 1 ]; then ok "T1: scope=${sc} の行が在る"
-    else bad "T1: scope=${sc} の行が在る" "0 行＝閉語彙が実際には使われていない"; fi
+  # -------------------------------------------------------------------------
+  # T7: 記入例の `→` 連鎖 ＝ 主経路の語彙（**順序込み**・両方向）
+  #     連鎖は人間が読む記入例であって正本ではない。side を連鎖へ並べると「必須の中間
+  #     ステップ」という嘘になるため、比較対象は main だけ（並べたらこの検査が落ちる）。
+  # -------------------------------------------------------------------------
+  for f in "$LEDGER_TEMPLATE" "$FORMAT_DOC"; do
+    if [ ! -f "$f" ]; then
+      bad "T7: 記入例のステータス行を持つファイルが在る" "not found: $f"
+      continue
+    fi
+    chain="$(status_chain "$f" 2>"$tmp/chain_err")"
+    if [ -z "$chain" ]; then
+      bad "T7: ${f##*/} からステータス行の遷移列を抽出できる" "$(cat "$tmp/chain_err")"
+    else
+      eq "T7: ${f##*/} の遷移列が主経路の語彙と順序込みで一致" "$chain" "$canon_main"
+    fi
   done
 
-  # T7: 正本の各ステータスが SKILL.md にも現れる（3 箇所目のずれを検出）
+  # -------------------------------------------------------------------------
+  # T1: 経路表の完全性（side を含む全ステータスに行が要る）
+  # -------------------------------------------------------------------------
+  if [ ! -f "$SCOPE_TSV" ]; then
+    bad "T1: 経路表 contracts/ledger-read-scope.tsv が在る" "not found: $SCOPE_TSV"
+  else
+    scope_rows="$(grep -v '^#' "$SCOPE_TSV" | grep -c .)"
+    eq "T1: 経路表の行数 = ステータス数（行の無いステータスが無い）" "$scope_rows" "$canon_n"
+
+    # 双方向: 正本の各値に行が在る / 経路表の各行が正本に在る
+    miss_row=""; miss_canon=""
+    while IFS= read -r st; do
+      [ -n "$st" ] || continue
+      grep -q "^${st}	" "$SCOPE_TSV" || miss_row="${miss_row}${st} "
+    done <<EOF_CANON
+$canon
+EOF_CANON
+    eq "T1: 正本の全ステータスに経路表の行が在る" "$miss_row" ""
+
+    while IFS= read -r st; do
+      [ -n "$st" ] || continue
+      printf '%s\n' "$canon" | grep -qx "$st" || miss_canon="${miss_canon}${st} "
+    done <<EOF_ROWS
+$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f1)
+EOF_ROWS
+    eq "T7: 経路表の全ステータスが正本の語彙に在る（造語が混ざらない）" "$miss_canon" ""
+
+    # scope の閉語彙
+    bad_scope="$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f2 \
+      | grep -vx -e index -e full -e index-then-full | tr '\n' ' ')"
+    eq "T1: scope 列が閉語彙（index / full / index-then-full）" "$bad_scope" ""
+
+    # 空集合ガード: 3 値それぞれが少なくとも 1 行で使われている（表が退化していない）
+    for sc in index full index-then-full; do
+      c="$(grep -v '^#' "$SCOPE_TSV" | grep . | cut -f2 | grep -cx "$sc")"
+      if [ "$c" -ge 1 ]; then ok "T1: scope=${sc} の行が在る"
+      else bad "T1: scope=${sc} の行が在る" "0 行＝閉語彙が実際には使われていない"; fi
+    done
+  fi
+
+  # -------------------------------------------------------------------------
+  # T10: journal-index スキーマの enum ＝ 語彙の正本（双方向）
+  #      この enum は語彙の複製でありながら、どのテストにも固定されていなかった
+  #      （docs/human-hold-representation.md §2.2）。漏らすと台帳を書いた**後**・
+  #      コミットの直前に手順6 の検算が fail-closed で止まり、原因が語彙の追加だと
+  #      結びつきにくい。ここで書いた時点に落とす。
+  # -------------------------------------------------------------------------
+  if [ ! -f "$SCHEMA_JSON" ]; then
+    bad "T10: contracts/schemas/journal-index.schema.json が在る" "not found: $SCHEMA_JSON"
+  else
+    enum_vals="$(ruby -rjson -e '
+      s = JSON.parse(File.read(ARGV[0], encoding: "UTF-8"))
+      e = s.dig("properties", "touched_issues", "items", "properties", "to", "enum")
+      abort "touched_issues.to.enum not found" unless e.is_a?(Array)
+      print e.join("\n")' "$SCHEMA_JSON" 2>"$tmp/enum_err")"
+    if [ -z "$enum_vals" ]; then
+      bad "T10: スキーマから touched_issues.to の enum を取り出せる" "$(cat "$tmp/enum_err")"
+    else
+      eq "T10: enum の件数が語彙の正本と一致" \
+         "$(printf '%s\n' "$enum_vals" | grep -c .)" "$canon_n"
+
+      miss_enum=""
+      while IFS= read -r st; do
+        [ -n "$st" ] || continue
+        printf '%s\n' "$enum_vals" | grep -qx "$st" || miss_enum="${miss_enum}${st} "
+      done <<EOF_CANON_ENUM
+$canon
+EOF_CANON_ENUM
+      eq "T10: 正本の全ステータスが enum に在る（漏らすと当該周のコミットが止まる）" \
+         "$miss_enum" ""
+
+      extra_enum=""
+      while IFS= read -r v; do
+        [ -n "$v" ] || continue
+        printf '%s\n' "$canon" | grep -qx "$v" || extra_enum="${extra_enum}${v} "
+      done <<EOF_ENUM
+$enum_vals
+EOF_ENUM
+      eq "T10: enum の全値が正本の語彙に在る（退役した語が残らない）" "$extra_enum" ""
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # T7: SKILL.md（3 箇所目の列挙）との一致
+  # -------------------------------------------------------------------------
   miss_skill=""
   while IFS= read -r st; do
     [ -n "$st" ] || continue
@@ -371,7 +509,6 @@ EOF_SK
   has "T1: SKILL.md が投影スクリプトを呼んでいる" \
       "$(cat "$SKILL_MD")" "scripts/ledger-index.rb"
 fi
-
 # ===========================================================================
 # T6 sync-free: 索引をファイルとして作らない（正本は台帳 1 つ）
 # ===========================================================================
