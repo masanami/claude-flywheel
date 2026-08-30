@@ -650,7 +650,18 @@ assert_contains "ingest: 全文転記を明示的に禁じている" "$INGEST_MD
 assert_absent "ingest: 旧規定（要約せず原意を保つ）が残っていない" "$INGEST_MD" "要約せず原意を保つ"
 assert_contains "ingest: 要約の生成者と生成する周が規定されている" "$INGEST_MD" "- **誰が生成するか**"
 assert_contains "ingest: 要約の根拠がその周に取得した本文だけと規定されている" "$INGEST_MD" "**その周に取得した当該エントリの本文だけ**"
-assert_contains "ingest: 要約の形と長さの目安が規定されている" "$INGEST_MD" "**目安 200 字・上限 400 字**"
+# 形と長さ: **1 行に押し込ませない**（オーナー指摘・PR #136）。1 行要約を既定にしつつ、
+# 収まらないときは完了条件と同じ形 D へ逃がす。上限は全文転記の実測の最小事例（1,179 字）を
+# 下回る値に置く——ここを緩めると要約が転記へ戻る。両方向（下限＝材料を削らない／上限＝転記に
+# 戻さない）を固定しないと、片側だけ守って本来の目的を外す規定になる。
+assert_contains "ingest: 1 行に収まらないときは複数行にしてよいと規定されている" "$INGEST_MD" "**1 行に収まらないときは複数行にしてよい**"
+assert_contains "ingest: 判断材料を削って 1 行に押し込まないと規定されている" "$INGEST_MD" "**判断材料を削って 1 行に押し込まない**"
+assert_contains "ingest: 複数行は形 D（形 A は使わない）と規定されている" "$INGEST_MD" "**形 A（フィールド行の値を空にして箇条書きだけを置く形）は使わない**"
+assert_contains "ingest: 要約でブロック引用を使わないと規定されている" "$INGEST_MD" "**ブロック引用（行頭 \`>\`）は使わない**"
+assert_contains "ingest: 長さの目安（1 行要約と全体）が規定されている" "$INGEST_MD" "**ネスト項目を含む説明欄全体で目安 600 字・上限 1,000 字**"
+assert_contains "ingest: 上限が全文転記の実測を下回る値だと根拠づけられている" "$INGEST_MD" "全文転記の実測の最小事例（1,179 字）を下回る値**"
+assert_contains "規定: 説明欄も 1 行に収まらなければ形 D と明記している" "$FORMAT_DOC" "**形は「フィールド行に 1 行要約、収まらなければ形 D で複数行」**"
+assert_absent "規定: 説明欄を 1 行に限定する旧記述が残っていない" "$FORMAT_DOC" "形は **1 行**・目安 200 字・上限 400 字"
 assert_contains "ingest: 要約の受入基準が分類判断の材料であると規定されている" "$INGEST_MD" "分類判断＝担当ポジション・優先度に足りる材料を残すこと"
 assert_contains "ingest: 要約に含めないものが規定されている" "$INGEST_MD" "- **含めない**:"
 assert_contains "ingest: 本文が空・取得不能なら要約を捏造しないと規定されている" "$INGEST_MD" "**要約を捏造しない**"
@@ -669,8 +680,9 @@ assert_contains "契約README: 消費側の実装は変更不要と明記して�
 assert_absent "契約README: 引用形を主要形と呼ぶ旧記述が残っていない" "$CONTRACTS_MD" "実運用の説明欄の主要形"
 # 生成者の状態空間の表（受理方向のフィクスチャを何のために持つかの列挙）も同期していること。
 # ここが「ブロック引用の複数行」だけのままだと、消費者は要約形を状態空間の外だと読む。
-assert_contains "契約README: 生成者表の ingest 行が要約形になっている" "$CONTRACTS_MD" "説明は**外部本文の要約（1 行）**"
-assert_contains "契約README: 生成者表が引用形との両方受理を明記している" "$CONTRACTS_MD" "**両方を受理する**"
+assert_contains "契約README: 生成者表の ingest 行が要約形になっている" "$CONTRACTS_MD" "説明は**外部本文の要約**"
+assert_contains "契約README: 生成者表が 3 形すべての受理を明記している" "$CONTRACTS_MD" "**3 つすべてを受理する**"
+assert_contains "契約README: 生成者表が形 D（複数行の要約）を状態空間に含めている" "$CONTRACTS_MD" "収まらなければ形 D（1 行要約＋直下のネスト箇条書き）になりうる**"
 
 # (3) 冪等性の根拠 2 本 — 両方の面（実行時テキストと規定）に書かれていること
 for pair in "ingest:$INGEST_MD" "規定:$FORMAT_DOC"; do
@@ -692,6 +704,39 @@ assert_contains "移行ゲート: 規定側に残っている" "$FORMAT_DOC" "�
 assert_contains "移行ゲート: 手順側に残っている" "$INGEST_MIGRATION_MD" "移行完了が確認されるまで、説明欄の要約化を行ってはならない"
 assert_contains "移行ゲート: 対象が「規定の版」ではなく台帳の操作だと明記している" "$INGEST_MIGRATION_MD" "ゲートの対象は「規定の版」ではなく"
 assert_contains "移行ゲート: 同じ限定が規定側にもある" "$FORMAT_DOC" "規定を取り込んだだけでは台帳の原文引用は消えない"
+
+# --- 版 1 エントリのエントリ単位 fail-closed（CodeRabbit #136 Major） ---
+# 規定を読む面が 3 つ（SKILL.md / references / 契約 docs）あり、SKILL.md だけが
+# 「版 1 は更新分岐へ落とさない」を書いていて、references と docs は逆に「上流が更新された周に
+# 原文引用が消える」と書いていた。片方の面だけを読んだ実行者が版 1 を更新分岐へ落とすと、
+# 要約化以降は**原文引用が要約で上書きされて比較相手が永久に失われ、そのエントリは二度と
+# 移行できなくなる**（`比較不能` で固定）。3 面が同じ規則を主張していることを固定する。
+# 検査する needle は**規範の文そのもの**（3 面に逐語で置いた 1 文）にする。「更新分岐へ落とさない」
+# のような短い断片だと、同じファイル内の**言及**（「上記『…落とさない』のとおり」等）に一致して
+# しまい、規範の文を反転させても緑のままになる——実際にこの形で変異が素通りした。
+FAILCLOSED_RULE='版 1 のエントリを「`fp` 不一致 → 人間記入欄のみ更新」の更新分岐へ落とさない'
+for pair in "SKILL:$INGEST_MD" "手順:$INGEST_MIGRATION_MD" "規定:$FORMAT_DOC"; do
+  face="${pair%%:*}"; doc="${pair#*:}"
+  assert_contains "${face}: 版 1 を更新分岐へ落とさない規則を逐語で持つ" "$doc" "$FAILCLOSED_RULE"
+done
+# 判定はエントリ単位であり、版 1 の存在を理由に通常取り込み全体を止めることはしない
+# （PR1 が確立した「混在は通常の状態」の原則。CodeRabbit の提案した全体停止案は採らない）。
+for pair in "SKILL:$INGEST_MD" "手順:$INGEST_MIGRATION_MD" "規定:$FORMAT_DOC"; do
+  face="${pair%%:*}"; doc="${pair#*:}"
+  assert_contains "${face}: 版 1 の存在で他エントリの取り込みを止めないと明記している" "$doc" "他のエントリの通常取り込みは止めない"
+done
+# 否定検査: 「通常の取り込みが版 1 の原文引用を消す」という矛盾した記述が復活していないこと。
+assert_absent "手順: 通常取り込みが原文引用を消すという旧記述が残っていない" "$INGEST_MIGRATION_MD" "そのエントリの上流本文が更新され \`fp\` 不一致で人間記入欄が更新される周"
+assert_absent "手順: 取り残しが一斉に更新扱いになるという旧記述が残っていない" "$INGEST_MIGRATION_MD" "外部が何も変わっていないのに一斉に更新扱いになる"
+assert_absent "規定: 上流更新の周に原文引用が失われるという旧記述が残っていない" "$FORMAT_DOC" "原文引用が失われるのは、**そのエントリの上流本文が更新された周**"
+assert_contains "手順: 通常取り込みは版 1 の原文引用を消さないと明記している" "$INGEST_MIGRATION_MD" "**通常の取り込みは版 1 エントリの原文引用を消さない**"
+assert_contains "規定: 通常取り込みは版 1 の原文引用を消さないと明記している" "$FORMAT_DOC" "**通常の取り込みも版 1 エントリの原文引用を消さない**"
+# 版 2 で引用が要約へ置き換わるのはゲートの対象外＝両者を同一視しないこと（緩和ではなく区別）
+assert_contains "手順: 版 2 の引用消失をゲート対象外と区別している" "$INGEST_MIGRATION_MD" "これはゲートの対象外である"
+assert_contains "規定: 版 2 の引用消失をゲート対象外と区別している" "$FORMAT_DOC" "**これはゲートの対象外**である"
+# 解消経路 (a) は機械の経路に委ねられない（要約化以降、どちらの経路も引用を書かないため）
+assert_contains "手順: 解消経路(a) が人間の再転記だと明記している" "$INGEST_MIGRATION_MD" "**機械の経路には委ねられない**"
+assert_absent "手順: 解消経路(a) が通常取り込みへ委ねる旧記述が残っていない" "$INGEST_MIGRATION_MD" "通常の取り込みの「\`fp\` 不一致 → 人間記入欄のみ更新」経路に委ねる"
 
 # 受理方向（機械検査）: #130 PR2 以降の新規取り込みの形＝1 行の要約 ＋ 版 2 マーカー。
 # 引用形の受理は上の handwritten-and-ingested.md で固定済みで、**両方が通ること**が受入条件。
