@@ -571,6 +571,12 @@ INGEST_MIGRATION_MD="$REPO_ROOT/skills/ingest-challenges/references/fp-migration
 VALIDATOR="$REPO_ROOT/scripts/validate-artifact.rb"
 CONTRACTS_MD="$REPO_ROOT/contracts/README.md"
 
+# 3 面（SKILL.md / references / 台帳フォーマット契約）へ逐語で置く 2 つの規範文。
+# needle は**規範の文そのもの**にする——短い断片だと同一ファイル内の言及に一致し、規範文を
+# 反転させても緑のままになる（実際に変異が素通りした）。
+FAILCLOSED_RULE='版 1 のエントリを「`fp` 不一致 → 人間記入欄のみ更新」の更新分岐へ落とさない'
+SUMMARIZE_GATE='版 1 エントリの原文引用を要約へ置き換える前に、移行を完了させなければならない'
+
 # 参照フィールド 3 種のラベルが 規定・雛形・検査 の 3 者で一致する（改名・取りこぼしの検出）
 # 掃引範囲は「台帳エントリを書く 3 者」の雛形すべて（人間＝雛形／run-cycle／ingest）。
 # 雛形が掃引範囲から漏れて旧ラベルのまま残った実績があるため、掃引範囲自体をテストで固定する。
@@ -625,8 +631,11 @@ assert_contains "ingest: fp の算出をスクリプトへ委ねている" "$ING
 assert_contains "ingest: 台帳の文字列を fp の入力にしないと明記している" "$INGEST_MD" "台帳に書いた文字列（説明・完了条件・緊急度）は**一切入力にしない**"
 assert_absent "ingest: 旧算式（人間記入欄の連結）が残っていない" "$INGEST_MD" "「説明・完了条件・緊急度」の値をこの順に改行 1 つで連結し"
 assert_absent "ingest: 算式を散文で再掲していない（shasum の直書き）" "$INGEST_MD" "| shasum -a 256 | cut -c1-12"
-# 移行の順序依存: 説明欄の要約化（PR2）より前に fp の移行が完了していなければならない
-assert_contains "ingest: 移行が説明欄の要約化より前という順序依存を明記している" "$INGEST_MIGRATION_MD" "説明欄を要約に置き換えるより前に完了していなければならない"
+# 移行の順序依存: 版 1 の原文引用を要約へ置き換えるより前に fp の移行が完了していなければならない。
+# **禁止の対象を操作で名指しする**——「説明欄の要約化を行ってはならない」のような書き方だと、
+# 規定の配布そのものまで禁じているように読め、移行が済んでいないワークスペースが 1 つでもある
+# 限り規定を更新できないことになる（CodeRabbit #136）。ゲートは弱めず、対象だけを正確にする。
+assert_contains "ingest: 移行が原文引用の置き換えより前という順序依存を明記している" "$INGEST_MIGRATION_MD" "$SUMMARIZE_GATE"
 assert_contains "規定: fp の入力が外部 Issue 本文であると明記している" "$FORMAT_DOC" "取得したての外部 Issue 本文"
 assert_absent "規定: 旧い fp の定義（人間記入欄の指紋）が残っていない" "$FORMAT_DOC" "**人間記入欄**（説明・完了条件・緊急度）を正規化した指紋"
 # 引用行を値に含める要件は残る（消費側が説明を読めること）。ただし根拠は fp ではない。
@@ -700,8 +709,43 @@ assert_contains "ingest: 要約と外部本文を実質同一かで突き合わ�
 
 # 要約化ゲート（移行完了まで禁止）は本 PR でも削除しない。移行はワークスペースごとの手順で
 # あり、これから導入するワークスペースには未実施の作業として残っている。
-assert_contains "移行ゲート: 規定側に残っている" "$FORMAT_DOC" "移行完了が確認されるまで、説明欄の要約化を行ってはならない"
-assert_contains "移行ゲート: 手順側に残っている" "$INGEST_MIGRATION_MD" "移行完了が確認されるまで、説明欄の要約化を行ってはならない"
+# ゲートは**残す**（弱めない）が、**禁じる対象を操作で名指しする**（CodeRabbit #136）。
+# 旧文「移行完了が確認されるまで、説明欄の要約化を行ってはならない」は全面禁止に読め、
+#   (1) fail-closed 導入後の事実（ingest は版 1 の原文引用を消さない）と食い違う
+#   (2) 「要約規定を配布すること」まで禁じているように読め、導入先の移行完了を作者が
+#       保証できない以上、規定を永久に更新できないことになる
+# の 2 つの誤読を生む。規範文を 3 面へ逐語で置き、その一致を固定する。
+for pair in "SKILL:$INGEST_MD" "手順:$INGEST_MIGRATION_MD" "規定:$FORMAT_DOC"; do
+  face="${pair%%:*}"; doc="${pair#*:}"
+  assert_contains "${face}: 要約化ゲートを逐語で持つ" "$doc" "$SUMMARIZE_GATE"
+done
+# 対象の限定（人間主導の置換だけ／ingest の通常運転と規定の導入は対象外）が両実行時面と規定にある
+assert_contains "手順: ゲートの対象が人間主導の置換操作だけだと明記している" "$INGEST_MIGRATION_MD" "**禁止の対象は人間主導の置換操作**"
+assert_contains "規定: ゲートの対象が人間主導の置換操作だけだと明記している" "$FORMAT_DOC" "**禁止の対象は人間主導の置換操作**"
+assert_contains "手順: ingest の通常運転がゲート対象外だと明記している" "$INGEST_MIGRATION_MD" "**ingest の通常運転**"
+assert_contains "規定: ingest の通常運転がゲート対象外だと明記している" "$FORMAT_DOC" "**ingest の通常運転は対象外**"
+assert_contains "手順: 規定の導入自体はゲート対象外だと明記している" "$INGEST_MIGRATION_MD" "**要約の規定を導入・配布すること自体**"
+assert_contains "規定: 規定の導入自体はゲート対象外だと明記している" "$FORMAT_DOC" "**要約の規定を導入・配布すること自体も対象外**"
+assert_contains "SKILL: ゲートの対象が人間主導の置換だけだと明記している" "$INGEST_MD" "**このゲートが禁じるのは人間主導の置換操作だけ**"
+# 否定検査: 全面禁止に読める旧文が復活していないこと（3 面すべて）
+for pair in "SKILL:$INGEST_MD" "手順:$INGEST_MIGRATION_MD" "規定:$FORMAT_DOC"; do
+  face="${pair%%:*}"; doc="${pair#*:}"
+  assert_absent "${face}: 全面禁止に読める旧文が残っていない" "$doc" "説明欄の要約化を行ってはならない"
+done
+assert_absent "手順: 順序依存の旧文（要約化そのものを対象にする形）が残っていない" "$INGEST_MIGRATION_MD" "説明欄を要約に置き換えるより前に完了していなければならない"
+
+# 移行の窓はエントリ単位で、閉じるのは人間の置換操作（規定の導入時点ではない）
+assert_contains "手順: 移行の窓がエントリ単位だと明記している" "$INGEST_MIGRATION_MD" "**移行の窓はエントリ単位で開き"
+assert_contains "手順: 窓を閉じるのが人間の置換操作だと明記している" "$INGEST_MIGRATION_MD" "**窓が閉じるのは「要約の規定が入った時点」ではなく「そのエントリの原文引用を人間が要約へ置き換えた時点」である。**"
+assert_absent "手順: 窓が要約化の時点で一斉に閉じるという旧文が残っていない" "$INGEST_MIGRATION_MD" "説明欄が要約に置き換わった時点でこの道は永久に閉じる"
+assert_absent "手順: 窓を「一度きり」と書く旧文が残っていない" "$INGEST_MIGRATION_MD" "説明欄の要約化の前の一度きり"
+
+# 未終端エントリは版 1 のまま残り、後続の移行実行で再照合される（「1 回だけ」は終端時のみ）
+assert_contains "手順: 未終端は再照合対象だと明記している" "$INGEST_MIGRATION_MD" "**終端に達しなかったエントリ（\`比較不能\` / \`取得不能\`）は版 1 のまま残り、後続の移行実行で再照合される**"
+assert_contains "手順: 版 1 の不一致継続を検査器の異常と読まないと明記している" "$INGEST_MIGRATION_MD" "検査器の異常と読まない"
+assert_absent "手順: 版 1 の不一致が無条件に 1 回だけという旧文が残っていない" "$INGEST_MIGRATION_MD" "版 1 のエントリが \`fp\` 不一致を通るのは 1 回だけである"
+# 版 2 側の観測規律は有効なので残っていること（未終端の話に巻き込んで消さない）
+assert_contains "手順: 版 2 が毎周不一致なら検査器を疑う規律が残っている" "$INGEST_MIGRATION_MD" "**版 2 のエントリが毎周不一致になるなら、それは外部が変わったのではなく算出側が壊れている**"
 assert_contains "移行ゲート: 対象が「規定の版」ではなく台帳の操作だと明記している" "$INGEST_MIGRATION_MD" "ゲートの対象は「規定の版」ではなく"
 assert_contains "移行ゲート: 同じ限定が規定側にもある" "$FORMAT_DOC" "規定を取り込んだだけでは台帳の原文引用は消えない"
 
@@ -711,10 +755,6 @@ assert_contains "移行ゲート: 同じ限定が規定側にもある" "$FORMAT
 # 原文引用が消える」と書いていた。片方の面だけを読んだ実行者が版 1 を更新分岐へ落とすと、
 # 要約化以降は**原文引用が要約で上書きされて比較相手が永久に失われ、そのエントリは二度と
 # 移行できなくなる**（`比較不能` で固定）。3 面が同じ規則を主張していることを固定する。
-# 検査する needle は**規範の文そのもの**（3 面に逐語で置いた 1 文）にする。「更新分岐へ落とさない」
-# のような短い断片だと、同じファイル内の**言及**（「上記『…落とさない』のとおり」等）に一致して
-# しまい、規範の文を反転させても緑のままになる——実際にこの形で変異が素通りした。
-FAILCLOSED_RULE='版 1 のエントリを「`fp` 不一致 → 人間記入欄のみ更新」の更新分岐へ落とさない'
 for pair in "SKILL:$INGEST_MD" "手順:$INGEST_MIGRATION_MD" "規定:$FORMAT_DOC"; do
   face="${pair%%:*}"; doc="${pair#*:}"
   assert_contains "${face}: 版 1 を更新分岐へ落とさない規則を逐語で持つ" "$doc" "$FAILCLOSED_RULE"
