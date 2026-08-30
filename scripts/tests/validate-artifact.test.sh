@@ -691,7 +691,10 @@ assert_absent "契約README: 引用形を主要形と呼ぶ旧記述が残って
 # ここが「ブロック引用の複数行」だけのままだと、消費者は要約形を状態空間の外だと読む。
 assert_contains "契約README: 生成者表の ingest 行が要約形になっている" "$CONTRACTS_MD" "説明は**外部本文の要約**"
 assert_contains "契約README: 生成者表が 3 形すべての受理を明記している" "$CONTRACTS_MD" "**3 つすべてを受理する**"
-assert_contains "契約README: 生成者表が形 D（複数行の要約）を状態空間に含めている" "$CONTRACTS_MD" "収まらなければ形 D（1 行要約＋直下のネスト箇条書き）になりうる**"
+# 形 D の**定義**は `docs/challenge-ledger-format.md` §説明欄 が正本なので、この表では再掲せず
+# 状態空間の 1 要素として名前だけを挙げる（表は索引であって正本の写しではない）。検査は
+# 「形 D が状態空間に挙がっていること」を見る。
+assert_contains "契約README: 生成者表が形 D（複数行の要約）を状態空間に含めている" "$CONTRACTS_MD" "取りうる形は**1 行要約**・**形 D**・"
 
 # (3) 冪等性の根拠 2 本 — 両方の面（実行時テキストと規定）に書かれていること
 for pair in "ingest:$INGEST_MD" "規定:$FORMAT_DOC"; do
