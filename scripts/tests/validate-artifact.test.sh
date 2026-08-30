@@ -565,6 +565,9 @@ assert_absent() {
 FORMAT_DOC="$REPO_ROOT/docs/challenge-ledger-format.md"
 LEDGER_TPL="$REPO_ROOT/templates/challenge-ledger.md"
 INGEST_MD="$REPO_ROOT/skills/ingest-challenges/SKILL.md"
+# 一度きりの移行手順は SKILL.md 本体から `references/` へ移してある（毎周ロードされる面に
+# 置かないため）。検査は移動先へ向け直す（意図は変えない）。
+INGEST_MIGRATION_MD="$REPO_ROOT/skills/ingest-challenges/references/fp-migration.md"
 VALIDATOR="$REPO_ROOT/scripts/validate-artifact.rb"
 CONTRACTS_MD="$REPO_ROOT/contracts/README.md"
 
@@ -623,7 +626,7 @@ assert_contains "ingest: 台帳の文字列を fp の入力にしないと明記
 assert_absent "ingest: 旧算式（人間記入欄の連結）が残っていない" "$INGEST_MD" "「説明・完了条件・緊急度」の値をこの順に改行 1 つで連結し"
 assert_absent "ingest: 算式を散文で再掲していない（shasum の直書き）" "$INGEST_MD" "| shasum -a 256 | cut -c1-12"
 # 移行の順序依存: 説明欄の要約化（PR2）より前に fp の移行が完了していなければならない
-assert_contains "ingest: 移行が説明欄の要約化より前という順序依存を明記している" "$INGEST_MD" "説明欄を要約に置き換えるより前に完了していなければならない"
+assert_contains "ingest: 移行が説明欄の要約化より前という順序依存を明記している" "$INGEST_MIGRATION_MD" "説明欄を要約に置き換えるより前に完了していなければならない"
 assert_contains "規定: fp の入力が外部 Issue 本文であると明記している" "$FORMAT_DOC" "取得したての外部 Issue 本文"
 assert_absent "規定: 旧い fp の定義（人間記入欄の指紋）が残っていない" "$FORMAT_DOC" "**人間記入欄**（説明・完了条件・緊急度）を正規化した指紋"
 # 引用行を値に含める要件は残る（消費側が説明を読めること）。ただし根拠は fp ではない。

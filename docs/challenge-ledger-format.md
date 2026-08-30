@@ -260,7 +260,7 @@
 - **`<外部キー>`**: ソース側の**安定 ID**（Notion page id / Slack ts / 見出し ID 等）。再取り込みの照合キー。
 - **`fp:<フィンガープリント>`**: **取得したての外部 Issue 本文**（ソース側の本文そのもの）の指紋。人間は読まないので HTML コメントに隠す。**台帳の文字列は入力にしない**——算出は `scripts/ingest-fp.sh` が唯一の実装であり、規定は [ingest-challenges §4](../skills/ingest-challenges/SKILL.md) が正本（散文の算式を読み手が毎周手で再実装した結果、同じ誤りが 4 回再発した。実装を 1 箇所に固定して断つ＝[#130](https://github.com/masanami/claude-flywheel/issues/130)）。
   - この設計上、**`fp` は台帳だけからは再計算・監査できない**（外部ソースへの到達が要る）。監査は同じ 1 コマンドを外部本文へ再実行して行う。
-  - 旧算式（人間記入欄の連結）で付いた既存の `fp` は**一度だけ全エントリで不一致になる**。その周は人間記入欄を更新せず `fp` だけを差し替える（**手順の正本は [ingest-challenges §4.1](../skills/ingest-challenges/SKILL.md)**）。
+  - 旧算式（人間記入欄の連結）で付いた既存の `fp` は**一度だけ全エントリで不一致になる**。その周は人間記入欄を更新せず `fp` だけを差し替える（**手順の正本は [ingest-challenges の参照資料 `references/fp-migration.md`](../skills/ingest-challenges/references/fp-migration.md)**。SKILL.md 本体には発火条件だけを置き、一度きりの手順は毎周ロードされる面から外してある）。
 
 ### 旧 `fp` からの移行と、説明欄の要約化の実施条件
 
