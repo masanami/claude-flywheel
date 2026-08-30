@@ -9,9 +9,9 @@
 | JSON Schema | [`schemas/`](./schemas/) | JSONL 成果物（`journal/index.jsonl`・`.flywheel/runs.jsonl`）の機械可読スキーマ |
 | バリデータ | [`../scripts/validate-artifact.rb`](../scripts/validate-artifact.rb) | 全成果物の決定的検証（Markdown 検査＋スキーマの解釈実行） |
 | ゴールデンフィクスチャ | [`fixtures/`](./fixtures/) | 正例（受理されるべき正規形）と誤例（実際に起きた事故の再現） |
-| サイクルコミットのパス集合（**vendoring 対象外**。消費者は読まない） | [`cycle-commit-paths.txt`](./cycle-commit-paths.txt) | run-cycle 手順6 の許可パス（`git add` / pathspec）と [`../scripts/noop-check.rb`](../scripts/noop-check.rb) の dirty パス分類の**単一正本**。両者がずれると「許可パス内の変更が『変化なし』と判定される」事故になるため 1 箇所に置く（[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
-| 台帳の読み込み範囲（**vendoring 対象外**。消費者は読まない） | [`ledger-read-scope.tsv`](./ledger-read-scope.tsv) | run-cycle 手順0〜4 が課題台帳のどこまでを開くかの経路表（ステータス → `index` / `full` / `index-then-full`）の**単一正本**。手順0 は [`../scripts/ledger-index.rb`](../scripts/ledger-index.rb) の投影（索引）を読み、この表が `full` を指すステータスだけ本文を開く。行の無いステータスは全文を開く（fail-closed）。status 列は下記の語彙の正本と一致していなければならず、[`../scripts/tests/ledger-index.test.sh`](../scripts/tests/ledger-index.test.sh) が双方向で固定する（[#122](https://github.com/masanami/claude-flywheel/issues/122)） |
-| 台帳のステータス語彙（**vendoring 対象外**。消費者は読まない） | [`ledger-status-vocabulary.tsv`](./ledger-status-vocabulary.tsv) | 課題台帳の `- ステータス:` が取りうる**閉じた語彙の単一正本**（status / `track`＝`main`〔主経路〕\| `side`〔側道〕/ `order`）。他の列挙箇所——上の経路表・`schemas/journal-index.schema.json` の `touched_issues.to` の `enum`・`skills/run-cycle/SKILL.md` の手順の対象条件・`templates/challenge-ledger.md` と `docs/challenge-ledger-format.md` のステータス行の `→` 連鎖——は**すべてこの表との一致をテストが固定する**（`ledger-index.test.sh` の T1 / T7 / T10）。`→` 連鎖は**主経路の記入例**であって語彙の正本ではない（[#116](https://github.com/masanami/claude-flywheel/issues/116)。分離の理由は同ファイル冒頭のコメント） |
+| サイクルコミットのパス集合（**vendoring 対象外**。消費者は読まない） | [`cycle-commit-paths.txt`](./cycle-commit-paths.txt) | run-cycle 手順6 の許可パスと [`../scripts/noop-check.rb`](../scripts/noop-check.rb) の dirty パス分類の**単一正本**（[#82](https://github.com/masanami/claude-flywheel/issues/82)）。分類の意味と、追加時に同時に直す箇所はファイル冒頭のコメント |
+| 台帳の読み込み範囲（**vendoring 対象外**。消費者は読まない） | [`ledger-read-scope.tsv`](./ledger-read-scope.tsv) | run-cycle 手順0〜4 が課題台帳のどこまでを開くかの経路表（ステータス → `index` / `full` / `index-then-full`）の**単一正本**（[#122](https://github.com/masanami/claude-flywheel/issues/122)）。読み手・`scope` の閉語彙・下記の語彙正本との一致義務は、ファイル冒頭のコメントが正本。**経路表に行が無いステータスを実行時にどう扱うか**は [`../skills/run-cycle/SKILL.md`](../skills/run-cycle/SKILL.md) 手順0 |
+| 台帳のステータス語彙（**vendoring 対象外**。消費者は読まない） | [`ledger-status-vocabulary.tsv`](./ledger-status-vocabulary.tsv) | 課題台帳の `- ステータス:` が取りうる**閉じた語彙の単一正本**（status / `track` / `order`。[#116](https://github.com/masanami/claude-flywheel/issues/116)）。他の列挙箇所の一覧・語彙を増減したとき同時に直す場所・一致を固定するテスト（`ledger-index.test.sh` T1 / T7 / T10）・`→` 連鎖を語彙の正本にしない理由は、ファイル冒頭のコメントが正本 |
 
 ## 正本のレイヤリング
 
@@ -51,8 +51,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | 台帳/アーカイブ: 見出し直前の空行 | 複数エントリの同時アーカイブで `"\n".join` 連結され見出しが直前の箇条書きに吸収（recurrence 3）→ `fixtures/ledger/invalid/heading-no-blank-line.md` |
 | 台帳/アーカイブ: 必須フィールド行 | エントリの範囲削除が隣接エントリの備考行・空行を巻き添え削除 → `fixtures/ledger/invalid/missing-note-field.md` |
 | 台帳/アーカイブ: マーカー整合 | 行番号演算の移動が隣接エントリのマーカーを破壊（`docs/challenge-ledger-format.md` §台帳を機械で編集するときの規律の awk 検算と同じ意味論）→ `fixtures/ledger/invalid/double-marker.md` |
-| 台帳/アーカイブ: **分類欄の結合切れ**（インデント欠落の 3 形〔番号付き・`-`・`*`〕＋ネスト項目群の途中の空行。**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）。継続行がフィールド行と結びつかなくなると値ごと消える。**規定が「違反」と宣言する形を 1 つだけ検査して残りを素通しにしない**（規定と検査を 2 規則にしない） → `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/continuation-break-variants.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（旧テンプレートのワークスペースが発明した実形） |
-| 台帳/アーカイブ: 参照フィールドの値の形 | `関連リポジトリ` / `関連Issue` / `関連PR` は消費側が `<owner>/<repo>` / `<repo>#<番号>` からリンクを組み立てる前提（Issue #89）。自由記述・URL・プレースホルダが入るとリンク化・機械集計が静かに壊れる（`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md` |
+| 台帳/アーカイブ: **分類欄の結合切れ**（インデント欠落の 3 形〔番号付き・`-`・`*`〕＋ネスト項目群の途中の空行。**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）→ `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/continuation-break-variants.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（各フィクスチャ冒頭に、その形が壊れる理由と 3 形すべてを置く理由） |
+| 台帳/アーカイブ: 参照フィールドの値の形 | 参照フィールドへの自由記述・URL・プレースホルダでリンク化と機械集計が静かに壊れる（Issue #89。`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md` |
 | journal md: 定型 5 セクション | セクション欠落・順序崩れで board のセクション対応（index.jsonl と 1:1）が壊れる → `fixtures/journal-md/invalid/` |
 | index.jsonl: `decisions` は array\<string\> | string で 3 周連続記入し board 表示を破壊（recurrence 3）→ `fixtures/journal-index/invalid/decisions-string.jsonl` |
 | index.jsonl: `pending_approvals` の形 | 独自形式で書き board のチケット表示を破壊（2026-07-27）→ `fixtures/journal-index/invalid/pending-approvals-shape.jsonl` |
@@ -66,7 +66,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | 生成者 | マーカー | 特徴 | 正例フィクスチャ |
 | --- | --- | --- | --- |
 | 手書き（記入例コピー） | なし（説明文のみの `- 取り込み元:` 行を含みうる） | 完了条件・緊急度が空欄でも正規 | `fixtures/ledger/valid/handwritten-and-ingested.md` |
-| ingest-challenges | 取り込み元（`<!-- fp:... -->`） | 説明がブロック引用の複数行になりうる | 同上 |
+| ingest-challenges | 取り込み元（`<!-- fp:... -->`） | 説明は**外部本文の要約**（[#130](https://github.com/masanami/claude-flywheel/issues/130)）。取りうる形は**1 行要約**・**形 D**・要約化前とアーカイブの**ブロック引用の複数行**で、**3 つすべてを受理する**（各形の定義は `docs/challenge-ledger-format.md` §説明欄） | 同上 |
 
 必須フィールド行はこの 2 者すべてに共通する行だけに限定している（人間記入欄／起票者・起票日／説明／分類欄／担当ポジション／優先度／ステータス／タスク案／承認＋チェックボックス 2 行／備考。完了条件・緊急度・関連サービス・**参照フィールド 3 種**・取り込み元マーカーは**必須にしない**）。記入例（フェンス内）と HTML コメント内は検査から除外する。
 
@@ -124,7 +124,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 
 | 読むもの | 何が書いてあるか |
 | --- | --- |
-| `docs/challenge-ledger-format.md` §複数行フィールドの記入形式 | タスク案・完了条件の**複数行形式**と、受理／違反の形の一覧。**同節「消費側（board 等）の読み取り規則」がパーサの契約**——フィールド値＝フィールド行の値＋直下に連続する**継続行**で、継続行は**インデント行**（ネスト項目）と**引用行（行頭 `>`）**の 2 種類（引用行は ingest-challenges が書く `- 説明:（原文引用）` 直下のブロック引用＝実運用の説明欄の主要形。値に含めないと説明が定型文字列としてしか読めない）。空行・いずれの継続行でもない行・次見出しで終端 |
+| `docs/challenge-ledger-format.md` §複数行フィールドの記入形式 | タスク案・完了条件の**複数行形式**と、受理／違反の形の一覧。**同節「消費側（board 等）の読み取り規則」がパーサの契約**——フィールド値の組み立て方、継続行の 2 種類（インデント行と**引用行（行頭 `>`）**）、値の終端条件が定義されている |
+| 同 §説明欄 | 外部ソース由来のエントリの `説明` が取りうる値の形（要約 1 行／形 D／既存の引用形）と、それぞれの受理の扱い（[#130](https://github.com/masanami/claude-flywheel/issues/130)）。**消費側の実装は変更不要**（継続行の収集規則は変わらない）|
 | 同 §移行フェーズ | **書き手が形 A へ切り替える順序制約と切り替え条件**。board の追随（#151）が完了し、`fixtures/ledger/valid/multiline-and-refs.md` の C-101 から `taskPlan`・`completionCriteria` を取得できることが切り替えの条件（判定コマンドも記載） |
 | 同 §関連リポジトリ・関連Issue・関連PR | 参照フィールド 3 種の値の形式・複数値のカンマ区切り・短縮形の owner 解決・リンク化は消費側の責務であること |
 | 同 §FR-13 の承認対象 | 承認待ちカードで**何を前面に出すべきか**（承認対象＝タスク案。判断材料は タスク案／完了条件／関連リポジトリ） |
