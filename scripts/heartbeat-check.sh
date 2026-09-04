@@ -4,7 +4,8 @@
 #
 # runs.jsonl の最終 `cycle_end` からの経過を**営業日ベース**で算出し、しきい値を超えて
 # いれば「拍動停止の疑い」として警告し、あわせて未終了の `*_start`（対応する `*_end` の
-# 無い delegate_start / adhoc_start）の件数・該当行を列挙する（Issue #83 の最小緩和。
+# 無い delegate_start / adhoc_start）と対応不整合の `*_end`（`*_start` が無い／同一キーへ
+# 重複した `*_end`。Issue #142）の件数・該当行を**種別ごとに分けて**列挙する（Issue #83 の最小緩和。
 # 「検算の仕組みはあるが、拍動が無いと働かない」構造への警報として、run-cycle 手順0 /
 # start-day 経由の初回 run-cycle が呼ぶ）。runs.jsonl のスキーマの正本は利用先ワーク
 # スペースの runtime/README.md「実行イベントログ（runs.jsonl）」セクション。本スクリプトは
@@ -47,8 +48,11 @@
 # 注意:
 #   - 判定は警告のみ（サイクルを止めない・runs.jsonl に書かない）。未終了 delegate_start の
 #     回収は run-cycle 手順6 の既存の検算・事後補記が担う。
-#   - 未終了 *_start の列挙は同ディレクトリの log-run-event.sh check に委譲する（ペアリング
-#     意味論の実装を一本化するため。無ければ「検算不能」と出力し、警告自体は継続する）。
+#   - 未終了 *_start・対応不整合 *_end の列挙は同ディレクトリの log-run-event.sh check に
+#     委譲する（ペアリング意味論の実装を一本化するため。無ければ「検算不能」と出力し、警告
+#     自体は継続する）。check の出力行は `<種別ラベル><TAB><該当行>` 形式で、本スクリプトは
+#     ラベルで仕分けてから件数を出す（一律に数えると `*_end` 側の異常が未終了 start の件数に
+#     化ける）。
 
 set -euo pipefail
 
@@ -329,6 +333,7 @@ echo "heartbeat-check: 拍動停止の疑い: 最終 cycle_end（${last_ts}）�
 
 logger="$(dirname "$0")/log-run-event.sh"
 if [ -f "$logger" ]; then
+  TAB="$(printf '\t')"
   check_status=0
   check_out="$(bash "$logger" check --workspace "$WORKSPACE" 2>/dev/null)" || check_status=$?
   case "$check_status" in
@@ -336,9 +341,25 @@ if [ -f "$logger" ]; then
       echo "heartbeat-check: 未終了の *_start: 0 件"
       ;;
     1)
-      open_count="$(printf '%s\n' "$check_out" | grep -c .)"
+      # check の出力は `<種別ラベル><TAB><runs.jsonl の該当行>`（Issue #142）。**件数は種別で
+      # 分けて数える** — 全行を一律に「未終了の *_start」と数えると、完了済み作業の重複記録
+      # （duplicate_end）や start ごと落ちた end（orphan_end）が「放置された委譲」に化けて
+      # 件数が水増しされる。仕分けは「dangling_start か、それ以外か」で行い、**未知のラベルを
+      # 落とさない**（黙って捨てるより、対応不整合として多めに出るほうが安全側）。
+      open_out="$(printf '%s\n' "$check_out" | grep "^dangling_start${TAB}" || true)"
+      mismatch_out="$(printf '%s\n' "$check_out" | grep -v "^dangling_start${TAB}" || true)"
+      # grep -c は 0 件のとき「0」を出しつつ exit 1 を返す。set -e + pipefail 下では
+      # それだけでスクリプトが落ちる（＝警告レポートが途中で切れる）ため || true で受ける。
+      open_count="$(printf '%s\n' "$open_out" | grep -c . || true)"
+      mismatch_count="$(printf '%s\n' "$mismatch_out" | grep -c . || true)"
       echo "heartbeat-check: 未終了の *_start: ${open_count} 件（空白期間中に放置された委譲・差し込みの可能性）"
-      printf '%s\n' "$check_out"
+      if [ "$open_count" -gt 0 ]; then
+        printf '%s\n' "$open_out"
+      fi
+      if [ "$mismatch_count" -gt 0 ]; then
+        echo "heartbeat-check: 対応不整合の *_end: ${mismatch_count} 件（対応する *_start が無い／同一キーへ重複した *_end。完了済み作業の二重計上の疑い）"
+        printf '%s\n' "$mismatch_out"
+      fi
       ;;
     *)
       echo "heartbeat-check: 未終了の *_start は検算不能でした（log-run-event.sh check が exit ${check_status}）"

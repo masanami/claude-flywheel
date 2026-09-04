@@ -123,6 +123,37 @@ assert_case "stale 時に未終了 *_start の該当行を列挙する" 1 "550e8
 printf '%s\n' '{"ts":"2026-08-06T16:00:00+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","result":"done"}' >> "$ws/.flywheel/runs.jsonl"
 assert_case "stale 時・未終了なしは 0 件と明示" 1 "未終了の *_start: 0 件" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
 
+# check が返す種別ラベル（Issue #142）の仕分け: 件数は dangling_start だけを数え、
+# orphan_end / duplicate_end は「対応不整合」として別枠で出す。全行を一律に数えると、
+# 完了済み作業の重複記録が「放置された委譲」に化けて件数が水増しされる。
+cat > "$ws/.flywheel/runs.jsonl" <<'EOF'
+{"ts":"2026-08-06T10:00:00+09:00","event":"cycle_start","cycle":"2026-08-06-cycle"}
+{"ts":"2026-08-06T10:30:00+09:00","event":"cycle_end","cycle":"2026-08-06-cycle","result":"completed"}
+{"ts":"2026-08-06T15:53:00+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","title":"放置された委譲"}
+{"ts":"2026-08-06T16:10:00+09:00","event":"adhoc_end","id":"adhoc-B","result":"対応する start が無い end"}
+{"ts":"2026-08-06T16:20:00+09:00","event":"adhoc_start","id":"adhoc-C","title":"end が二重に打たれる"}
+{"ts":"2026-08-06T16:30:00+09:00","event":"adhoc_end","id":"adhoc-C","result":"1回目"}
+{"ts":"2026-08-06T16:40:00+09:00","event":"adhoc_end","id":"adhoc-C","result":"2回目（重複）"}
+EOF
+assert_case "未終了 *_start の件数に orphan_end / duplicate_end を混ぜない" 1 "未終了の *_start: 1 件" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
+assert_case "orphan_end / duplicate_end は対応不整合として別枠で件数を出す" 1 "対応不整合の *_end: 2 件" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
+assert_case "対応不整合の該当行も列挙する" 1 "adhoc-B" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
+
+# 対応不整合が無ければ別枠の行は出さない（毎周のノイズにしない）。
+cat > "$ws/.flywheel/runs.jsonl" <<'EOF'
+{"ts":"2026-08-06T10:00:00+09:00","event":"cycle_start","cycle":"2026-08-06-cycle"}
+{"ts":"2026-08-06T10:30:00+09:00","event":"cycle_end","cycle":"2026-08-06-cycle","result":"completed"}
+{"ts":"2026-08-06T15:53:00+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"550e8400-e29b-41d4-a716-446655440000","title":"放置された委譲"}
+EOF
+got_out="$(bash "$SCRIPT" --workspace "$ws" --now 2026-08-11T17:59:00+09:00 2>/dev/null)"
+ok=1
+case "$got_out" in *"対応不整合"*) ok=0 ;; esac
+if [ "$ok" -eq 1 ]; then
+  PASS=$((PASS + 1)); echo "ok   - 対応不整合が 0 件なら別枠の行を出さない"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - 対応不整合が 0 件なら別枠の行を出さない"; echo "       stdout: $got_out"
+fi
+
 # 最新の cycle_end を使う（result=abandoned も 1 拍と数える）
 printf '%s\n' '{"ts":"2026-08-11T09:00:00+09:00","event":"cycle_end","cycle":"z","result":"abandoned"}' >> "$ws/.flywheel/runs.jsonl"
 assert_case "最新の cycle_end（abandoned 含む）を拍動とみなす" 0 - -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00

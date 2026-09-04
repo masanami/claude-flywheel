@@ -344,6 +344,74 @@ run_event adhoc_start --id probe98 --title "先頭 -- の値の検証" --workspa
 run_event adhoc_end --id probe98 --result "--tail オプションを非空基準へ" --workspace "$ws"
 check_case "書き込み→check の往復: -- で始まる値で閉じた start は未終了に残らない" 0 - -- --workspace "$ws"
 
+# ---------------------------------------------------------------------------
+# 6. check: 対応する start が無い *_end と、同一キーへの *_end の重複（Issue #142）
+# ---------------------------------------------------------------------------
+# 未終了 start の「裏返し」。append は best-effort（環境要因の失敗は exit 0）である以上、
+# start 側の欠落は仕様上ありうるのに、旧実装では閉じる相手の無い end がスタックに何も
+# 起こさず黙って捨てられていた（＝完了済み作業の二重計上を観測面・reflect が検知できない）。
+# 出力形式は `<種別ラベル><TAB><runs.jsonl の該当行>`、exit code は既存の未終了 start と
+# 同じ 1（呼び出し側＝run-cycle 手順6 の「exit 1 なら実状態を確認する」扱いを変えないため）。
+TAB="$(printf '\t')"
+
+reset_ws
+mkdir -p "$ws/.flywheel"
+# Issue #142 の再現データ: 正常系 1 件・orphan end 1 件・duplicate end 1 件。
+cat > "$RUNS" <<'EOF'
+{"ts":"2026-09-01T10:00:00+09:00","event":"adhoc_start","id":"adhoc-A","title":"正常系: start と end が対応する"}
+{"ts":"2026-09-01T10:30:00+09:00","event":"adhoc_end","id":"adhoc-A","result":"完了"}
+{"ts":"2026-09-01T11:00:00+09:00","event":"adhoc_end","id":"adhoc-B","result":"対応する start が無い end"}
+{"ts":"2026-09-01T12:00:00+09:00","event":"adhoc_start","id":"adhoc-C","title":"end が二重に打たれる"}
+{"ts":"2026-09-01T12:30:00+09:00","event":"adhoc_end","id":"adhoc-C","result":"1回目"}
+{"ts":"2026-09-01T12:40:00+09:00","event":"adhoc_end","id":"adhoc-C","result":"2回目（重複）"}
+EOF
+check_case "check: 対応する start が無い end を orphan_end として exit 1 で列挙" \
+  1 "orphan_end${TAB}{\"ts\":\"2026-09-01T11:00:00+09:00\"" -- --workspace "$ws"
+check_case "check: 同一 id への 2 回目の end を duplicate_end として列挙" \
+  1 "duplicate_end${TAB}{\"ts\":\"2026-09-01T12:40:00+09:00\"" -- --workspace "$ws"
+
+# 検出は「該当行だけ」であること。出力が入力を素通ししていれば正常系（adhoc-A）と
+# duplicate の 1 回目も混ざるため、行数と非該当 id の不在まで固定する。
+RUN_OUT="$(bash "$SCRIPT" check --workspace "$ws" 2>"$tmp/stderr")"
+RUN_EXIT=$?
+RUN_ERR="$(cat "$tmp/stderr")"
+ok=1
+[ "$RUN_EXIT" -eq 1 ] || ok=0
+[ "$(printf '%s\n' "$RUN_OUT" | grep -c .)" -eq 2 ] || ok=0
+printf '%s\n' "$RUN_OUT" | grep -F -q "adhoc-A" && ok=0
+printf '%s\n' "$RUN_OUT" | grep -F -q "1回目" && ok=0
+report "check: 正しく閉じた start/end は列挙しない（該当は 2 行のみ）" "$ok"
+
+# 未終了 start にも種別ラベルが付く（3 種を同じ出力面に載せるため。既存の「該当行を列挙」
+# という契約はラベルの後ろにそのまま残る）。
+reset_ws
+mkdir -p "$ws/.flywheel"
+printf '%s\n' '{"ts":"2026-09-01T13:00:00+09:00","event":"adhoc_start","id":"adhoc-D","title":"閉じられていない差し込み"}' > "$RUNS"
+check_case "check: 未終了 start には dangling_start ラベルが付く" \
+  1 "dangling_start${TAB}{\"ts\":\"2026-09-01T13:00:00+09:00\"" -- --workspace "$ws"
+
+# delegate_* 側（対応付けキーは session_id）でも同じ 2 種を検出する。
+reset_ws
+mkdir -p "$ws/.flywheel"
+cat > "$RUNS" <<EOF
+{"ts":"2026-09-01T14:00:00+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"${UUID}","result":"start が無い end"}
+EOF
+check_case "check: delegate_end も start が無ければ orphan_end として列挙" \
+  1 "orphan_end${TAB}{\"ts\":\"2026-09-01T14:00:00+09:00\"" -- --workspace "$ws"
+
+# 別サイクルへ持ち越した --resume は同一キーの start が再登場する（runtime/README.md の
+# 「再開（--resume）の扱い」）。start→end→start→end を duplicate_end と誤検出しないこと。
+reset_ws
+mkdir -p "$ws/.flywheel"
+cat > "$RUNS" <<EOF
+{"ts":"2026-09-01T15:00:00+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"${UUID}"}
+{"ts":"2026-09-01T15:30:00+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"${UUID}","result":"1周目"}
+{"ts":"2026-09-02T09:00:00+09:00","event":"delegate_start","challenge":"C-044","repo":"net-config","session_id":"${UUID}"}
+{"ts":"2026-09-02T09:30:00+09:00","event":"delegate_end","challenge":"C-044","repo":"net-config","session_id":"${UUID}","result":"2周目"}
+EOF
+check_case "check: resume による同一キーの再登場（start→end→start→end）は異常なし" \
+  0 - -- --workspace "$ws"
+
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]
