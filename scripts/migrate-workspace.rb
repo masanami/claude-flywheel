@@ -655,7 +655,9 @@ def inject_fault!(lines)
   when "move-blank-into-nest"
     # 同一エントリ内での**空行の移動**（多重集合は不変＝差分検算をすり抜ける）。
     # ネスト項目の直前に空行が入ると分類欄の結合切れになり、バリデータ前後比較だけが検出できる。
-    k = lines.index { |l| l =~ /^ {2}\d+[.)] / }
+    # 対象は**実データの行**に限る（記入例ブロックにもネスト項目があるため。記入例側を崩すと
+    # 「記入例ブロックが現行テンプレートどおりでない」検査が先に落ち、再現したい経路を通らない）。
+    k = find_line_index(lines, /^ {2}\d+[.)] /)
     return lines if k.nil?
     h = (0...k).to_a.reverse.find { |i| lines[i] =~ ENTRY_HEADING_RE } || 0
     b = ((h + 1)...k).find { |i| lines[i].strip.empty? }
