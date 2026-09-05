@@ -132,12 +132,21 @@ if [ -n "${RESULT_FILE_GIVEN}" ]; then
   [ -e "${RESULT_FILE}" ] || die "--result-file が存在しません: ${RESULT_FILE}"
   [ -f "${RESULT_FILE}" ] || die "--result-file が通常ファイルではありません: ${RESULT_FILE}"
   [ -r "${RESULT_FILE}" ] || die "--result-file を読めません: ${RESULT_FILE}"
-  INPUT="$(cat -- "${RESULT_FILE}" 2>/dev/null)"
-  [ $? -eq 0 ] || die "--result-file の読み込みに失敗しました: ${RESULT_FILE}"
+  if ! INPUT="$(cat -- "${RESULT_FILE}" 2>/dev/null)"; then
+    die "--result-file の読み込みに失敗しました: ${RESULT_FILE}"
+  fi
 else
   # stdin が端末のままだと入力待ちで停止する。自走中に固まらせないよう検査不能で返す。
   [ -t 0 ] && die "stdin が端末です（result の値を stdin へ流すか --result-file を使ってください）"
-  INPUT="$(cat)"
+  # **読み取り失敗を空入力と同一視しない**（`set -o errexit` を使っていないため、
+  # ここで拾わないと `cat` の失敗が素通りして `reason=empty`・exit 1 になる）。
+  # exit 1 は「枠超過ではない」＝平常であり、呼び出し側は `report=` を転記しない
+  # 規定（run-cycle 手順3）なので、**読めなかった事実がサイクルレポートに一切
+  # 残らない**。判定材料が空だったのか読めなかったのかは別物であり、後者は
+  # 検査不能（exit 2）として観測可能にする。
+  if ! INPUT="$(cat)"; then
+    die "stdin の読み込みに失敗しました"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

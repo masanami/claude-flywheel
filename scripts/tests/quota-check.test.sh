@@ -304,6 +304,27 @@ else fail "検査不能は stderr に理由を書く" "stderr が空"; fi
 run_args --result-file "$tmp"
 assert_exit "ディレクトリを --result-file に渡すと exit 2" 2
 
+# **stdin の読み取り失敗を「空入力」と同一視しない**。`errexit` を使っていないため、
+# `cat` の失敗を明示的に拾わないと素通りして `reason=empty`・exit 1 になる。exit 1 は
+# 「枠超過ではない」＝平常であり、呼び出し側は `report=` を転記しない規定（手順3）なので、
+# **読めなかった事実がサイクルレポートに一切残らない**——枠超過のシグナルを取り落としても
+# 誰も気付けない。ディレクトリを stdin に与えると open は成功し read が EISDIR で失敗する。
+# 環境依存を避けるため、まず `cat` が実際に失敗することを確かめてから検査する。
+if ( cat < "$tmp" ) >/dev/null 2>&1; then
+  echo "skip - stdin 読み取り失敗（この環境では cat がディレクトリ入力で失敗しない）"
+else
+  RUN_OUT="$(bash "$SCRIPT" < "$tmp" 2>"$tmp/stderr")"
+  RUN_EXIT=$?
+  RUN_ERR="$(cat "$tmp/stderr")"
+  echo "$RUN_EXIT" >> "$OBSERVED_EXITS"
+  assert_exit "stdin の読み取り失敗は exit 2（空入力と同一視しない）" 2
+  assert_no_field "読み取り失敗では reason を出さない（empty と区別する）" reason
+  assert_no_field "読み取り失敗では verdict を出さない" verdict
+  assert_nonempty_field "読み取り失敗でも report= を出す" report
+  if [ -n "$RUN_ERR" ]; then pass "読み取り失敗は stderr に理由を書く"
+  else fail "読み取り失敗は stderr に理由を書く" "stderr が空"; fi
+fi
+
 run_args --result-file
 assert_exit "--result-file の値欠落は exit 2" 2
 
@@ -437,15 +458,44 @@ else
        "宣言に無い exit が返された: $(echo "$miss_e_list" | tr '\n' ' ')"
 fi
 
-echo "== 10. 規定・実装の結線 =="
+echo "== 10. 規定・実装の結線（手順3 の範囲を切り出してから検査する）=="
 
-assert_contains "SKILL 手順3 が判定器スクリプトを呼ぶ規定を持つ" "$SKILL_MD" 'scripts/quota-check.sh'
-assert_contains "SKILL 手順3 が exit の読み分けを持つ" "$SKILL_MD" 'exit 2'
-assert_contains "SKILL 手順3 が report= の転記を規定する" "$SKILL_MD" 'report='
-assert_contains "SKILL 手順3 が枠超過時の扱い（親の行動）を残している" "$SKILL_MD" '即座に再委譲しない'
+# **SKILL.md 全体を対象にすると検査が空虚になる**: `exit 2` は手順0・手順6 にも、
+# `report=` は手順0・手順6 にもある。全文を対象にすると「規定がこの文書のどこかに在る」
+# ことしか固定できず、**手順3 から削除しても別の節の一致でテストが通る**。
+# 手順3 の範囲を切り出してから検査する。
+STEP3="$tmp/step3.md"
+awk '/^### 3\. 実行/{inside=1} inside && /^### 4\./{exit} inside{print}' "$SKILL_MD" > "$STEP3"
+
+# --- 抽出器の自己検査（これが無いと以下の scoped 検査が空虚に真になりうる）-----------
+# 抽出が壊れて**全文**を返すと scoped 検査はすべて素通りする（空を返した場合は
+# assert_contains が落ちるので気付ける）。前者を塞ぐため、手順3 の**外にしか無い**
+# 文字列が切り出しに含まれないことを固定する。
+n_step3="$(wc -l < "$STEP3" | tr -d " ")"
+n_all="$(wc -l < "$SKILL_MD" | tr -d " ")"
+if [ "$n_step3" -gt 0 ]; then pass "手順3 の切り出しが空でない（${n_step3} 行）"
+else fail "手順3 の切り出しが空でない" "見出し '### 3. 実行' を見つけられなかった"; fi
+if [ "$n_step3" -lt "$n_all" ]; then pass "切り出しが全文より短い（${n_step3} < ${n_all} 行）"
+else fail "切り出しが全文より短い" "全文を返している疑い（scoped 検査が空虚に真になる）"; fi
+assert_contains "切り出しの先頭が手順3 の見出し" "$STEP3" '### 3. 実行'
+assert_not_contains "切り出しに手順0 が混ざっていない" "$STEP3" 'scripts/priority-policy-resolve.sh'
+assert_not_contains "切り出しに手順6 が混ざっていない" "$STEP3" 'scripts/cycle-commit.sh'
+assert_not_contains "切り出しが手順4 以降へはみ出していない" "$STEP3" '### 4.'
+
+# --- 手順3 の範囲に対する検査 -----------------------------------------------
+assert_contains "手順3 が判定器スクリプトを呼ぶ規定を持つ" "$STEP3" 'scripts/quota-check.sh'
+assert_contains "手順3 が exit 2（検査不能）の読み分けを持つ" "$STEP3" 'exit 2'
+# 呼び出し側の起動失敗処理。§8 はシェルが 126/127 を返すことしか見ておらず、
+# 「親がそれをどう扱うか」は SKILL 側にしか無い規定なのでここで固定する。
+assert_contains "手順3 が起動失敗（126/127）の扱いを規定する" "$STEP3" '126/127'
+assert_contains "手順3 が report= の転記を規定する" "$STEP3" 'report='
+assert_contains "手順3 が枠超過時の扱い（親の行動）を残している" "$STEP3" '即座に再委譲しない'
 
 # 第 2 のリストを作らない: 判定規則の逐語（先頭一致文字列・枠名の列挙・判定不能時の
 # 倒し方）を SKILL 側へ残さない。正本はスクリプトであり、複製すると必ずずれる。
+# **こちらは全文を対象にしたままにする**（手順3 へ絞らない）。「判定規則の逐語が
+# **どこにも**無い」は節を絞るより強い条件であり、絞ると手順3 の外へ再掲された
+# 複製を見逃す。上の scoped 検査とは向きが逆なので、同じ形に揃えてはならない。
 assert_not_contains "SKILL に先頭一致文字列の逐語が残っていない" "$SKILL_MD" "You've hit your"
 assert_not_contains "SKILL に枠名の逐語列挙が残っていない" "$SKILL_MD" 'usage credit limit'
 assert_not_contains "SKILL に先頭一致条件の逐語が残っていない" "$SKILL_MD" '前後の空白を除いた先頭が'
