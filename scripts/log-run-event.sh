@@ -37,22 +37,31 @@
 # 使い方（検算・読み取り専用）:
 #   scripts/log-run-event.sh check [--workspace <dir>]   （`--workspace=<dir>` 形式も可）
 #
-#   未終了の delegate_start / adhoc_start（対応する *_end がまだ無いもの）を列挙する。
-#   run-cycle step 6 で cycle_end を記録する直前に呼び、未終了があれば実状態に基づく
-#   delegate_end（事後補記）で閉じてから cycle_end を打つ（詳細は skills/run-cycle/SKILL.md
-#   手順6を参照。未終了 adhoc_start は代筆回収しない＝runtime/README.md の既定。しきい値
-#   超過の要確認判定は消費者〔観測プレーン〕側が担い、本スクリプト・run-cycle は毎回
-#   報告する義務を負わない）。対応付けの意味論（キー〔delegate_* は session_id・
-#   adhoc_* は id〕ごとに start/end を ts 順〔＝行順。append-only のため一致〕にペアリング
-#   し、末尾が start のまま残るものを未終了とみなす。resume による同一キーの再登場
-#   〔start→end→start〕にも対応する。cycle_start / cycle_end は対象外）の正本は
+#   対応付けの取れない行を、種別ラベル付きで列挙する（3 種）。
+#     dangling_start … 対応する *_end が無い *_start（＝未終了の delegate_start/adhoc_start）
+#     orphan_end     … 対応する *_start が一度も現れていない *_end
+#     duplicate_end  … 既に閉じられたキーへ再度打たれた *_end（同一キーの end の重複）
+#   run-cycle step 6 で cycle_end を記録する直前に呼び、dangling_start の delegate_start は
+#   実状態に基づく delegate_end（事後補記）で閉じてから cycle_end を打つ（詳細は
+#   skills/run-cycle/SKILL.md 手順6を参照。未終了 adhoc_start は代筆回収しない＝
+#   runtime/README.md の既定。orphan_end / duplicate_end も append-only 規律により書き込みで
+#   修復せず報告に留める。しきい値超過の要確認判定は消費者〔観測プレーン〕側が担い、
+#   本スクリプト・run-cycle は毎回報告する義務を負わない）。対応付けの意味論（キー
+#   〔delegate_* は session_id・adhoc_* は id〕ごとに start/end を ts 順〔＝行順。
+#   append-only のため一致〕にペアリングし、end は同一キーの最も新しい未終了 start を閉じる。
+#   末尾が start のまま残るものが dangling_start、閉じる相手の無い end が
+#   orphan_end / duplicate_end。resume による同一キーの再登場〔start→end→start→end〕は
+#   duplicate_end にならない。cycle_start / cycle_end は対象外）の正本は
 #   利用先ワークスペースの runtime/README.md「実行イベントログ（runs.jsonl）」節。
-#   - runs.jsonl が空 → 未終了なし・exit 0（何も出力しない）。
-#   - runs.jsonl が不在 → 未終了なし・exit 0。ただし初回サイクルとの区別が付かないため
+#   - runs.jsonl が空 → 該当なし・exit 0（何も出力しない）。
+#   - runs.jsonl が不在 → 該当なし・exit 0。ただし初回サイクルとの区別が付かないため
 #     stderr に確認を促す警告を出す（--workspace の指定ミスの可能性があるため。exit code
 #     は 0 のまま＝検算不能を fail-closed〔exit 2〕にはしない設計判断）。
-#   - 未終了が無い → exit 0（何も出力しない）。
-#   - 未終了がある → 該当行を 1 件 1 行で stdout に列挙し、exit 1。
+#   - 該当が無い → exit 0（何も出力しない）。
+#   - 該当がある → `<種別ラベル><TAB><runs.jsonl の該当行>` を 1 件 1 行で stdout に列挙し、
+#     exit 1（3 種とも同じ exit 1。呼び出し側が「exit 1 なら実状態を確認する」という 1 つの
+#     扱いで済むようにするため。消費者はラベルで種別を仕分けて件数を数える＝一律に数えると
+#     *_end 側の異常が未終了 start の件数に化ける）。
 #   - 引数エラー・環境エラー（不明な引数・値欠落・`--workspace` に不正な値・
 #     ワークスペースディレクトリの不在／ワークスペースか `.flywheel` の走査不可・
 #     runs.jsonl が読み取り不可）→ stderr に警告し exit 2（`.flywheel` 自体の不在は
@@ -75,7 +84,7 @@
 #     環境要因（exit 0）と呼び出し側の誤り（exit 2）を exit code で分ける。exit 2 でも本
 #     スクリプトは何も書かずに終了するだけで、呼び出し側のサイクルを止める副作用は持たない。
 #   - `check` は書き込みを行わない読み取り・検証コマンドであり、exit code 自体が
-#     「未終了 start の有無」のシグナルのため上記とは別契約（未終了があれば exit 1、
+#     「対応付けの取れない行の有無」のシグナルのため上記とは別契約（該当があれば exit 1、
 #     引数・環境エラーは exit 2）。
 #   - 秘密情報のチェックはしない（書き手の規律。本スクリプトは内容を解釈しない機械）。
 
@@ -144,14 +153,23 @@ extract_field() {
 }
 
 # check サブコマンド本体: runs.jsonl を ts 順（＝行順。append-only のため一致）に走査し、
-# delegate_*/adhoc_* をキー（session_id / id）ごとに start/end でペアリングする。
-# 末尾が start のまま閉じられていないキーが残れば、その行を列挙して exit 1（読み取り専用の
-# 検証コマンドにつき、書き込みイベントの exit code 契約とは別体系）。
+# delegate_*/adhoc_* をキー（session_id / id）ごとに start/end でペアリングし、対応の取れない
+# 行を種別ラベル付きで列挙して exit 1 とする（読み取り専用の検証コマンドにつき、書き込み
+# イベントの exit code 契約とは別体系）。検出する 3 種は次のとおり（Issue #55 / #142）:
+#   dangling_start … 対応する *_end が無い *_start（末尾が start のまま残ったもの）
+#   orphan_end     … 対応する *_start が一度も現れていない *_end
+#   duplicate_end  … 既に閉じられたキーへ再度打たれた *_end（同一キーの end の重複）
+# orphan_end / duplicate_end は dangling_start の裏返しであり、append が best-effort
+# （環境要因の失敗は exit 0）である以上 start 側の欠落は仕様上ありうる。検出しないと
+# 完了済み作業が二重計上され、観測面・reflect の定量集計が実態とずれる。
 #
 # ペアリングは「未終了 start のスタック」で行う（同一キーの start を複数回 push しうる。
 # start では既存の未終了 start を上書きしない＝記録漏れで同一キーの start が連続しても
 # 古い未終了 start を握りつぶさない。end は同一キーの**最も新しい**未終了 start だけを
-# 閉じ、それより古い未終了 start は残す）。
+# 閉じ、それより古い未終了 start は残す）。閉じる相手の無い end は**捨てずに**、そのキーに
+# start が一度でも現れていたか（started_keys）で duplicate_end / orphan_end に振り分ける
+# ——この分岐により、別サイクルへ持ち越した --resume の start→end→start→end は
+# duplicate_end にならない（2 回目の end は 2 回目の start を閉じるため）。
 cmd_check() {
   workspace="."
   while [ "$#" -gt 0 ]; do
@@ -241,6 +259,13 @@ cmd_check() {
   # 未終了 start のスタック（同一キーの多重 start を保持できるよう、start は常に追加する）。
   open_keys=()
   open_lines=()
+  # 閉じる相手が無かった end（ラベル済み）を検出順に貯める。
+  bad_lines=()
+  # start が一度でも現れたキーの集合。bash 3.2 に連想配列が無く、キー配列の線形走査を
+  # end 行ごとに回すと行数の二乗になるため、改行区切りの 1 本の文字列に対する組み込みの
+  # パターンマッチ 1 回で判定する（値は書き込み時に " と \ を拒否済み〔reject_unsafe_key〕、
+  # かつ json_escape が制御文字をスペースへ潰すため、区切りの改行と衝突しない）。
+  started_keys=$'\n'
 
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
@@ -270,6 +295,10 @@ cmd_check() {
         # 既存の未終了 start を上書きせず、常に新しいエントリとして積む。
         open_keys+=("$key")
         open_lines+=("$line")
+        case "$started_keys" in
+          *$'\n'"$key"$'\n'*) ;;
+          *) started_keys="${started_keys}${key}"$'\n' ;;
+        esac
         ;;
       delegate_end|adhoc_end)
         # 同一キーの最も新しい（インデックスが最大の）未終了 start だけを閉じる。
@@ -282,16 +311,29 @@ cmd_check() {
         if [ "$idx" -ge 0 ]; then
           unset 'open_keys[idx]'
           unset 'open_lines[idx]'
+        else
+          # 閉じる相手が無い end。start が過去に現れていれば「既に閉じたキーへの重複」、
+          # 一度も現れていなければ「start ごと欠落した end」。
+          case "$started_keys" in
+            *$'\n'"$key"$'\n'*) bad_lines+=("duplicate_end"$'\t'"$line") ;;
+            *)                    bad_lines+=("orphan_end"$'\t'"$line") ;;
+          esac
         fi
         ;;
     esac
   done < "$file"
 
-  if [ "${#open_keys[@]}" -eq 0 ]; then
+  if [ "${#open_keys[@]}" -eq 0 ] && [ "${#bad_lines[@]}" -eq 0 ]; then
     exit 0
   fi
 
+  # 出力は `<種別ラベル><TAB><runs.jsonl の該当行>`。dangling_start を先に（行順）、
+  # 続けて orphan_end / duplicate_end を検出順（＝行順）に出す。消費者はラベルで種別を
+  # 判別し、最初の TAB 以降をそのまま元の JSON 行として扱える。
   for line in "${open_lines[@]+"${open_lines[@]}"}"; do
+    printf 'dangling_start\t%s\n' "$line"
+  done
+  for line in "${bad_lines[@]+"${bad_lines[@]}"}"; do
     printf '%s\n' "$line"
   done
   exit 1

@@ -1,4 +1,4 @@
-<!-- flywheel-template: runtime/README.md@0.20.0 -->
+<!-- flywheel-template: runtime/README.md@0.25.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
@@ -86,7 +86,7 @@ flowchart LR
 | `journal/` | 1 周の**事後サマリ**（FR-50 / NFR-02 の正） | Git 追跡・恒久記録 |
 | `.flywheel/runs.jsonl` | **いま何が走っているか**（イベント境界） | ローカルのみ（gitignore）・観測用 |
 
-消費者は**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）。「実行中」は**対応する `*_end` のない `*_start`** として導出する。run-cycle 側も同じ導出を `cycle_end` を打つ直前の機械的検算（`log-run-event.sh check`）に使い、**`delegate_start` の記録漏れ**をサイクル境界で自ら検知して閉じる（未終了 `adhoc_start` は下記「未終了 `adhoc_start` の扱い」に従い代筆回収しない。しきい値超過の要確認判定は既定どおり消費者〔観測プレーン〕側が担い、run-cycle 自身が毎周報告する義務は負わない。詳細は `skills/run-cycle/SKILL.md` 手順6）。
+消費者は**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）。「実行中」は**対応する `*_end` のない `*_start`** として導出する。run-cycle 側も同じ導出を `cycle_end` を打つ直前の機械的検算（`log-run-event.sh check`）に使い、**`delegate_start` の記録漏れ**をサイクル境界で自ら検知して閉じる（あわせて、その裏返しである `orphan_end` / `duplicate_end` も報告する。下記「対応付けの検算が報告する 3 種」）（未終了 `adhoc_start` は下記「未終了 `adhoc_start` の扱い」に従い代筆回収しない。しきい値超過の要確認判定は既定どおり消費者〔観測プレーン〕側が担い、run-cycle 自身が毎周報告する義務は負わない。詳細は `skills/run-cycle/SKILL.md` 手順6）。
 
 ### イベント（6 種）
 
@@ -141,11 +141,21 @@ flowchart LR
 - **再開（`--resume`）の扱い**: 同一サイクル内の `--resume` 往復は 1 委譲とみなしイベントを追加しない。**別サイクルに持ち越した resume は新しい `delegate_start`（同じ `session_id` の再登場可）で挟む**（各サイクルの委譲区間を独立に観測できるようにするため）。対応付けは「同一 `session_id` の**最新の未終了 start**」とする。
 - **`session_id` 不一致時**: 子の返り値の `session_id` が事前採番値と一致しない場合（環境が `--session-id` を尊重しないケース）、書き手は事前採番値の `delegate_start` を `delegate_end`（`result` に不一致の事実と実際の ID を明記）で閉じ、以後は返り値を正として扱う（未終了 start を残さないため。委譲の再実行はしない）。
 - **未終了 `adhoc_start` の扱い**: 中断・クラッシュで `adhoc_end` が残らなかった場合も代筆回収はしない（cycle の `abandoned` と違い、回収の自然な契機〔次サイクルの stale ロック回収〕が無いため）。消費者はしきい値超過の未終了 start を要確認として扱う。作業を再開したら同じ `id` のまま継続し、終了時に `adhoc_end` で閉じる。
+- **対応付けの検算が報告する 3 種**: 対応付け（キーごとに start/end を ts 順＝行順にペアリングし、`end` は同一キーの**最も新しい**未終了 start を閉じる）で**対応が取れなかった行**は、次の 3 種として報告する。`cycle_start` / `cycle_end` は対象外。
+
+  | 種別 | 意味 | 主な原因 |
+  | --- | --- | --- |
+  | `dangling_start` | 対応する `*_end` が無い `*_start` | 別サイクルへ持ち越した `--resume` 委譲で `delegate_end` を打つトリガーが抜けた・中断 |
+  | `orphan_end` | 対応する `*_start` が一度も現れていない `*_end` | `*_start` の append が落ちた（best-effort・引数エラー）／`--workspace` の指定違いで別ファイルへ書いた |
+  | `duplicate_end` | 既に閉じられたキーへ再度打たれた `*_end` | 同じ作業を二度閉じた・複数の書き手が同じ `id` を使った |
+
+  `orphan_end` / `duplicate_end` は `dangling_start` の**裏返し**であり、append が best-effort である以上 `*_start` 側の欠落は仕様上ありうる。報告しないと**完了済みの作業が二重計上**され（`*_end` の延べ行数で数えると実件数より多くなる）、消費者・`reflect` の定量集計が実態とずれる。**`*_end` の件数は「延べ行数」ではなく「対応の取れた組の数」で数える**。
+  なお `--resume` による同一キーの再登場（`start`→`end`→`start`→`end`）は `duplicate_end` ではない（2 回目の `end` は 2 回目の `start` を閉じる）。**検出は「気づく」ための報告であり、回収の既定を変えるものではない**（未終了 `adhoc_start` を代筆回収しない上記の既定はそのまま）。
 - 機械可読版のスキーマ（JSON Schema）はプラグインの `contracts/schemas/runs.schema.json`（本セクションが正本であり、食い違う場合はスキーマ側を追従修正する。整合はプラグインのテストが本 README のサンプル行をスキーマに通して固定している）。消費者（観測プレーン）のパーサテスト用フィクスチャは `contracts/fixtures/runs/`。
-- プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝未終了 `*_start` があれば列挙して exit 1）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
+- プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝上記 3 種〔`dangling_start` / `orphan_end` / `duplicate_end`〕のいずれかがあれば `<種別ラベル><TAB><該当行>` の形式で列挙して exit 1。3 種を同じ exit code に含めるのは、呼び出し側が「exit 1 なら実状態を確認する」という 1 つの扱いで済むようにするため）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
   - `log-run-event.sh` の書き込みイベントの exit code は 2 値: **環境要因の失敗（日時取得・`mkdir`・`append`）は exit 0**（呼び出し側で回復できず、サイクルを止める理由にならないため）／**引数エラーは exit 2 で、イベントは記録されていない**（不正なイベント名・不明な引数・値の欠落／曖昧・必須フィールドの欠落・対応付けキーの不正文字・空の `--workspace`）。呼び出し側は exit 2 を見たら引数を直して同じイベントを記録し直す。
   - 値の渡し方は `--opt <value>` と `--opt=<value>` の 2 形式で、**値が `-` / `--` で始まってもそのまま値として扱う**（`--result "--tail を非空レコード基準へ"` のようにオプション名で始まる 1 行要約は実運用で普通に起きるため）。次の引数をフラグとみなすのは**それがオプション名と一致するとき**だけで、一致して曖昧になる場合は `--opt=<value>` 形式で明示する（例: `--result=--dry-run`）。
-- **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start` の件数とともにサイクルレポートへ警告を出す（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
+- **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start`・対応不整合 `*_end` の件数と該当行を**上記 3 種のラベルごとに個別に**（`dangling_start` / `orphan_end` / `duplicate_end` をそれぞれ別の件数として。未知のラベルは「その他」へ寄せて捨てない）サイクルレポートへ警告として出す。**種別を 1 枠へ束ねない**——原因も対処も違う異常（`*_start` の記録が落ちた／同じ作業を二度閉じた）が同じ数字に見えると、読み手が取り違えるため（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
 - **no-op 周の判定（派生読み取り・スキーマ不変）**: run-cycle 手順6 は、当周のコミットを打つか次の周へ束ねるかを決めるために、読み取り専用の `scripts/noop-check.rb` で**当周の `cycle_start` 以降に `cycle_start` / `cycle_end` 以外のイベントが記録されていないか**を検査する（委譲・差し込み・`delegate_end` の事後補記が起きた周を「変化なし」と誤判定しないための裏取り。Issue [#82](https://github.com/masanami/claude-flywheel/issues/82)。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・当周の `cycle_start` が見つからない場合は「判定不能」であり「委譲なし」ではない**（exit 2 で区別し、呼び出し側は従来どおりコミットする）。
 
 ## メモ
