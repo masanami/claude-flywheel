@@ -146,6 +146,17 @@ assert_case "duplicate_end の件数を個別に出す" 1 "重複した *_end: 1
 # 該当行も種別ごとに出す（どの行がどちらの異常かを、ラベル付きの行で確定させる）。
 assert_case "orphan_end の該当行を orphan_end ラベル付きで列挙する" 1 "orphan_end${TAB}{\"ts\":\"2026-08-06T16:10:00+09:00\"" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
 assert_case "duplicate_end の該当行を duplicate_end ラベル付きで列挙する" 1 "duplicate_end${TAB}{\"ts\":\"2026-08-06T16:40:00+09:00\"" -- --workspace "$ws" --now 2026-08-11T17:59:00+09:00
+# 既知ラベルは「その他」へ落ちない。既知ラベルの集合は emit_label の呼び出しから積み上げる
+# 実装のため、その積み上げが壊れると既知の行が「その他」へ二重に現れる（種別を足したときに
+# 「その他」側のリストを直し忘れる、という同型の故障も同じ形で出る）。
+got_out="$(bash "$SCRIPT" --workspace "$ws" --now 2026-08-11T17:59:00+09:00 2>/dev/null)"
+ok=1
+case "$got_out" in *"その他の種別"*) ok=0 ;; esac
+if [ "$ok" -eq 1 ]; then
+  PASS=$((PASS + 1)); echo "ok   - 既知の 3 種は「その他」へ二重計上されない"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - 既知の 3 種は「その他」へ二重計上されない"; echo "       stdout: $got_out"
+fi
 
 # 該当が無い種別の行は出さない（毎周のノイズにしない）。未終了 *_start だけは 0 件でも
 # 明示する（既存契約）。

@@ -337,8 +337,13 @@ echo "heartbeat-check: 拍動停止の疑い: 最終 cycle_end（${last_ts}）�
 #   $1=種別ラベル $2=見出し $3=見出しの後ろに付ける補足 $4="always" なら 0 件でも見出しを出す
 # 「0 件でも出す」は未終了 *_start だけの既存契約（他の種別は毎周のノイズにしないため
 # 該当があるときだけ出す）。
+# 既知ラベルの集合は emit_label の呼び出しから積み上げる（「その他」の判定で 2 本目の
+# リストを持つと、種別を足したときに必ずずれる＝同じ語彙が二重に数えられるか静かに落ちる）。
+KNOWN_LABELS=""
+
 emit_label() {
   _label="$1"; _caption="$2"; _suffix="$3"; _always="$4"
+  KNOWN_LABELS="${KNOWN_LABELS}${KNOWN_LABELS:+|}${_label}"
   _out="$(printf '%s\n' "$check_out" | grep "^${_label}${TAB}" || true)"
   # grep -c は 0 件のとき「0」を出しつつ exit 1 を返す。set -e + pipefail 下では
   # それだけでスクリプトが落ちる（＝警告レポートが途中で切れる）ため || true で受ける。
@@ -372,11 +377,14 @@ if [ -f "$logger" ]; then
       #      読む人間が取り違える。束ねた合計は取り違えが起きても変わらないため、
       #      回帰テストでも捕まえられない（PR #144 のレビュー指摘）。
       # 未知のラベルは「その他」へ寄せて**捨てない**（check が種別を増やしたときに行が静かに
-      # 消えるより、分類できないまま出るほうが安全側）。
+      # 消えるより、分類できないまま出るほうが安全側）。種別を足すときは下の emit_label を
+      # 1 行足すだけでよい（「その他」の判定は KNOWN_LABELS 経由で自動的に追従する）。
       emit_label dangling_start "未終了の *_start" "（空白期間中に放置された委譲・差し込みの可能性）" always
       emit_label orphan_end "対応する *_start が無い *_end" "（*_start の記録が落ちた疑い＝作業が観測面から見えていない）" ""
       emit_label duplicate_end "重複した *_end" "（同じ作業を二度閉じた疑い＝完了件数の二重計上）" ""
-      other_out="$(printf '%s\n' "$check_out" | grep -Ev "^(dangling_start|orphan_end|duplicate_end)${TAB}" || true)"
+      # 既知ラベル以外＝上の emit_label が 1 行も出さなかった行。集合は KNOWN_LABELS に
+      # 積まれているので、ここに種別名を書き写さない（書き写すと 2 本目のリストになる）。
+      other_out="$(printf '%s\n' "$check_out" | grep -Ev "^(${KNOWN_LABELS})${TAB}" || true)"
       other_count="$(printf '%s\n' "$other_out" | grep -c . || true)"
       if [ "$other_count" -gt 0 ]; then
         echo "heartbeat-check: その他の種別: ${other_count} 件（本スクリプトが知らない種別ラベル。log-run-event.sh check が種別を増やした可能性）"
