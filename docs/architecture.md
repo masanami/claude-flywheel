@@ -246,7 +246,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
     cd .flywheel/repos/<name>
     claude -p "（ブリーフ: 目標・recall した map/tacit/reference・完了条件）" \
       --permission-mode acceptEdits \
-      --max-budget-usd 100
+      --max-budget-usd <承認済みタスク案の予算上限>
     ```
 
 - **ブリーフに前提知識を必ず含める**: 独立セッションは文脈を引き継がないため、recall した `map` / `tacit` / `reference` と完了条件を**ブリーフに明記**して渡す（run-cycle 実行ステップ ＝ §5.2 step 4 / SKILL.md step 3、課題1ボトルネックB の解）。
@@ -269,7 +269,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
   - **接続規約（実装）**: ブリーフ規約として、委譲時に必ず「待機・監視で終了しない」＋「ポーリングでターンを維持し続けない」と完了報告の必須項目を渡すことをテンプレ化する（run-cycle SKILL.md step 3・`templates/CLAUDE.md`・flywheel-init が scaffold）。repo 固有の外部イベント事情（PR CI の有無等）は memory（`map`/`tacit`）に置き、recall して併記する。
   - 対応: [#33](https://github.com/masanami/claude-flywheel/issues/33) / [#112](https://github.com/masanami/claude-flywheel/issues/112)。
 - **【費用ガード】委譲コマンドに `--max-budget-usd` を必須化する（機械的ガード）**: 上の【完了報告の様式】は**散文の規律**であり、遵守は子の解釈に依存する。`--max-budget-usd` は依存しない。**役割分担は「散文で望ましい振る舞いを指示し、フラグで最悪ケースの費用を機械的に打ち切る」**——散文だけでは破られたときに歯止めが無く、フラグだけでは望ましい振る舞い（合流してから終了する）が伝わらないため、両方を置く。
-  - **既定値は 100**（USD）。課題の規模に応じて増減してよいが、**無指定では起動しない**（run-cycle SKILL.md step 3 の起動形に含める）。
+  - **上限は承認済みタスク案から導く**（タスク案末尾の `予算上限` → 無ければ `想定サイズ` S/M/L → 20/50/100 → それも無い旧エントリは 100。[#145](https://github.com/masanami/claude-flywheel/issues/145)）。人間の期待値を機械的な上限へ変換するのが目的で、**無指定では起動しない**（run-cycle SKILL.md step 3 の起動形に含める）。
   - **置き場所は意図的に非対称にする（重複ではない）**: 費用ガードは `templates/CLAUDE.md` と run-cycle SKILL.md の両方に現れるが、**同じ内容を二重に書いているのではなく、到達範囲が違うので役割で分けている**。
     - **`skills/` はプラグイン本体で、更新すれば既存の全ワークスペースへ即座に届く**。一方 **`templates/CLAUDE.md` は scaffold 時のコピーで、既存ワークスペースへは届かない**——`migrate-workspace.rb` の `CLAUDE.md` は `SCAFFOLD_PATHS`（存在有無のみ確認）にあり、テンプレート差分を報告する `DOC_COPIES` には**含まれない**（`CLAUDE.md` はプレースホルダを埋めるため必ずテンプレートと異なり、含めると恒久的な偽陽性になる）。したがって「CLAUDE.md にあるから skill には要らない」とすると、既存ワークスペースに費用ガードが届かない。**skill 側が既存ワークスペースへ確実に届く唯一の経路**。
     - 逆に **run-cycle だけでも足りない**。サイクル外の差し込み委譲では run-cycle SKILL.md がロードされないため、その経路を覆えるのはセッション開始時に自動ロードされる `CLAUDE.md` だけ。
