@@ -1045,6 +1045,109 @@ case "$out" in
   *) pass "変異注入（cadence-always-current）で検出が消えることを示す" ;;
 esac
 
+# ---------------------------------------------------------------------------
+# 18. 読めないファイルを診断ノートへ落とす（PR #152 のレビュー指摘 / CodeRabbit Minor）
+#     `scaffold_report` 系は「追従状況を**診断する**」経路であり、1 ファイルが読めないだけで
+#     例外がレポート全体を巻き込むと、**診断のための機能が診断できずに落ちる**。
+#     `File.exist?` を通っても、削除競合・権限変更（EACCES）・ディレクトリ指定（EISDIR）で
+#     `File.read` は raise する。
+#
+#     固定するのは 3 点:
+#       (a) 読めないファイルが**名指しの診断ノート**になる（黙って飛ばさない）
+#       (b) **レポート全体が生き残る**（他の検出が消えない）＝この修正の本体
+#       (c) 例外で異常終了しない（exit は通常どおり）
+#     EISDIR はディレクトリを作れば**どの環境でも決定的に**再現するので主検査に使う。
+#     EACCES は root 実行等で再現しないため、再現可否を実測してから検査する（不可ならスキップ）。
+# ---------------------------------------------------------------------------
+echo
+echo "=== 18. 読めないファイルを診断ノートへ落とす（PR #152 レビュー指摘） ==="
+
+# `<rel>` の位置にディレクトリを作って EISDIR を決定的に起こす
+mkunreadable() {
+  ws="$(mkws "$1")"
+  mkdir -p "$ws/$(dirname "$2")" 2>/dev/null || true
+  mkdir -p "$ws/$2"
+  echo "$ws"
+}
+
+# 18-1. `.flywheel/cadence.json`（レビューで名指しされた経路）
+ws="$(mkunreadable unreadcadence ".flywheel/cadence.json")"
+assert_out "cadence.json が読めないと診断ノートを出す" \
+  '`.flywheel/cadence.json`: 読み取れない' -- --workspace "$ws"
+assert_out "診断ノートに例外クラスを添える（EISDIR）" \
+  '`.flywheel/cadence.json`: 読み取れない（Errno::EISDIR' -- --workspace "$ws"
+assert_out "診断ノートは確認すべき観点を示す" 'パスがディレクトリになっていないか' -- --workspace "$ws"
+# (b) レポート全体が生き残る＝本修正の本体。読めないファイル以外の検出が消えていない。
+assert_out "読めないファイルがあってもレポート全体が生き残る（他の不足検出が消えない）" \
+  '不足: CLAUDE.md' -- --workspace "$ws"
+# **cadence_notes より後段の検査まで到達する**ことを見る（scaffold_report は cadence →
+# marker の順で積むため、例外で止まると marker 側が丸ごと消える）。
+ws2="$(mkunreadable unreadcadence2 ".flywheel/cadence.json")"
+cp "$FIXTURES/legacy-0.18-CLAUDE.md" "$ws2/CLAUDE.md"
+assert_out "読めないファイルがあっても後段の版マーカー検査まで到達する" \
+  'CLAUDE.md に版マーカーが無い' -- --workspace "$ws2"
+assert_out "後段まで到達しても読み取り不能の診断ノートは残る" \
+  '`.flywheel/cadence.json`: 読み取れない' -- --workspace "$ws2"
+# (c) 例外で異常終了しない
+assert_exit "読めないファイルがあっても異常終了しない" 0 -- --workspace "$ws"
+
+# 18-2. 掃引した他の経路も同型に塞がれている（同じ穴を 1 箇所だけ塞いで満足しない）
+ws="$(mkunreadable unreadclaude "CLAUDE.md")"
+assert_out "CLAUDE.md が読めないと診断ノートを出す" '`CLAUDE.md`: 読み取れない' -- --workspace "$ws"
+assert_exit "CLAUDE.md が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadgitignore ".gitignore")"
+assert_out ".gitignore が読めないと診断ノートを出す" '`.gitignore`: 読み取れない' -- --workspace "$ws"
+# 読めないことを「5 行すべてが欠落」と誤報しない（診断ノート 1 行へ寄せる）
+assert_no_out ".gitignore が読めないときに行の欠落を誤報しない" \
+  '`.gitignore`: `.flywheel/*` の行が無い' -- --workspace "$ws"
+assert_exit ".gitignore が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadpos "positions/harness.md")"
+assert_out "positions/*.md が読めないと診断ノートを出す" '`positions/harness.md`: 読み取れない' -- --workspace "$ws"
+# 読めないポジションを「§接続ツールが無い」と誤報しない（読めない と 未宣言 は別の状態）
+assert_no_out "読めないポジションを未宣言として誤報しない" \
+  '§接続ツール（実作業の委譲先）が無い' -- --workspace "$ws"
+assert_exit "positions/*.md が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadsettings ".claude/settings.json")"
+assert_out ".claude/settings.json が読めないと診断ノートを出す" \
+  '`.claude/settings.json`: 読み取れない' -- --workspace "$ws"
+assert_no_out ".claude/settings.json が読めないときに allow 欠落を誤報しない" \
+  '`Bash(claude -p:*)` の allow が無い' -- --workspace "$ws"
+
+ws="$(mkunreadable unreaddockerfile "container/Dockerfile")"
+assert_out "container/Dockerfile が読めないと診断ノートを出す" \
+  '`container/Dockerfile`: 読み取れない' -- --workspace "$ws"
+assert_no_out "container/Dockerfile が読めないときに ruby 未導入を誤報しない" \
+  'ruby を導入していない' -- --workspace "$ws"
+
+ws="$(mkunreadable unreaddoccopy "runtime/README.md")"
+assert_out "DOC_COPIES の生成物が読めないと診断ノートを出す" '`runtime/README.md`: 読み取れない' -- --workspace "$ws"
+assert_no_out "読めない生成物を「テンプレートと差分あり」と誤報しない" \
+  'テンプレートと差分あり: runtime/README.md' -- --workspace "$ws"
+
+# 18-3. 受理方向: 読める通常のワークスペースには診断ノートを出さない（過検出しない）
+ws="$(mkws readableok)"
+mkdir -p "$ws/.flywheel"
+cp "$REPO_ROOT/templates/cadence.json" "$ws/.flywheel/cadence.json"
+assert_no_out "読めるワークスペースには読み取り不能の診断ノートを出さない" '読み取れない（' -- --workspace "$ws"
+
+# 18-4. EACCES（環境依存。再現できない環境ではスキップと分かる形で出す）
+ws="$(mkws unreadperm)"
+mkdir -p "$ws/.flywheel"
+cp "$REPO_ROOT/templates/cadence.json" "$ws/.flywheel/cadence.json"
+chmod 000 "$ws/.flywheel/cadence.json" 2>/dev/null || true
+if /usr/bin/ruby -e 'begin; File.read(ARGV[0]); exit 1; rescue Errno::EACCES; exit 0; rescue SystemCallError; exit 1; end' \
+     "$ws/.flywheel/cadence.json"; then
+  assert_out "権限で読めない cadence.json も診断ノートにする（EACCES）" \
+    '`.flywheel/cadence.json`: 読み取れない（Errno::EACCES' -- --workspace "$ws"
+  assert_exit "EACCES でも異常終了しない" 0 -- --workspace "$ws"
+else
+  echo "skip - EACCES: この環境では chmod 000 でも読めるため検査をスキップした（root 実行等）"
+fi
+chmod 644 "$ws/.flywheel/cadence.json" 2>/dev/null || true
+
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]
