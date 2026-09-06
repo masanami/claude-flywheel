@@ -26,8 +26,8 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <f
 
 | type | 対象ファイル | 検査内容 |
 | --- | --- | --- |
-| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／**分類欄の結合切れ**（インデント欠落 3 形＋ネスト項目群の途中の空行）／参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形／**ステータス値が閉じた語彙に完全一致**（前後の空白の trim のみ許容） |
-| `archive` | `challenge-archive.md` | `ledger` とほぼ同一（エントリを原文のまま移した同形式）。ただし**結合切れ・参照フィールドの値の形の 2 検査は行わない**——原文保存の履歴であり修復が禁じられているため（移行猶予。詳細は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式）。**ステータス語彙の検査は行う**——ステータス行はアーカイブでも書き換える唯一の行であり（同 §アーカイブ）、原文保存の原則と衝突しないため |
+| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／**分類欄の結合切れ**（インデント欠落 3 形＋ネスト項目群の途中の空行）／参照フィールド（関連リポジトリ・関連Issue・関連PR）と `依存` の値の形／**ステータス値が閉じた語彙に完全一致**（前後の空白の trim のみ許容） |
+| `archive` | `challenge-archive.md` | `ledger` とほぼ同一（エントリを原文のまま移した同形式）。ただし**結合切れ・参照フィールド／`依存` の値の形の 2 検査は行わない**——原文保存の履歴であり修復が禁じられているため（移行猶予。詳細は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式）。**ステータス語彙の検査は行う**——ステータス行はアーカイブでも書き換える唯一の行であり（同 §アーカイブ）、原文保存の原則と衝突しないため |
 | `journal-md` | `journal/YYYY-MM-DD-cycle.md` | 定型 5 セクション（触った課題／委譲／PR・ブランチ URL／承認待ちゲート／判断と根拠）の存在・順序 |
 | `journal-index` | `journal/index.jsonl` | `schemas/journal-index.schema.json` による行ごとの検証 |
 | `runs` | `.flywheel/runs.jsonl` | `schemas/runs.schema.json` による行ごとの検証 |
@@ -52,7 +52,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <f
 | 台帳/アーカイブ: 必須フィールド行 | エントリの範囲削除が隣接エントリの備考行・空行を巻き添え削除 → `fixtures/ledger/invalid/missing-note-field.md` |
 | 台帳/アーカイブ: マーカー整合 | 行番号演算の移動が隣接エントリのマーカーを破壊（`docs/challenge-ledger-format.md` §台帳を機械で編集するときの規律の awk 検算と同じ意味論）→ `fixtures/ledger/invalid/double-marker.md` |
 | 台帳/アーカイブ: **分類欄の結合切れ**（インデント欠落の 3 形〔番号付き・`-`・`*`〕＋ネスト項目群の途中の空行。**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）→ `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/continuation-break-variants.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（各フィクスチャ冒頭に、その形が壊れる理由と 3 形すべてを置く理由） |
-| 台帳/アーカイブ: 参照フィールドの値の形 | 参照フィールドへの自由記述・URL・プレースホルダでリンク化と機械集計が静かに壊れる（Issue #89。`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md` |
+| 台帳/アーカイブ: 参照フィールドと `依存` の値の形 | 参照フィールドへの自由記述・URL・プレースホルダでリンク化と機械集計が静かに壊れる（Issue #89。`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md`（C-301＝参照フィールド 3 種 / C-302＝`依存`。`依存` は**値の形だけ**が本バリデータの担当で、存在しない ID・自己参照・**循環依存**の検出と起動可能集合の算出は `scripts/ledger-deps.rb` が担う〔Issue #150。同じ規定を 2 実装に書かない〕） |
 | 台帳/アーカイブ: **ステータス値の語彙**（閉じた集合に完全一致。前後の空白の trim のみ許容） | 記入例の遷移列サフィックスを付けたまま `計画承認待ち（未分類 → … → 完了）` と台帳 4 件へ書き込み、本バリデータは exit 0・`cycle-commit.sh` は verify=ok・`ledger-index.rb` の投影も無警告で、**下流の board のパーサだけ**が仕様外の値として弾いた（2026-09-06・[Issue #151](https://github.com/masanami/claude-flywheel/issues/151)。書き込み側のゲートが語彙の正本を一度も読んでいなかった）→ `fixtures/ledger/invalid/status-vocabulary-suffix.md` |
 | journal md: 定型 5 セクション | セクション欠落・順序崩れで board のセクション対応（index.jsonl と 1:1）が壊れる → `fixtures/journal-md/invalid/` |
 | index.jsonl: `decisions` は array\<string\> | string で 3 周連続記入し board 表示を破壊（recurrence 3）→ `fixtures/journal-index/invalid/decisions-string.jsonl` |
@@ -69,7 +69,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <f
 | 手書き（記入例コピー） | なし（説明文のみの `- 取り込み元:` 行を含みうる） | 完了条件・緊急度が空欄でも正規 | `fixtures/ledger/valid/handwritten-and-ingested.md` |
 | ingest-challenges | 取り込み元（`<!-- fp:... -->`） | 説明は**外部本文の要約**（[#130](https://github.com/masanami/claude-flywheel/issues/130)）。取りうる形は**1 行要約**・**形 D**・要約化前とアーカイブの**ブロック引用の複数行**で、**3 つすべてを受理する**（各形の定義は `docs/challenge-ledger-format.md` §説明欄） | 同上 |
 
-必須フィールド行はこの 2 者すべてに共通する行だけに限定している（人間記入欄／起票者・起票日／説明／分類欄／担当ポジション／優先度／ステータス／タスク案／承認＋チェックボックス 2 行／備考。完了条件・緊急度・関連サービス・**参照フィールド 3 種**・取り込み元マーカーは**必須にしない**）。記入例（フェンス内）と HTML コメント内は検査から除外する。
+必須フィールド行はこの 2 者すべてに共通する行だけに限定している（人間記入欄／起票者・起票日／説明／分類欄／担当ポジション／優先度／ステータス／タスク案／承認＋チェックボックス 2 行／備考。完了条件・緊急度・関連サービス・**参照フィールド 3 種**・**`依存`**・取り込み元マーカーは**必須にしない**）。記入例（フェンス内）と HTML コメント内は検査から除外する。
 
 **タスク案・完了条件は 1 フィールドが複数の形を取りうる**（Issue #87 で複数行形式を正規形に決定）。生成側の状態空間と受理／違反の対応は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式の表が正本で、要点は次のとおり:
 

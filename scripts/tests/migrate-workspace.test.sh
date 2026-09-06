@@ -172,6 +172,10 @@ assert_has "旧ラベルの承認行が現行ラベルへ改名される" '^- �
 # 台帳には参照フィールドを補うが、アーカイブ（原文保存の履歴）には補わない
 assert_grep_count "台帳に参照フィールド行を補う（記入例 1 + エントリ 2）" '^- 関連リポジトリ:' "$ws/challenge-ledger.md" 3
 assert_grep_count "アーカイブには参照フィールドを補わない" '^- 関連リポジトリ:' "$ws/challenge-archive.md" 0
+# `依存`（#150 / FR-12）も台帳のみ。**空欄＝独立**なので全エントリへ足しても着手可能性は
+# 変わらないが、アーカイブ（原文保存の履歴）は run-cycle が埋める欄を持たないため対象外。
+assert_grep_count "台帳に依存フィールド行を補う（記入例 1 + エントリ 2）" '^- 依存:' "$ws/challenge-ledger.md" 3
+assert_grep_count "アーカイブには依存フィールドを補わない" '^- 依存:' "$ws/challenge-archive.md" 0
 
 # 承認を機械が代筆しないことの報告
 ws2="$(mkws bold2 legacy-bold-heading-ledger.md)"
@@ -242,6 +246,7 @@ assert_exit "その場合もエントリ側の移行は進む" 0 -- --workspace 
 assert_has "人間が書いた注意書きが残る" 'ゴーストカードが出る' "$ws/challenge-ledger.md"
 assert_no_deletions "記入例に手を出さない（1 行も消えない）" "$tmp/humanexample.orig" "$ws/challenge-ledger.md"
 assert_has "エントリ側の参照フィールドは補われる" '^- 関連リポジトリ:' "$ws/challenge-ledger.md"
+assert_has "エントリ側の依存フィールドは補われる" '^- 依存:' "$ws/challenge-ledger.md"
 
 # (c) 記入例コメントの閉じ忘れで実エントリを飲み込む範囲
 ws="$(mkws broken broken-example-comment-ledger.md)"

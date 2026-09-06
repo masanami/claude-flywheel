@@ -24,7 +24,7 @@
 #   `contracts/cycle-commit-paths.txt` に足すパスも無く、`noop-check.rb` の判定に
 #   新しい dirty パスも現れない。
 #
-# 出力（TSV・10 列・1 行目はヘッダ）:
+# 出力（TSV・11 列・1 行目はヘッダ）:
 #   id         課題 ID（見出し `### [<id>] <title>` の `<id>`）
 #   status     ステータス（`（未分類 → …）` のような遷移説明は落とす）
 #   prio       優先度（P0 / P1 / P2）
@@ -32,6 +32,8 @@
 #   svc        関連サービス          … domain-bootstrap モードの着手順判定に要る
 #   opened     起票日                … normal モードの「同一優先度内は起票日順」に要る
 #   repos      関連リポジトリ        … improvement-first の「同一リポジトリは 1 委譲に束ねる」
+#   deps       依存（先行課題 ID）   … 手順2 の着手順のトポロジカル制約・手順3 の起動可能集合
+#                                    （空＝独立）。値は scripts/ledger-deps.rb が読む
 #   approvals  承認チェック 2 個の状態を `x` / `-` の 2 文字で（計画→完了の順・1-f の承認検出）
 #   ingested   取り込み元マーカーの**有無**だけを `y` / `-` で（2-d。値そのものは載せない）
 #   title      見出しのタイトル
@@ -57,7 +59,7 @@
 #   - 複数行 HTML コメントは除外。同一行で開閉するインラインコメント
 #     （取り込み元マーカーの `<!-- fp:... -->` 等）は行ごと対象のまま
 
-COLUMNS = %w[id status prio pos svc opened repos approvals ingested title].freeze
+COLUMNS = %w[id status prio pos svc opened repos deps approvals ingested title].freeze
 EXITS = [0, 2].freeze
 
 PROGRAM = File.basename($PROGRAM_NAME)
@@ -173,6 +175,7 @@ rows = entries.map do |id, title, body|
     cell(field(body, "関連サービス")),
     cell(opened),
     cell(field(body, "関連リポジトリ")),
+    cell(field(body, "依存")),
     approval(body, "計画を承認") + approval(body, "完了を承認"),
     ingested,
     cell(title),
