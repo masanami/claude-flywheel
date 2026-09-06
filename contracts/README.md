@@ -2,7 +2,7 @@
 
 `run-cycle` が書き出す成果物の**フォーマット契約**（Issue [#91](https://github.com/masanami/claude-flywheel/issues/91)）。成果物の消費者は 2 者——**GitHub 上の人間**（Markdown のレンダリング）と**読み取り専用の観測プレーン**（例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board) のパーサ）——であり、「書き込みは成功したが消費者にとって壊れている」型の事故を書き込み側の検算で止める。
 
-契約は 3 点セット（board 等の消費者はこれを vendoring してパーサテストに使う。アプリ統合・実行時依存にはしない）と、**書き込み側だけが使うパス集合の正本 1 点**で構成する:
+契約は 3 点セット（board 等の消費者はこれを vendoring してパーサテストに使う。アプリ統合・実行時依存にはしない）と、**正本の表 3 点**（パス集合・台帳の読み込み範囲・ステータス語彙）で構成する。**ステータス語彙の表だけはバリデータが実行時に読む**ため、バリデータ本体を持ち出す場合は同時に持ち出す（[#151](https://github.com/masanami/claude-flywheel/issues/151)。下表の区分を参照）:
 
 | 構成物 | 場所 | 役割 |
 | --- | --- | --- |
@@ -11,7 +11,7 @@
 | ゴールデンフィクスチャ | [`fixtures/`](./fixtures/) | 正例（受理されるべき正規形）と誤例（実際に起きた事故の再現） |
 | サイクルコミットのパス集合（**vendoring 対象外**。消費者は読まない） | [`cycle-commit-paths.txt`](./cycle-commit-paths.txt) | run-cycle 手順6 の許可パスと [`../scripts/noop-check.rb`](../scripts/noop-check.rb) の dirty パス分類の**単一正本**（[#82](https://github.com/masanami/claude-flywheel/issues/82)）。分類の意味と、追加時に同時に直す箇所はファイル冒頭のコメント |
 | 台帳の読み込み範囲（**vendoring 対象外**。消費者は読まない） | [`ledger-read-scope.tsv`](./ledger-read-scope.tsv) | run-cycle 手順0〜4 が課題台帳のどこまでを開くかの経路表（ステータス → `index` / `full` / `index-then-full`）の**単一正本**（[#122](https://github.com/masanami/claude-flywheel/issues/122)）。読み手・`scope` の閉語彙・下記の語彙正本との一致義務は、ファイル冒頭のコメントが正本。**経路表に行が無いステータスを実行時にどう扱うか**は [`../skills/run-cycle/SKILL.md`](../skills/run-cycle/SKILL.md) 手順0 |
-| 台帳のステータス語彙（**vendoring 対象外**。消費者は読まない） | [`ledger-status-vocabulary.tsv`](./ledger-status-vocabulary.tsv) | 課題台帳の `- ステータス:` が取りうる**閉じた語彙の単一正本**（status / `track` / `order`。[#116](https://github.com/masanami/claude-flywheel/issues/116)）。他の列挙箇所の一覧・語彙を増減したとき同時に直す場所・一致を固定するテスト（`ledger-index.test.sh` T1 / T7 / T10）・`→` 連鎖を語彙の正本にしない理由は、ファイル冒頭のコメントが正本 |
+| 台帳のステータス語彙（**バリデータを vendoring するなら必須**。パーサだけの消費者は読まなくてよい） | [`ledger-status-vocabulary.tsv`](./ledger-status-vocabulary.tsv) | 課題台帳の `- ステータス:` が取りうる**閉じた語彙の単一正本**（status / `track` / `order`。[#116](https://github.com/masanami/claude-flywheel/issues/116)）。他の列挙箇所の一覧・語彙を増減したとき同時に直す場所・一致を固定するテスト（`ledger-index.test.sh` T1 / T7 / T10）・`→` 連鎖を語彙の正本にしない理由は、ファイル冒頭のコメントが正本。**バリデータが `ledger` / `archive` の検査で実行時に読む**（[#151](https://github.com/masanami/claude-flywheel/issues/151)。語彙を定数として複製すると 2 つのリストが必ずずれるため。読めなければ exit 2＝fail-closed。層構成が変わる vendoring 先では `--vocabulary` で位置を指定する） |
 
 ## 正本のレイヤリング
 
@@ -21,18 +21,18 @@
 ## バリデータの使い方
 
 ```bash
-scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--anchor-after-line <n>] [--since-last-cycle-start]
+scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <file>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--anchor-after-line <n>] [--since-last-cycle-start]
 ```
 
 | type | 対象ファイル | 検査内容 |
 | --- | --- | --- |
-| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／**分類欄の結合切れ**（インデント欠落 3 形＋ネスト項目群の途中の空行）／参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形 |
-| `archive` | `challenge-archive.md` | `ledger` とほぼ同一（エントリを原文のまま移した同形式）。ただし**結合切れ・参照フィールドの値の形の 2 検査は行わない**——原文保存の履歴であり修復が禁じられているため（移行猶予。詳細は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式） |
+| `ledger` | `challenge-ledger.md` | エントリ見出し直前の空行／必須フィールド行の存在／見出しとマーカーの整合／**分類欄の結合切れ**（インデント欠落 3 形＋ネスト項目群の途中の空行）／参照フィールド（関連リポジトリ・関連Issue・関連PR）の値の形／**ステータス値が閉じた語彙に完全一致**（前後の空白の trim のみ許容） |
+| `archive` | `challenge-archive.md` | `ledger` とほぼ同一（エントリを原文のまま移した同形式）。ただし**結合切れ・参照フィールドの値の形の 2 検査は行わない**——原文保存の履歴であり修復が禁じられているため（移行猶予。詳細は `docs/challenge-ledger-format.md` §複数行フィールドの記入形式）。**ステータス語彙の検査は行う**——ステータス行はアーカイブでも書き換える唯一の行であり（同 §アーカイブ）、原文保存の原則と衝突しないため |
 | `journal-md` | `journal/YYYY-MM-DD-cycle.md` | 定型 5 セクション（触った課題／委譲／PR・ブランチ URL／承認待ちゲート／判断と根拠）の存在・順序 |
 | `journal-index` | `journal/index.jsonl` | `schemas/journal-index.schema.json` による行ごとの検証 |
 | `runs` | `.flywheel/runs.jsonl` | `schemas/runs.schema.json` による行ごとの検証 |
 
-- **cwd 非依存**: 対象は引数のパスで受け、スキーマはスクリプト位置から自己解決する（vendoring 先で層構成が変わる場合のみ `--schema-dir` で指定）。
+- **cwd 非依存**: 対象は引数のパスで受け、スキーマと**ステータス語彙の正本**はスクリプト位置から自己解決する（vendoring 先で層構成が変わる場合のみ `--schema-dir` / `--vocabulary` で指定）。
 - **append-only・原文保存の恒久記録は「当該操作の追記分だけ」を検証する**: `journal/index.jsonl`・`runs.jsonl` は既存行を書き換えない恒久記録、`challenge-archive.md` は「ステータス行以外は原文のまま」保存する履歴であり、いずれも契約導入前の不正な過去分が残っていることがある（過去分の正しさは正本が保証せず、「修復」は履歴・原文の書き換えになる）。全体検証だと過去分の違反で以後の全操作が恒久失敗するため、run-cycle 手順6 は `journal-index` に `--tail <当周を含む未コミット追記行数> --expect-cycle <当周のサイクル名>`（正本保証「1 周 1 行 append」に基づき、保留が無い通常の周は `--tail 1`。no-op 周のコミットを次の周へ束ねる運用〔[#82](https://github.com/masanami/claude-flywheel/issues/82)〕では、そのコミットに入る保留分まで範囲を広げる。行数は `scripts/noop-check.rb` の `pending_index_lines` が返す）、`runs` に `--since-last-cycle-start --expect-cycle <当周のサイクル名>`（1 周の追記行数が可変のため、当周の開始マーカーからの範囲指定）、`archive` に `--expect-ids <当周に移動した課題ID,...>` を使う。**過去分は「検証して正常」ではなく「対象外」**（読み替えない）。
   - 範囲限定モードは**追記の実在と同一性**も証明する（形と件数だけの検査では「追記が起きなかった」ケースで過去分を検証して exit 0 になり誤証明するため。**呼び出し側＝書き手だけが知る期待値を渡し、バリデータが証明する**設計）: `--tail n`＝末尾が非空レコードで終わり n 件以上存在すること／`--expect-cycle`＝journal-index では末尾レコードの `date`・`seq` がサイクル名から導いた当周の値と一致すること・runs では**そのサイクル名の `cycle_start` がアンカーに存在し、以降に同名の `cycle_end` も存在する**こと（前周の stale な start を受理せず、閉じられていない run も検出。クラッシュ後の同名再利用は `--anchor-after-line <追記前の行数>`＝起動ごとに一意な位置指定で区別する）／`--expect-ids`＝末尾 |ids| エントリの見出し ID 集合が期待と一致すること（台帳から削除したのにアーカイブへ追記しなかった「課題の消失」を検出）。
   - **期待値未指定時は従来の形・件数検証のみ**（同一性は証明しない）。期待値は書き手しか知らない情報のため、汎用の消費者・フィクスチャ検証では要求しない（運用ゲートの完全形は run-cycle 手順6 の呼び出し規定が正本）。契約全体の検証（vendoring 先のパーサテスト・フィクスチャ）は従来どおり全体が対象。**台帳（`challenge-ledger.md`）だけは現在状態のファイル**（修復が正規の運用・修復実績あり）のため全体を検証する。
@@ -53,6 +53,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | 台帳/アーカイブ: マーカー整合 | 行番号演算の移動が隣接エントリのマーカーを破壊（`docs/challenge-ledger-format.md` §台帳を機械で編集するときの規律の awk 検算と同じ意味論）→ `fixtures/ledger/invalid/double-marker.md` |
 | 台帳/アーカイブ: **分類欄の結合切れ**（インデント欠落の 3 形〔番号付き・`-`・`*`〕＋ネスト項目群の途中の空行。**分類欄のみ**） | タスク案の書き方が 3 エージェントで 3 通りに分岐し、2 つが board で欠落表示（`-`）になった（2026-08・Issue #87）→ `fixtures/ledger/invalid/task-plan-dedented.md`・`fixtures/ledger/invalid/continuation-break-variants.md`・`fixtures/ledger/invalid/task-plan-bold-heading.md`（各フィクスチャ冒頭に、その形が壊れる理由と 3 形すべてを置く理由） |
 | 台帳/アーカイブ: 参照フィールドの値の形 | 参照フィールドへの自由記述・URL・プレースホルダでリンク化と機械集計が静かに壊れる（Issue #89。`touched_issues.to` の自由記述と同型）→ `fixtures/ledger/invalid/related-refs-freetext.md` |
+| 台帳/アーカイブ: **ステータス値の語彙**（閉じた集合に完全一致。前後の空白の trim のみ許容） | 記入例の遷移列サフィックスを付けたまま `計画承認待ち（未分類 → … → 完了）` と台帳 4 件へ書き込み、本バリデータは exit 0・`cycle-commit.sh` は verify=ok・`ledger-index.rb` の投影も無警告で、**下流の board のパーサだけ**が仕様外の値として弾いた（2026-09-06・[Issue #151](https://github.com/masanami/claude-flywheel/issues/151)。書き込み側のゲートが語彙の正本を一度も読んでいなかった）→ `fixtures/ledger/invalid/status-vocabulary-suffix.md` |
 | journal md: 定型 5 セクション | セクション欠落・順序崩れで board のセクション対応（index.jsonl と 1:1）が壊れる → `fixtures/journal-md/invalid/` |
 | index.jsonl: `decisions` は array\<string\> | string で 3 周連続記入し board 表示を破壊（recurrence 3）→ `fixtures/journal-index/invalid/decisions-string.jsonl` |
 | index.jsonl: `pending_approvals` の形 | 独自形式で書き board のチケット表示を破壊（2026-07-27）→ `fixtures/journal-index/invalid/pending-approvals-shape.jsonl` |
@@ -130,6 +131,6 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>] [--
 | 同 §関連リポジトリ・関連Issue・関連PR | 参照フィールド 3 種の値の形式・複数値のカンマ区切り・短縮形の owner 解決・リンク化は消費側の責務であること |
 | 同 §FR-13 の承認対象 | 承認待ちカードで**何を前面に出すべきか**（承認対象＝タスク案〔末尾の固定文言＝想定サイズ・予算上限・スコープ外を含む〕。判断材料は タスク案／完了条件／関連リポジトリ。**フィールドは増えない**＝消費側の読み取り規則は変わらず、固定文言はタスク案の値の一部として届く。複数行対応済みの board〔#159〕は形 D のネスト項目も `taskPlan` に連結するため、フェーズ 1 のまま承認カードに表示される） |
 
-1. `schemas/` と `fixtures/` を消費者リポジトリのテストデータへコピーする（バリデータ本体のコピーは任意。パーサは自前実装でよい）。
+1. `schemas/` と `fixtures/` を消費者リポジトリのテストデータへコピーする（バリデータ本体のコピーは任意。パーサは自前実装でよい）。**バリデータ本体もコピーする場合は `ledger-status-vocabulary.tsv` も同時にコピーする**——`ledger` / `archive` の検査が実行時にこの表を読み、読めなければ exit 2（検査不能）へ倒れる（[#151](https://github.com/masanami/claude-flywheel/issues/151)）。層構成が変わるなら `--vocabulary <file>` で位置を渡す。
 2. パーサテストで固定する: **`fixtures/*/valid` を全件パースできる**こと（受理方向）／**`fixtures/*/invalid` をクラッシュせず異常として扱える**こと（拒否方向）。
 3. 契約の更新はこのディレクトリの Git 履歴で追う（スキーマ変更＝契約変更。消費者はコピーを更新して追従する）。

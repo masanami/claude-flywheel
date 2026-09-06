@@ -7,8 +7,8 @@
 # 検査項目の由来（実際に起きた事故）・フィクスチャは contracts/README.md を参照。
 #
 # 使い方:
-#   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--tail <n>]
-#                                [--expect-ids <id,...>] [--expect-cycle <cycle名>]
+#   scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <file>]
+#                                [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>]
 #                                [--anchor-after-line <n>] [--since-last-cycle-start]
 #
 #   type:
@@ -21,6 +21,11 @@
 #     runs           .flywheel/runs.jsonl
 #   --schema-dir   JSON Schema の置き場（既定: 本スクリプトからの相対
 #                  ../contracts/schemas。vendoring 先で層構成が変わる場合に指定）
+#   --vocabulary   ledger / archive 専用: ステータス語彙の正本 tsv（既定: 本スクリプトからの
+#                  相対 ../contracts/ledger-status-vocabulary.tsv。--schema-dir と同じく
+#                  vendoring 先で層構成が変わる場合に指定）。**語彙を定数として複製しない**
+#                  ——2 つのリストは必ずずれるため、正本を実行時に読む（Issue #151）。
+#                  読めない・空・形が壊れているは exit 2（検査不能。「違反なし」に読み替えない）
 #   --tail <n>     jsonl（journal-index / runs）専用: 末尾 n レコード（**非空行基準**。
 #                  末尾に空行が続いても実レコードが検証範囲から漏れない）だけを検証する。
 #                  あわせて「末尾が非空レコードで終わっている」「非空レコードが n 件以上
@@ -81,7 +86,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_UNCHECKABLE = 2
 
-USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--anchor-after-line <n>] [--since-last-cycle-start]"
+USAGE = "usage: #{$PROGRAM_NAME} <ledger|archive|journal-md|journal-index|runs> <file> [--schema-dir <dir>] [--vocabulary <file>] [--tail <n>] [--expect-ids <id,...>] [--expect-cycle <cycle名>] [--anchor-after-line <n>] [--since-last-cycle-start]"
 
 def uncheckable(msg)
   warn "validate-artifact: 検査不能: #{msg}"
@@ -442,6 +447,56 @@ LEDGER_FIELD_LINES = (LEDGER_REQUIRED_LINES.map { |_, re| re } +
                       LEDGER_REF_FIELDS.map { |_, re, _, _| re } +
                       [/^- 取り込み元:/]).freeze
 
+# ステータス語彙の**正本**（contracts/ledger-status-vocabulary.tsv）を実行時に読む。
+#
+# **定数として複製しない**（Issue #151）: 閉じた語彙は「検査する箇所」ではなく「全語を列挙する
+# 箇所」に複製が潜み、2 つのリストは必ずずれる。正本 1 つを読み、読めなければ fail-closed。
+# 事故（2026-09-06）: 台帳 4 件のステータスに記入例由来の遷移列サフィックスが付いたまま
+# 書き込まれ、本バリデータ・cycle-commit・ledger-index の投影がすべて素通しし、**下流の
+# board のパーサだけ**が仕様外の値として弾いた。書き込み側のゲートが語彙の正本を一度も
+# 読んでいなかったことが原因。
+#
+# **検査不能（不在・読み取り不可・空・形の破損）を「違反なし」に読み替えない**（exit 2）。
+# 語彙が 0 件なら「どの値も語彙にない」ではなく「照合できない」＝空虚に真な検査になるため。
+def load_status_vocabulary(path)
+  unless File.exist?(path)
+    uncheckable("ステータス語彙の正本が存在しません: #{path}（vendoring 先では --vocabulary で指定する）")
+  end
+  unless File.readable?(path)
+    uncheckable("ステータス語彙の正本を読み取れません（権限不足の可能性）: #{path}")
+  end
+  begin
+    content = File.read(path, encoding: "UTF-8")
+  rescue SystemCallError => e
+    uncheckable("ステータス語彙の正本を読み取れません: #{path}（#{e.message}）")
+  end
+  unless content.valid_encoding?
+    uncheckable("ステータス語彙の正本を UTF-8 として解釈できません: #{path}")
+  end
+
+  # 形式はファイル冒頭のコメントが正本: タブ区切り 3 列（status / track / order）。
+  # `#` 始まりはコメント・空行は無視。
+  rows = content.split("\n")
+                .reject { |l| l.start_with?("#") || l.strip.empty? }
+                .map { |l| l.split("\t") }
+  if rows.empty?
+    uncheckable("ステータス語彙の正本にデータ行がありません（空の語彙で照合すると検査が空虚に真になる）: #{path}")
+  end
+  malformed = rows.reject { |r| r.size == 3 && !r[0].strip.empty? }
+  unless malformed.empty?
+    uncheckable("ステータス語彙の正本の行の形が不正です（タブ区切り 3 列・status 列は非空が必要）: #{path}: #{malformed.first.join(' / ')}")
+  end
+  vocab = rows.map { |r| r[0].strip }
+  dup = vocab.select { |v| vocab.count(v) > 1 }.uniq
+  unless dup.empty?
+    uncheckable("ステータス語彙の正本に重複した status があります: #{path}: #{dup.join(', ')}")
+  end
+  vocab
+end
+
+# ステータス行（`- ステータス: <値>`）から値を取り出す規則。エントリ本文の 1 行に適用する。
+LEDGER_STATUS_LINE = /^- ステータス:(.*)$/.freeze
+
 # 破損した見出し候補（`## [C-` への降格・`###[C-` の空白欠落等）。正規見出し `### [` に
 # 一致しない `#` 始まりの `[C-` 含み行は、正規の前文・記入例（フェンス/コメント内は除外済み）
 # には現れない（実台帳・実アーカイブ・テンプレート・正例フィクスチャで誤検出ゼロを実測）。
@@ -450,7 +505,7 @@ def broken_heading_candidate?(line)
   line =~ /\A#+/ && line.include?("[C-") && line !~ /\A### \[/
 end
 
-def check_ledger(file, expect_ids = nil, live: true)
+def check_ledger(file, expect_ids = nil, live: true, vocabulary:)
   lines = read_lines(file)
   annotated = annotate_exclusions(lines)
   errors = []
@@ -611,6 +666,28 @@ def check_ledger(file, expect_ids = nil, live: true)
           errors << "#{lineno}: 「#{label}」の値の形が不正です（#{hint}。URL・自由記述・プレースホルダは書かない。不正: #{shown}）: #{heading[0, 60]}"
         end
       end
+    end
+
+    # (8) ステータス値が閉じた語彙に**完全一致**すること（前後の空白の trim のみ許容。
+    #     括弧・注記・遷移列サフィックスの付加は違反）。
+    #     事故（2026-09-06・Issue #151）: 記入例の遷移列をコピーしたまま
+    #     `計画承認待ち（未分類 → 分類済 → … → 完了）` と書き込み、本バリデータは exit 0・
+    #     cycle-commit.sh は verify=ok・ledger-index.rb の投影も無警告で、**下流の board の
+    #     パーサだけ**が仕様外の値として弾いた（「書き込みは成功したが消費者にとって
+    #     壊れている」型）。原因は書き込み側のゲートが語彙の正本を一度も読んでいなかったこと。
+    #     語彙は load_status_vocabulary が contracts/ledger-status-vocabulary.tsv から
+    #     実行時に読む（定数として複製しない）。
+    #     **live 限定にしない＝archive にも掛ける**: ステータス行は
+    #     docs/challenge-ledger-format.md §アーカイブ が「アーカイブでも書き換える」と定める
+    #     唯一の行であり、原文保存の原則と衝突しない（実測: 実運用ワークスペースの
+    #     アーカイブ 86 エントリは全件 `完了` で、掛けても既存は落ちない）。
+    body.each do |l|
+      m = LEDGER_STATUS_LINE.match(l)
+      next unless m
+      value = m[1].strip
+      next if vocabulary.include?(value)
+      shown = value.empty? ? "（空）" : value
+      errors << "#{lineno}: 「ステータス」の値が閉じた語彙にありません（完全一致。遷移列・括弧・注記を付けない。語彙: #{vocabulary.join(' | ')}。実際: #{shown}）: #{heading[0, 60]}"
     end
   end
 
@@ -809,6 +886,8 @@ end
 
 args = ARGV.dup
 schema_dir = File.expand_path("../contracts/schemas", __dir__)
+vocabulary_file = File.expand_path("../contracts/ledger-status-vocabulary.tsv", __dir__)
+vocabulary_given = false
 tail = nil
 expect_ids = nil
 expect_cycle = nil
@@ -824,6 +903,13 @@ until args.empty?
       uncheckable("--schema-dir に値がありません\n#{USAGE}")
     end
     schema_dir = val
+  when "--vocabulary"
+    val = args.shift
+    if val.nil? || val.empty? || val.start_with?("--")
+      uncheckable("--vocabulary に値がありません\n#{USAGE}")
+    end
+    vocabulary_file = val
+    vocabulary_given = true
   when "--tail"
     val = args.shift
     unless val.is_a?(String) && val =~ /\A[0-9]+\z/ && val.to_i >= 1
@@ -873,6 +959,9 @@ end
 if expect_ids && !%w[ledger archive].include?(type)
   uncheckable("--expect-ids は ledger / archive 専用です（type=#{type}）\n#{USAGE}")
 end
+if vocabulary_given && !%w[ledger archive].include?(type)
+  uncheckable("--vocabulary は ledger / archive 専用です（type=#{type}）\n#{USAGE}")
+end
 if expect_cycle && !%w[journal-index runs].include?(type)
   uncheckable("--expect-cycle は journal-index / runs 専用です（type=#{type}）\n#{USAGE}")
 end
@@ -918,7 +1007,8 @@ errors =
     when "ledger", "archive"
       # live: 台帳（現在状態・修復が正規の運用）だけが新形式の検査対象。アーカイブは
       # 「ステータス行以外は原文のまま」の履歴で修復が禁じられているため対象外にする。
-      check_ledger(file, expect_ids, live: type == "ledger")
+      check_ledger(file, expect_ids, live: type == "ledger",
+                   vocabulary: load_status_vocabulary(vocabulary_file))
     when "journal-md"
       check_journal_md(file)
     when "journal-index"
