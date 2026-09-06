@@ -1,4 +1,4 @@
-<!-- flywheel-template: runtime/README.md@0.25.0 -->
+<!-- flywheel-template: runtime/README.md@0.26.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
