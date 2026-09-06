@@ -1,4 +1,4 @@
-<!-- flywheel-template: position.md@0.20.0 -->
+<!-- flywheel-template: position.md@0.27.0 -->
 
 # ポジション定義テンプレート
 
