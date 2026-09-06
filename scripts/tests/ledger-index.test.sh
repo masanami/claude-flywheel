@@ -78,8 +78,8 @@ run() { "$SCRIPT" "$@" 2>"$tmp/stderr"; }
 # 素材: 全ステータスを 1 件ずつ持つ台帳（記入例フェンス付き）。**語彙を増やしたらここも 1 件足す**
 # （T4 の svc は a,b,c,… の順に振る＝列の値がエントリ順とずれていないかを一括で見るため）。
 # ---------------------------------------------------------------------------
-make_entry() { # $1=id $2=status $3=svc $4=repos $5=ingested(y/-) $6=approvals(例 "x ")
-  local id="$1" st="$2" svc="$3" repos="$4" ing="$5" ap1="$6" ap2="$7"
+make_entry() { # $1=id $2=status $3=svc $4=repos $5=ingested $6,$7=approvals $8=deps
+  local id="$1" st="$2" svc="$3" repos="$4" ing="$5" ap1="$6" ap2="$7" dep="${8:-}"
   cat <<ENTRY
 
 ### [${id}] ${id} のタイトル
@@ -99,6 +99,7 @@ make_entry() { # $1=id $2=status $3=svc $4=repos $5=ingested(y/-) $6=approvals(�
 - 関連リポジトリ: ${repos}
 - 関連Issue:
 - 関連PR:
+- 依存: ${dep}
 - 優先度: P1
 - ステータス: ${st}
 - タスク案: 何かをする
@@ -139,7 +140,7 @@ HEAD
   # C-1 のステータスは**遷移説明つき**（実台帳の未分類エントリの形）。索引が `（…）` を
   # 落とすことを固定する（落とさない実装は status 列が長文になり索引の意味を失う）。
   make_entry "C-1" "未分類（未分類 → 分類済 → 計画承認待ち → 着手中 → 検証中 → 完了確認待ち → 完了）" "svc-a"  ""                      ""                                    " " " "
-  make_entry "C-2" "分類済"       "svc-b"  "o/r1"                  "src / o/r1#7（取り込み: 2026-08-20）" " " " "
+  make_entry "C-2" "分類済"       "svc-b"  "o/r1"                  "src / o/r1#7（取り込み: 2026-08-20）" " " " " "C-1, C-7"
   make_entry "C-3" "計画承認待ち" "svc-c"  "o/r1, o/r2"            ""                                    "x" " "
   make_entry "C-4" "着手中"       "svc-d"  "o/r2"                  "src / o/r2#8（取り込み: 2026-08-21）" "x" " "
   make_entry "C-5" "検証中"       "svc-e"  "o/r3"                  ""                                    "x" " "
@@ -156,10 +157,18 @@ ENTRY_COUNT=8
 out="$(run "$LEDGER")"; rc=$?
 eq "T2: 正常な台帳で exit 0" "$rc" "0"
 body="$(printf '%s\n' "$out" | tail -n +2)"          # ヘッダ行を除く
+
+# 列の位置は**ヘッダ行の列名から引く**。位置を数字でハードコードすると、列を 1 つ足した
+# だけで無関係なアサーションが全部落ちるうえ、テスト側が「列の並びの第 2 のリスト」に
+# なってずれる（本リポジトリの sync-free の原則と同じ）。
+ci() { printf '%s\n' "$out" | head -1 | tr '\t' '\n' | grep -nxF "$1" | cut -d: -f1; }
+F_ID="$(ci id)"; F_STATUS="$(ci status)"; F_SVC="$(ci svc)"; F_OPENED="$(ci opened)"
+F_REPOS="$(ci repos)"; F_DEPS="$(ci deps)"; F_APPROVALS="$(ci approvals)"
+F_INGESTED="$(ci ingested)"; F_TITLE="$(ci title)"
 eq "T2: 出力行数 = エントリ数（フェンス内の記入例を数えない）" \
    "$(printf '%s\n' "$body" | grep -c .)" "$ENTRY_COUNT"
 eq "T2: ID が順序どおり全件そろう" \
-   "$(printf '%s\n' "$body" | cut -f1 | tr '\n' ',')" "C-1,C-2,C-3,C-4,C-5,C-6,C-7,C-8,"
+   "$(printf '%s\n' "$body" | cut -f${F_ID} | tr '\n' ',')" "C-1,C-2,C-3,C-4,C-5,C-6,C-7,C-8,"
 hasnt "T2: フェンス内の記入例 C-001 を拾わない" "$out" "C-001"
 
 # 全域性の変異検査: 1 件消したら出力も 1 件減る（数え方が定数に固定されていないこと）
@@ -260,29 +269,42 @@ hasnt "T5b: 形 D のネスト項目が漏れていない" "$sum_out" "ネスト
 # T8 列の完全性: 索引で足りると宣言した判定に要る列が出力に在る
 # ===========================================================================
 header="$(printf '%s\n' "$out" | head -1)"
-eq "T8: ヘッダの列が仕様どおり（§3.2 の 10 列）" "$header" \
-   "$(printf 'id\tstatus\tprio\tpos\tsvc\topened\trepos\tapprovals\tingested\ttitle')"
-for col in id status prio pos svc opened repos approvals ingested title; do
+eq "T8: ヘッダの列が仕様どおり（§3.2 の 10 列 ＋ #150 の deps）" "$header" \
+   "$(printf 'id\tstatus\tprio\tpos\tsvc\topened\trepos\tdeps\tapprovals\tingested\ttitle')"
+for col in id status prio pos svc opened repos deps approvals ingested title; do
   has "T8: 列 ${col} が在る" "$header" "$col"
 done
+# 列名の宣言（--list-columns）と実出力のヘッダが一致すること。**双方向で固定する**
+# ——片方だけを見ると、宣言を直して出力を直し忘れた（またはその逆の）変更が素通しする。
+eq "T8: --list-columns の宣言と実出力のヘッダが一致する" \
+   "$(run --list-columns | tr '\n' '\t' | sed 's/\t$//')" "$header"
 row3="$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-3"')"
 eq "T8: svc 列に関連サービスが入る（domain-bootstrap の着手順判定）" \
-   "$(printf '%s\n' "$row3" | cut -f5)" "svc-c"
+   "$(printf '%s\n' "$row3" | cut -f${F_SVC})" "svc-c"
 eq "T8: repos 列に関連リポジトリが入る（improvement-first の束ね判定）" \
-   "$(printf '%s\n' "$row3" | cut -f7)" "o/r1, o/r2"
+   "$(printf '%s\n' "$row3" | cut -f${F_REPOS})" "o/r1, o/r2"
 eq "T8: opened 列に起票日が入る（normal の同一優先度内の順序）" \
-   "$(printf '%s\n' "$row3" | cut -f6)" "2026-08-23"
+   "$(printf '%s\n' "$row3" | cut -f${F_OPENED})" "2026-08-23"
 eq "T8: approvals 列が 2 文字（1-f の承認検出）" \
-   "$(printf '%s\n' "$row3" | cut -f8)" "x-"
+   "$(printf '%s\n' "$row3" | cut -f${F_APPROVALS})" "x-"
 eq "T8: ingested 列は取り込み元の有無だけ（2-d。値そのものは載せない）" \
-   "$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-2"' | cut -f9)" "y"
+   "$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-2"' | cut -f${F_INGESTED})" "y"
 eq "T8: 取り込み元が空なら ingested=-" \
-   "$(printf '%s\n' "$row3" | cut -f9)" "-"
+   "$(printf '%s\n' "$row3" | cut -f${F_INGESTED})" "-"
+# deps 列（#150 / FR-12）。索引だけで着手順のトポロジカル制約と起動可能集合を解けるように
+# するための列（scripts/ledger-deps.rb の入力）。**空集合ケースを対で置く**——「依存を持つ
+# 行が出る」だけでは、全行に同じ値を出す実装も、空を落として隣の値へずらす実装も通る。
+eq "T8: deps 列に依存（先行課題 ID）が入る（手順2 の着手順・手順3 の起動可能集合）" \
+   "$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-2"' | cut -f${F_DEPS})" "C-1, C-7"
+eq "T8: 依存が空のエントリの deps 列は空（空＝独立。隣の値が漏れない）" \
+   "$(printf '%s\n' "$row3" | cut -f${F_DEPS})" ""
+eq "T8: 依存を持つ行は台帳全体で 1 行だけ（全行に同じ値を出す実装でない）" \
+   "$(printf '%s\n' "$body" | cut -f${F_DEPS} | grep -c .)" "1"
 hasnt "T8: 取り込み元の値そのものは載らない" "$out" "取り込み: 2026-08-20"
 eq "T8: status 列にステータスが入る（括弧内の遷移説明は落とす）" \
-   "$(printf '%s\n' "$row3" | cut -f2)" "計画承認待ち"
+   "$(printf '%s\n' "$row3" | cut -f${F_STATUS})" "計画承認待ち"
 eq "T8: 遷移説明つきのステータス行から遷移説明を落とす" \
-   "$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-1"' | cut -f2)" "未分類"
+   "$(printf '%s\n' "$body" | awk -F'\t' '$1=="C-1"' | cut -f${F_STATUS})" "未分類"
 hasnt "T8: status 列に遷移説明が漏れない" "$out" "→"
 
 # ===========================================================================
@@ -293,14 +315,14 @@ mix=0
 i=1
 while [ $i -le $ENTRY_COUNT ]; do
   r="$(printf '%s\n' "$body" | awk -F'\t' -v id="C-$i" '$1==id')"
-  [ "$(printf '%s\n' "$r" | cut -f5)" = "svc-$(printf '\\x%02x' $((0x60 + i)) | printf '%b' "$(cat)")" ] || true
+  [ "$(printf '%s\n' "$r" | cut -f${F_SVC})" = "svc-$(printf '\\x%02x' $((0x60 + i)) | printf '%b' "$(cat)")" ] || true
   i=$((i + 1))
 done
 # svc は a..h の順に振ってある。列の値がエントリ順とずれていないかを一括で見る。
 eq "T4: 各行の svc が自エントリの値（隣接エントリの巻き込みなし）" \
-   "$(printf '%s\n' "$body" | cut -f5 | tr '\n' ',')" "svc-a,svc-b,svc-c,svc-d,svc-e,svc-f,svc-g,svc-h,"
+   "$(printf '%s\n' "$body" | cut -f${F_SVC} | tr '\n' ',')" "svc-a,svc-b,svc-c,svc-d,svc-e,svc-f,svc-g,svc-h,"
 eq "T4: 各行の status が自エントリの値" \
-   "$(printf '%s\n' "$body" | cut -f2 | tr '\n' ',')" \
+   "$(printf '%s\n' "$body" | cut -f${F_STATUS} | tr '\n' ',')" \
    "未分類,分類済,計画承認待ち,着手中,検証中,完了確認待ち,完了,人間対応待ち,"
 
 # 変異注入 (a): 見出しを `## [C-4]` へ降格させると、C-4 の本文が C-3 に吸収される。
@@ -321,11 +343,11 @@ hasnt "T4[変異]: 降格した見出しの行が出力に現れない" "$(run "
 # 「最後に見つけたフィールド行を採る」実装だと隣の値へ化ける（[ledger-range-delete-bug] の同型）。
 dem3="$(run "$tmp/mutant-demoted.md" | tail -n +2 | awk -F'\t' '$1=="C-3"')"
 eq "T4[変異]: 吸収されても C-3 の status は自分の値（隣へ化けない）" \
-   "$(printf '%s\n' "$dem3" | cut -f2)" "計画承認待ち"
+   "$(printf '%s\n' "$dem3" | cut -f${F_STATUS})" "計画承認待ち"
 eq "T4[変異]: 吸収されても C-3 の svc は自分の値" \
-   "$(printf '%s\n' "$dem3" | cut -f5)" "svc-c"
+   "$(printf '%s\n' "$dem3" | cut -f${F_SVC})" "svc-c"
 eq "T4[変異]: 吸収されても C-3 の approvals は自分の値" \
-   "$(printf '%s\n' "$dem3" | cut -f8)" "x-"
+   "$(printf '%s\n' "$dem3" | cut -f${F_APPROVALS})" "x-"
 
 # 変異注入 (b): C-3 の分類欄を丸ごと削ると、C-3 の行は隣（C-4）の値を拾ってはならない。
 ruby -e '
@@ -338,11 +360,11 @@ ruby -e '
 ' "$LEDGER" "$tmp/mutant-stripped.md"
 strip_row="$(run "$tmp/mutant-stripped.md" | tail -n +2 | awk -F'\t' '$1=="C-3"')"
 eq "T4[変異]: 分類欄を失った C-3 も 1 行として現れる（黙って消えない）" \
-   "$(printf '%s\n' "$strip_row" | cut -f1)" "C-3"
+   "$(printf '%s\n' "$strip_row" | cut -f${F_ID})" "C-3"
 eq "T4[変異]: C-3 の status は空（隣の C-4 の値を拾わない）" \
-   "$(printf '%s\n' "$strip_row" | cut -f2)" ""
+   "$(printf '%s\n' "$strip_row" | cut -f${F_STATUS})" ""
 eq "T4[変異]: C-3 の svc は空（隣の C-4 の値を拾わない）" \
-   "$(printf '%s\n' "$strip_row" | cut -f5)" ""
+   "$(printf '%s\n' "$strip_row" | cut -f${F_SVC})" ""
 eq "T4[変異]: 件数は ${ENTRY_COUNT} 件のまま" \
    "$(run "$tmp/mutant-stripped.md" | tail -n +2 | grep -c .)" "$ENTRY_COUNT"
 
@@ -387,7 +409,7 @@ eq "T3: 配布テンプレート challenge-ledger.md を exit 0 で受理" "$tpl
 eq "T3: 配布テンプレートは実エントリ 0 件（記入例はフェンス内）" \
    "$(printf '%s\n' "$tpl_out" | tail -n +2 | grep -c .)" "0"
 eq "T3: エントリ 0 件でもヘッダ行は出る（呼び出し側の解析を一様にする）" \
-   "$(printf '%s\n' "$tpl_out" | head -1 | cut -f1)" "id"
+   "$(printf '%s\n' "$tpl_out" | head -1 | cut -f${F_ID})" "id"
 
 # ===========================================================================
 # T7 語彙の正本 ＋ T1 経路表の完全性 ＋ T10 スキーマの enum
@@ -866,10 +888,12 @@ ruby -e '
   s = File.read(src, encoding: "UTF-8")
   File.write(dst, s.sub("- 関連サービス: svc-a", "- 関連サービス: svc\ta"))
 ' "$LEDGER" "$tmp/tabby.md"
+# 期待値は --list-columns の宣言から導く（数字で書くと列を足すたびに落ちる第 2 のリストになる）。
 eq "頑健性: 値にタブが混ざっても列数がずれない" \
-   "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | awk -F'\t' '{print NF}')" "10"
+   "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | awk -F'\t' '{print NF}')" \
+   "$(run --list-columns | grep -c .)"
 eq "頑健性: タブは空白へ正規化する（詰めて別語にしない）" \
-   "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | cut -f5)" "svc a"
+   "$(run "$tmp/tabby.md" | tail -n +2 | head -1 | cut -f${F_SVC})" "svc a"
 
 # ===========================================================================
 # T9 実測表の自己整合: docs/ledger-load-strategy.md §1.2 が「宣言した版」で測られているか

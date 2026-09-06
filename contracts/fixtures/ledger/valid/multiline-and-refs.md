@@ -1,7 +1,7 @@
 # 課題台帳（Challenge Ledger）
 
 > 正例フィクスチャ: 複数行形式（タスク案・完了条件のネスト箇条書き）と参照フィールド
-> （関連リポジトリ・関連Issue・関連PR）の正規形。あわせて **旧形式（1 行タスク案・参照
+> （関連リポジトリ・関連Issue・関連PR）と `依存`（先行課題・空欄＝独立）の正規形。あわせて **旧形式（1 行タスク案・参照
 > フィールド無し・旧い承認ラベル）が受理され続けること**（後方互換）も同一ファイルで固定する。
 > docs/challenge-ledger-format.md §複数行フィールドの記入形式 の形 A / B / C / D に対応。
 
@@ -23,6 +23,7 @@
 - 関連リポジトリ: masanami/claude-flywheel, masanami/claude-flywheel-board
 - 関連Issue: claude-flywheel#87, masanami/claude-flywheel#89
 - 関連PR: masanami/claude-flywheel#93
+- 依存: C-102, C-104
 - 優先度: P1
 - ステータス: 着手中
 - タスク案:
@@ -69,6 +70,7 @@
 - 関連リポジトリ:
 - 関連Issue:
 - 関連PR:
+- 依存:
 - 優先度: P0 | P1 | P2
 - ステータス: 未分類
 - タスク案:

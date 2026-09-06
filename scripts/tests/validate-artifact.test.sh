@@ -577,10 +577,11 @@ CONTRACTS_MD="$REPO_ROOT/contracts/README.md"
 FAILCLOSED_RULE='版 1 のエントリを「`fp` 不一致 → 人間記入欄のみ更新」の更新分岐へ落とさない'
 SUMMARIZE_GATE='版 1 エントリの原文引用を要約へ置き換える前に、移行を完了させなければならない'
 
-# 参照フィールド 3 種のラベルが 規定・雛形・検査 の 3 者で一致する（改名・取りこぼしの検出）
+# 値の形を検査する任意フィールド（参照フィールド 3 種 ＋ `依存`）のラベルが
+# 規定・雛形・検査 の 3 者で一致する（改名・取りこぼしの検出）
 # 掃引範囲は「台帳エントリを書く 3 者」の雛形すべて（人間＝雛形／run-cycle／ingest）。
 # 雛形が掃引範囲から漏れて旧ラベルのまま残った実績があるため、掃引範囲自体をテストで固定する。
-for label in "関連リポジトリ" "関連Issue" "関連PR"; do
+for label in "関連リポジトリ" "関連Issue" "関連PR" "依存"; do
   assert_contains "規定に参照フィールド「${label}」がある" "$FORMAT_DOC" "- ${label}:"
   assert_contains "雛形に参照フィールド「${label}」がある" "$LEDGER_TPL" "- ${label}:"
   assert_contains "バリデータが参照フィールド「${label}」を検査対象にしている" "$VALIDATOR" "- ${label}:"
@@ -874,6 +875,14 @@ assert_case "参照フィールドの自由記述を指摘する（関連リポ�
   -- ledger "$FIXTURES/ledger/invalid/related-refs-freetext.md"
 assert_case "参照フィールドの URL を指摘する（関連PR）" 1 "「関連PR」の値の形が不正" \
   -- ledger "$FIXTURES/ledger/invalid/related-refs-freetext.md"
+
+# `依存`（先行課題。#150 / FR-12）: 値の**形**だけを検査する。存在しない ID・自己参照・
+# 循環の検出は scripts/ledger-deps.rb の責務であり、ここでは検査しない（規定を 2 実装に
+# 書かないため。docs/challenge-ledger-format.md §検査の分担）。
+assert_case "依存の自由記述・プレースホルダを指摘する" 1 "「依存」の値の形が不正" \
+  ledger "$FIXTURES/ledger/invalid/related-refs-freetext.md"
+assert_case "移行猶予: archive では依存の値の形を検査しない" 0 - \
+  archive "$FIXTURES/ledger/invalid/related-refs-freetext.md"
 
 # 受理方向: 後方互換（旧形式の台帳が一括書き換えなしで通り続ける）
 cat > "$tmp/legacy-ledger.md" <<'LEGACY'
