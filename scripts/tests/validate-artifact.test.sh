@@ -940,6 +940,223 @@ FREETEXT
 assert_case "人間記入欄の行頭番号付きリストは違反にしない（検査範囲は分類欄のみ）" 0 - \
   -- ledger "$tmp/human-freetext-ledger.md"
 
+# ===========================================================================
+# ステータス語彙の完全一致検査（Issue #151）
+#
+# 事故（2026-09-06）: 記入例の遷移列サフィックスを付けたまま
+# `計画承認待ち（未分類 → … → 完了）` と 4 件書き込み、本バリデータは exit 0・
+# cycle-commit.sh は verify=ok・ledger-index.rb の投影も無警告で、**下流の board の
+# パーサだけ**が仕様外の値として弾いた。書き込み側のゲートが語彙の正本を一度も読んで
+# いなかったことが原因。
+#
+# ここで固定するのは 3 つ:
+#   (A) 拒否方向: 語彙に完全一致しない値を検出する（ledger / archive の両方）
+#   (B) 受理方向: **正本の全語**が受理される（語彙駆動。ハードコードされた部分集合を殺す）
+#   (C) fail-closed: 語彙の正本が読めない・空・形が壊れているは exit 2
+#       （「違反なし」にも「違反」にも丸めない）
+# ===========================================================================
+
+VOCAB_TSV="$REPO_ROOT/contracts/ledger-status-vocabulary.tsv"
+
+# --- (A) 拒否方向 ---
+
+assert_case "事故e: ステータスの遷移列サフィックス（実事故の形）を指摘する" 1 "「ステータス」の値が閉じた語彙にありません" \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md"
+assert_case "事故e: 指摘に実際の値を含める（どのエントリを直せばよいか分かる）" 1 "実際: 計画承認待ち（未分類 → 分類済" \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md"
+assert_case "事故e: 括弧内の注記（分類済（着手可能））も指摘する" 1 "実際: 分類済（着手可能）" \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md"
+assert_case "事故e: 語彙に無い自由記述（レビュー待ち）も指摘する" 1 "実際: レビュー待ち" \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md"
+# archive にも掛ける: ステータス行はアーカイブでも書き換える唯一の行であり（原文保存の
+# 原則と衝突しない）、移行猶予の対象（結合切れ・参照フィールド）とは扱いが違う。
+assert_case "type=archive でもステータス語彙を検査する（原文保存の例外＝書き換える唯一の行）" 1 "「ステータス」の値が閉じた語彙にありません" \
+  -- archive "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md"
+
+# 契約 README と実装の整合（散文と検査の範囲を一致させる）。
+assert_contains "契約README: ledger の検査内容にステータス語彙の完全一致がある" "$CONTRACTS_MD" \
+  "**ステータス値が閉じた語彙に完全一致**（前後の空白の trim のみ許容）"
+assert_contains "契約README: archive にもステータス語彙の検査が掛かると明記している" "$CONTRACTS_MD" \
+  "**ステータス語彙の検査は行う**"
+assert_contains "契約README: 語彙 tsv がバリデータの vendoring に必須だと明記している" "$CONTRACTS_MD" \
+  "**バリデータ本体もコピーする場合は \`ledger-status-vocabulary.tsv\` も同時にコピーする**"
+assert_absent "契約README: 語彙 tsv を vendoring 対象外と呼ぶ旧記述が残っていない" "$CONTRACTS_MD" \
+  "| 台帳のステータス語彙（**vendoring 対象外**"
+
+# --- (B) 受理方向: 正本の全語（語彙駆動。件数一致＋空集合ガード付き） ---
+
+# 空集合ガード: 正本を読めないと以下の全称検査はすべて空虚に真になる（0 件の照合は
+# 「ずれが無い」と区別できない）。先に非空を要求して、空なら明示的に落とす。
+vocab_values="$(grep -v '^#' "$VOCAB_TSV" | grep . | cut -f1)"
+vocab_n="$(printf '%s\n' "$vocab_values" | grep -c .)"
+if [ -n "$vocab_values" ] && [ "$vocab_n" -ge 1 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - 語彙の正本が非空（$vocab_n 値。以降の全称検査が空虚に真にならないこと）"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - 語彙の正本が非空（0 件では受理／拒否の全称検査が空虚に真になる）"
+fi
+
+# 正本の**全語**で 1 エントリずつ台帳を組み、全件受理されること。ハードコードされた
+# 部分集合（例: 主経路 7 値だけ・側道 `人間対応待ち` の取りこぼし）はここで落ちる。
+# 正本の**全語**で 1 エントリずつ台帳を組み、全件受理されること。ハードコードされた
+# 部分集合（例: 主経路 7 値だけ・側道 `人間対応待ち` の取りこぼし）はここで落ちる。
+# パイプのサブシェルに入れると PASS/FAIL を親へ持ち帰れないため、IFS=改行 の for で回す。
+vocab_ok=0
+saved_ifs="$IFS"
+IFS="
+"
+for st in $vocab_values; do
+  IFS="$saved_ifs"
+  vocab_ok=$((vocab_ok + 1))
+  {
+    printf "# 課題台帳（Challenge Ledger）\n\n---\n\n"
+    printf "### [C-9%02d] 語彙 %s のエントリ\n\n" "$vocab_ok" "$st"
+    printf "**人間記入欄**\n"
+    printf -- "- 起票者 / 起票日: yamada / 2026-09-06\n"
+    printf -- "- 説明: 語彙の正本の値をそのまま書いたエントリ。\n\n"
+    printf "**分類欄（エージェントが記入）**\n"
+    printf -- "- 担当ポジション: harness\n"
+    printf -- "- 優先度: P2\n"
+    printf -- "- ステータス: %s\n" "$st"
+    printf -- "- タスク案:\n  1. 受理されること\n"
+    printf -- "- 承認（人間がチェック）:\n"
+    printf -- "  - [ ] 計画を承認（FR-13・承認対象＝タスク案）\n"
+    printf -- "  - [ ] 完了を承認（FR-32）\n"
+    printf -- "- 備考:\n"
+  } > "$tmp/vocab-ok.md"
+  # bash 3.2 の罠（全角文字直前の変数展開）を避けるため ${st} と囲う。
+  assert_case "語彙駆動の受理: 正本の値「${st}」を受理する" 0 - -- ledger "$tmp/vocab-ok.md"
+  IFS="
+"
+done
+IFS="$saved_ifs"
+# 件数一致: 実際に回した数が正本の値の数と一致すること（黙って対象が減らないこと）。
+if [ "$vocab_ok" -eq "$vocab_n" ] && [ "$vocab_ok" -ge 1 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - 語彙駆動の受理を正本の全 $vocab_n 値で回した（件数一致）"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - 語彙駆動の受理の回数が正本の値数と一致しない（got=$vocab_ok want=$vocab_n）"
+fi
+
+# 前後の空白の trim のみ許容する（それ以外の付加は違反）。
+cat > "$tmp/status-padded.md" <<'PADDED'
+# 課題台帳（Challenge Ledger）
+
+---
+
+### [C-910] ステータス値の前後に空白があるエントリ
+
+**人間記入欄**
+- 起票者 / 起票日: yamada / 2026-09-06
+- 説明: 前後の空白は trim して受理する（それ以外の付加は違反）。
+
+**分類欄（エージェントが記入）**
+- 担当ポジション: harness
+- 優先度: P2
+- ステータス:   着手中   
+- タスク案:
+  1. 受理されること
+- 承認（人間がチェック）:
+  - [ ] 計画を承認（FR-13・承認対象＝タスク案）
+  - [ ] 完了を承認（FR-32）
+- 備考:
+PADDED
+# バッククォートは二重引用符内でコマンド置換になるためテスト名では使わない。
+assert_case "前後の空白のみは trim して受理（値の前後にスペース 3 個）" 0 - \
+  -- ledger "$tmp/status-padded.md"
+
+# --- (C) fail-closed: 語彙の正本が引けないときは exit 2（0 にも 1 にも丸めない） ---
+
+assert_case "語彙の正本が不在なら exit 2（「違反なし」に読み替えない）" 2 - \
+  -- ledger "$FIXTURES/ledger/valid/multiline-and-refs.md" --vocabulary "$tmp/no-such-vocab.tsv"
+printf '# コメントだけの語彙表\n\n' > "$tmp/empty-vocab.tsv"
+assert_case "語彙の正本がデータ行 0 件なら exit 2（空集合で照合＝空虚に真にしない）" 2 - \
+  -- ledger "$FIXTURES/ledger/valid/multiline-and-refs.md" --vocabulary "$tmp/empty-vocab.tsv"
+printf '未分類,main,1\n' > "$tmp/csv-vocab.tsv"
+assert_case "語彙の正本の列が壊れている（タブでなくカンマ）なら exit 2" 2 - \
+  -- ledger "$FIXTURES/ledger/valid/multiline-and-refs.md" --vocabulary "$tmp/csv-vocab.tsv"
+printf '未分類\tmain\t1\n未分類\tside\t-\n' > "$tmp/dup-vocab.tsv"
+assert_case "語彙の正本に重複した status があれば exit 2" 2 - \
+  -- ledger "$FIXTURES/ledger/valid/multiline-and-refs.md" --vocabulary "$tmp/dup-vocab.tsv"
+assert_case "空の正本でも「違反（exit 1）」には丸めない（誤検出で全件違反にしない）" 2 - \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md" --vocabulary "$tmp/empty-vocab.tsv"
+assert_case "--vocabulary は ledger / archive 専用（journal-md に付けたら exit 2）" 2 - \
+  -- journal-md "$FIXTURES/journal-md/valid/minimal.md" --vocabulary "$VOCAB_TSV"
+assert_case "--vocabulary に値が無ければ exit 2" 2 - \
+  -- ledger "$FIXTURES/ledger/valid/multiline-and-refs.md" --vocabulary
+assert_case "--vocabulary で持ち出した正本でも検証できる（vendoring 先の層構成）" 1 "「ステータス」の値が閉じた語彙にありません" \
+  -- ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md" --vocabulary "$VOCAB_TSV"
+
+# --- 変異注入: 検査 (8) が実際に効いていること（テストが空虚でない証拠） ---
+#
+# **リポジトリのファイルは一切書き換えない**: 変異体は $tmp へ**コピーしてから**作る
+# （in-place の変異＋復元より安全。`git checkout --` は使わない）。
+#   変異1「規定（検査）の削除」  : (8) の errors << 行を消す → 誤例フィクスチャが素通る
+#   変異2「別の節への移設」      : (8) をエントリ本文の走査から**前文（preamble）の走査**へ
+#                                 移す。コードは残るがステータス行に到達せず**空虚に真**になる
+#                                 （「安全機構が判定式に未接続」型）
+# どちらの変異体も、(8) 以外の検査は生きていること（別の事故型は依然 exit 1）まで確認する。
+# これが無いと「変異体が単に壊れて exit 2 になっただけ」を検出成功と誤読する。
+
+/usr/bin/ruby -e '
+  src = File.read(ARGV[0], encoding: "UTF-8")
+  head = src.index("# (8) ステータス値が閉じた語彙に")
+  abort "検査 (8) のブロックが見つからない（コメント見出しが変わった可能性）" unless head
+
+  # 変異1: (8) の errors << 行を削除する
+  del = src.lines.reject { |l| l.include?("「ステータス」の値が閉じた語彙にありません") }.join
+  abort "変異1: 削除対象の行が無い" if del == src
+  File.write(ARGV[1], del)
+
+  # 変異2: (8) の走査対象をエントリ本文（body）から前文（preamble）へ移設する
+  target = "    body.each do |l|\n      m = LEDGER_STATUS_LINE.match(l)\n"
+  abort "変異2: 移設対象が見つからない（#{src.scan(target).size} 件）" unless src.scan(target).size == 1
+  moved = src.sub(target, "    preamble.map { |_, t| t }.each do |l|\n      m = LEDGER_STATUS_LINE.match(l)\n")
+  File.write(ARGV[2], moved)
+' "$SCRIPT" "$tmp/mutant-deleted.rb" "$tmp/mutant-moved.rb" 2>"$tmp/mutgen.err"
+if [ -s "$tmp/mutant-deleted.rb" ] && [ -s "$tmp/mutant-moved.rb" ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - 変異体を生成できた（リポジトリのファイルは書き換えていない）"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - 変異体を生成できない: $(cat "$tmp/mutgen.err")"
+fi
+
+for mut in deleted moved; do
+  case "$mut" in
+    deleted) label="変異1（規定＝検査の削除）" ;;
+    moved)   label="変異2（別の節への移設＝空虚に真）" ;;
+  esac
+  m="$tmp/mutant-$mut.rb"
+  [ -s "$m" ] || continue
+
+  # 変異体は誤例フィクスチャを素通す（＝検出は検査 (8) が担っている証拠）
+  /usr/bin/ruby "$m" ledger "$FIXTURES/ledger/invalid/status-vocabulary-suffix.md" \
+    --vocabulary "$VOCAB_TSV" >/dev/null 2>&1
+  mut_exit=$?
+  if [ "$mut_exit" -eq 0 ]; then
+    PASS=$((PASS + 1))
+    echo "ok   - $label を入れると誤例フィクスチャが素通る（検出は検査 (8) が担っている）"
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label を入れても exit $mut_exit（検出が検査 (8) 以外から来ている疑い＝テストが空虚）"
+  fi
+
+  # 変異体が「単に壊れている」のではないこと（(8) 以外の検査は生きている）
+  /usr/bin/ruby "$m" ledger "$FIXTURES/ledger/invalid/heading-no-blank-line.md" \
+    --vocabulary "$VOCAB_TSV" >/dev/null 2>&1
+  alive_exit=$?
+  if [ "$alive_exit" -eq 1 ]; then
+    PASS=$((PASS + 1))
+    echo "ok   - $label の変異体は他の検査が生きている（壊れて exit 2 になっただけではない）"
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label の変異体が別の事故型も検出しない（exit $alive_exit。変異体自体が壊れている）"
+  fi
+done
+
 # --- 空ファイル・空行の扱い ---
 
 : > "$tmp/empty.md"
