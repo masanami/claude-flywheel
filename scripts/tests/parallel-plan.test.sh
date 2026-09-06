@@ -30,6 +30,8 @@ cd "${REPO_ROOT}" || exit 1
 SKILL_MD="skills/run-cycle/SKILL.md"
 POSITION_TPL="templates/position.md"
 MIGRATE_RB="scripts/migrate-workspace.rb"
+# 宣言項目を「書き写さない」側（正本＝テンプレートへ委譲する側）の scaffold スキル。
+SCAFFOLD_SKILLS="skills/bootstrap-domain-map/SKILL.md skills/flywheel-init/SKILL.md"
 
 # 規範文（逐語で在ることと、在る場所を固定する）
 SLOT_INVARIANT='1 作業スロットにつき同時に 1 セッション'
@@ -349,6 +351,67 @@ done <<EOF
 ${items}
 EOF
 assert_eq "(F) 検出器が要求する宣言項目はすべて雛形にある" "" "${missing}"
+
+# --- scaffold スキルが宣言項目を「書き写していない」こと（PR #155 レビュー対応） ---
+# flywheel-init / bootstrap-domain-map は、確定させる項目を**テンプレートへ委譲**して
+# 列挙しない。以前はこの規律を括弧書きの散文（「ここに項目名や個数を書き写すと…ずれる」）
+# だけが担っていたが、散文の約束は守られない（「2 つのリストを同期させる規定は必ずずれる」・
+# PR #96）。散文を消して規律を**ここへ移した**。
+#
+# 何を捕まえるか:
+#   - 同一ファイルに **2 つ以上の異なる宣言項目名**が現れること（＝列挙の復活。書き写された
+#     リストは本質的に 2 件以上になる。実際に消した 3 箇所はいずれも 3 項目の列挙だった）
+#   - §接続ツールに言及する行での **`<数字> 項目`** という個数表記（消した 3 箇所はいずれも
+#     「の 3 項目」の形だった）
+# 何を捕まえないか（意図的に許す・限界として明示する）:
+#   - **単独の項目名**（bootstrap-domain-map は「人間へ上げる問いの種類」をドメイン固有の
+#     助言として 1 つだけ挙げている。単独の言及は「完全な集合」を主張しないため、
+#     テンプレートに項目が増えてもずれない）
+#   - 全角数字の個数表記・「三項目」等の漢数字（本 repo の記法は半角数字で一貫している）
+#   - §接続ツールに言及しない行の `2 つ` 等（flywheel-init の無関係な箇所を誤検出しない）
+scan_item_enumeration() {
+  # $1 = 検査対象ファイル / $2 = 改行区切りの宣言項目名（POSITION_TOOL_ITEMS 由来）
+  _f="$1"
+  _hits=0
+  _found=""
+  while IFS= read -r _label; do
+    [ -n "${_label}" ] || continue
+    if grep -qF -- "${_label}" "${_f}"; then
+      _hits=$((_hits + 1))
+      _found="${_found} ${_label}"
+    fi
+  done <<INNER
+$2
+INNER
+  if [ "${_hits}" -ge 2 ]; then printf 'labels:%s\n' "${_found}"; fi
+  grep -F -- '§接続ツール' "${_f}" | grep -oE '[0-9]+ ?項目' | sed 's/^/count:/'
+}
+
+# 検出器の自己検査: 合成した違反入力をちょうど検出する（静かに 0 件へ縮退させない）。
+probe2="$(mktemp "${TMPDIR:-/tmp}/scaffold-probe.XXXXXX")"
+{
+  printf -- '- §接続ツールの 3 項目を人間に確定させる。\n'
+  while IFS= read -r _l; do [ -n "${_l}" ] && printf -- '  - **%s**: ...\n' "${_l}"; done <<PROBE
+${items}
+PROBE
+} > "${probe2}"
+probe2_out="$(scan_item_enumeration "${probe2}" "${items}")"
+rm -f "${probe2}"
+has "(F) 検出器の自己検査: 項目名の列挙を検出する" "${probe2_out}" 'labels:'
+has "(F) 検出器の自己検査: 個数表記を検出する" "${probe2_out}" 'count:3 項目'
+
+# 委譲先（正本）への参照が実在すること。参照ごと消して「列挙が無いから合格」になる
+# 空虚な合格を防ぐ（規律は「書き写さない」であって「何も書かない」ではない）。
+has "(F) bootstrap-domain-map がテンプレートへ委譲している" \
+  "$(cat skills/bootstrap-domain-map/SKILL.md)" \
+  '**テンプレートの §接続ツールに列挙されている宣言項目はすべて手順6で人間に確定させる**'
+has "(F) flywheel-init がテンプレートへ委譲している" \
+  "$(cat skills/flywheel-init/SKILL.md)" \
+  '**確定させる項目は `templates/position.md` の §接続ツールに列挙されているものすべて**'
+
+for sk in ${SCAFFOLD_SKILLS}; do
+  assert_eq "(F) ${sk} が宣言項目を書き写していない" "" "$(scan_item_enumeration "${sk}" "${items}")"
+done
 
 echo ""
 echo "=== summary === pass: ${PASS}, fail: ${FAIL}"

@@ -78,7 +78,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 4. **再実行なら §再実行（テンプレート追従）を実行する**（`challenge-ledger.md` が既にあった場合。初回 scaffold ではスキップ）。
 5. 次の一手を案内する:
    - ドメインが未知なら bootstrap-domain-map スキルを実行して `positions/`・`memory/`・`repos.tsv`（＋任意で `challenge-sources.md` の取り込み元候補）を生成。
-   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。**その場で §接続ツール（実作業の委譲先）を人間に確定させる**——**確定させる項目は `templates/position.md` の §接続ツールに列挙されているものすべて**（項目の正本はテンプレート側 1 本。ここに項目名や個数を書き写すと、テンプレートに項目が増えた周に静かにずれる）。**プレースホルダのまま残さない**（未記入だと run-cycle は安全側＝親がユーザー役に倒れ、実装フローまで往復が発生する）。確定できない項目は「未宣言」と明記して残す（推測で埋めない）。
+   - 既にドメインが分かっていれば `${CLAUDE_PLUGIN_ROOT}/templates/position.md` を雛形に `positions/<domain>.md` を作成し、関連リポジトリを `repos.tsv` に記入。**その場で §接続ツール（実作業の委譲先）を人間に確定させる**——**確定させる項目は `templates/position.md` の §接続ツールに列挙されているものすべて**。**プレースホルダのまま残さない**（未記入だと run-cycle は安全側＝親がユーザー役に倒れ、実装フローまで往復が発生する）。確定できない項目は「未宣言」と明記して残す（推測で埋めない）。
    - 課題は**共有ソース**に集約し、run-cycle（観測ステップ＝ ingest-challenges）が自分に関係する分だけ `challenge-ledger.md` へ取り込む。外部ソース（Notion/Doc/Slack 等）から取り込むなら `challenge-sources.md` に取り込み元を宣言する（秘密情報は書かない。認証は実行者環境に委ねる）。
    - タスクの優先度判定・着手順の方針を状況に応じて切り替えたい場合は、生成された `priority-policy.md` の「現在のモード」（`active:` 行）を編集してコミットする（既定は `normal`）。**切り替えの意思決定は人間のみ**が行う（run-cycle 手順1・手順2が毎周参照する）。編集は人間が直接行うか、対話セッションで人間から明示指示を受けたエージェントが代行してよい（自律実行〔cron〕中のエージェントは読むだけで自分の判断では書き換えない）。
    - 定期自走を始めるには `/claude-flywheel:start-day` を実行する（`.flywheel/cadence.json` を読み込み、初回 `run-cycle` の実行とセッション内 cron の登録までを行う。詳細は `runtime/README.md`）。
