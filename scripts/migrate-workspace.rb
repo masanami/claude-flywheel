@@ -62,6 +62,7 @@
 # contracts/README.md §実装言語の選定根拠 / §実行環境の前提。
 
 require "fileutils"
+require "json"
 require "tmpdir"
 
 EXIT_OK = 0
@@ -625,8 +626,8 @@ def inject_fault!(lines)
   case FAULT
   when nil, ""
     lines
-  when "marker-always-current", "marker-skip-heading-delta"
-    # 版マーカー検査側で解釈する故障。行は変えない（scaffold 追従レポートは書き込みを伴わない）。
+  when "marker-always-current", "marker-skip-heading-delta", "cadence-always-current"
+    # 版マーカー検査・cadence 追従検査側で解釈する故障。行は変えない（scaffold 追従レポートは書き込みを伴わない）。
     lines
   when "fail-after-stage"
     # 行は変えない。置換直前（一時ファイル作成後）に中断させ、`ensure` の後始末を固定する。
@@ -871,6 +872,56 @@ POSITION_TOOL_ITEMS = [
   "子に意思決定を委譲してよいスキル",
   "人間へ上げる問いの種類",
 ].freeze
+
+# `.flywheel/cadence.json` の内容ベース追従検出（#148）。JSON にはコメント構文が無く版マーカーを
+# 置けない（docs/template-version-marker.md §7）ため、**マーカーではなく内容**で追従を見る。
+#
+# 列挙するのは「**不足しても既定へ縮退して黙って走るキー**」だけ。縮退するからこそ、既存
+# ワークスペースは追従しないまま正常に見え、宣言者が「設定した値で動いている」と誤解する
+# （実測: `heartbeat` を持たないワークスペースが既定 1 営業日で走っていた）。縮退しないキーは
+# 不在時に別経路で失敗するのでここには載せない。
+#
+# **値の妥当性は検査しない**（利用先ごとに違う運用設定であり、テンプレートとのバイト比較も
+# 版比較も偽陽性になる）。**書き換えもしない**（値を決めるのは人間）。
+#
+# 新たに「既定へ縮退するキー」を足したときにここへ載せ忘れると追従漏れが再び黙るため、
+# この列挙は scripts/tests/migrate-workspace.test.sh がテンプレートと突き合わせて固定する。
+# 形式: [トップレベルのキー名, 何の設定か, 不足時に何が起きるか]
+CADENCE_FALLBACK_KEYS = [
+  ["cycle_budget_usd",
+   "サイクル全体の予算上限",
+   "既定 300 USD へ縮退して費用ガードが走る（run-cycle 手順3。1 周に複数の委譲を起動すると天井が件数分だけ掛け算されるのを抑える上限）"],
+  ["heartbeat",
+   "拍動停止の検知しきい値（`heartbeat.stale_after_business_days`）",
+   "既定 1 営業日へ縮退して検査が走る（run-cycle 手順0）"],
+].freeze
+
+# ワークスペースの `.flywheel/cadence.json` に、既定へ縮退するキーが揃っているかを見る。
+# 返り値は notes へ積む文字列の配列（不足なし・ファイル不在なら空。ファイル不在は
+# SCAFFOLD_PATHS 側が別途報告するため、ここでは二重に報告しない）。
+def cadence_notes(ws)
+  path = File.join(ws, ".flywheel/cadence.json")
+  return [] unless File.exist?(path)
+
+  begin
+    data = JSON.parse(File.read(path, encoding: "UTF-8"))
+  rescue JSON::ParserError, ArgumentError => e
+    return ["`.flywheel/cadence.json`: JSON としてパースできない（#{e.class}）＝ start-day / run-cycle は" \
+            "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して構文を直す"]
+  end
+  # トップレベルがオブジェクトでなければキーの有無を判定できない（縮退して走る点は同じ）。
+  return ["`.flywheel/cadence.json`: トップレベルが JSON オブジェクトでない＝ start-day / run-cycle は" \
+          "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して直す"] unless data.is_a?(Hash)
+
+  # 変異注入（テスト専用）: 不足の判定を無条件に「追従済み」へ倒す。検出がタウトロジーでない
+  # ことを示すために使う。
+  return [] if FAULT == "cadence-always-current"
+
+  CADENCE_FALLBACK_KEYS.reject { |key, _, _| data.key?(key) }.map do |key, what, effect|
+    "`.flywheel/cadence.json`: `#{key}`（#{what}）が無い＝#{effect}。" \
+    "宣言した値で動かすには `<plugin>/templates/cadence.json` を参照して追記する（自動では書き足さない）"
+  end
+end
 
 # 見出しが `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）
 # を**すべて**返す（無ければ空配列）。「文書のどこかに語がある」ではなく「その節にあるか」を
@@ -1179,6 +1230,8 @@ def scaffold_report(ws, templates)
     body = File.read(dockerfile, encoding: "UTF-8")
     notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" unless body =~ /^\s*(RUN|ARG|ENV)?.*\bruby\b/
   end
+
+  notes.concat(cadence_notes(ws))
 
   notes.concat(marker_notes(ws, templates, content_ok))
 

@@ -5,6 +5,7 @@
   "run_cycle_interval_minutes": 90,
   "cron_minute_offset": null,
   "execution_mode": "native",
+  "cycle_budget_usd": 300,
   "reflect": {
     "every_n_cycles": 10
   },
