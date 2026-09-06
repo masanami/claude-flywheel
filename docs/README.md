@@ -54,7 +54,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
-| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・reflect しきい値・拍動停止検知しきい値 `heartbeat.stale_after_business_days`。`start-day` / `run-cycle` が読む） |
+| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect しきい値・拍動停止検知しきい値 `heartbeat.stale_after_business_days`。`start-day` / `run-cycle` が読む） |
 | [container/{Dockerfile,compose.yml}](../templates/container/) | コンテナ隔離モード（`execution_mode: container`）の雛形。start-day 層をコンテナに閉じ込める |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形（実行イベントログ `runs.jsonl` の仕様の正本を含む） |
 | [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |

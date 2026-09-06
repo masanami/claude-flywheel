@@ -62,6 +62,7 @@
 # contracts/README.md §実装言語の選定根拠 / §実行環境の前提。
 
 require "fileutils"
+require "json"
 require "tmpdir"
 
 EXIT_OK = 0
@@ -625,8 +626,8 @@ def inject_fault!(lines)
   case FAULT
   when nil, ""
     lines
-  when "marker-always-current", "marker-skip-heading-delta"
-    # 版マーカー検査側で解釈する故障。行は変えない（scaffold 追従レポートは書き込みを伴わない）。
+  when "marker-always-current", "marker-skip-heading-delta", "cadence-always-current"
+    # 版マーカー検査・cadence 追従検査側で解釈する故障。行は変えない（scaffold 追従レポートは書き込みを伴わない）。
     lines
   when "fail-after-stage"
     # 行は変えない。置換直前（一時ファイル作成後）に中断させ、`ensure` の後始末を固定する。
@@ -872,6 +873,59 @@ POSITION_TOOL_ITEMS = [
   "人間へ上げる問いの種類",
 ].freeze
 
+# `.flywheel/cadence.json` の内容ベース追従検出（#148）。JSON にはコメント構文が無く版マーカーを
+# 置けない（docs/template-version-marker.md §7）ため、**マーカーではなく内容**で追従を見る。
+#
+# 列挙するのは「**不足しても既定へ縮退して黙って走るキー**」だけ。縮退するからこそ、既存
+# ワークスペースは追従しないまま正常に見え、宣言者が「設定した値で動いている」と誤解する
+# （実測: `heartbeat` を持たないワークスペースが既定 1 営業日で走っていた）。縮退しないキーは
+# 不在時に別経路で失敗するのでここには載せない。
+#
+# **値の妥当性は検査しない**（利用先ごとに違う運用設定であり、テンプレートとのバイト比較も
+# 版比較も偽陽性になる）。**書き換えもしない**（値を決めるのは人間）。
+#
+# 新たに「既定へ縮退するキー」を足したときにここへ載せ忘れると追従漏れが再び黙るため、
+# この列挙は scripts/tests/migrate-workspace.test.sh がテンプレートと突き合わせて固定する。
+# 形式: [トップレベルのキー名, 何の設定か, 不足時に何が起きるか]
+CADENCE_FALLBACK_KEYS = [
+  ["cycle_budget_usd",
+   "サイクル全体の予算上限",
+   "既定 300 USD へ縮退して費用ガードが走る（run-cycle 手順3。1 周に複数の委譲を起動すると天井が件数分だけ掛け算されるのを抑える上限）"],
+  ["heartbeat",
+   "拍動停止の検知しきい値（`heartbeat.stale_after_business_days`）",
+   "既定 1 営業日へ縮退して検査が走る（run-cycle 手順0）"],
+].freeze
+
+# ワークスペースの `.flywheel/cadence.json` に、既定へ縮退するキーが揃っているかを見る。
+# 返り値は notes へ積む文字列の配列（不足なし・ファイル不在なら空。ファイル不在は
+# SCAFFOLD_PATHS 側が別途報告するため、ここでは二重に報告しない）。
+def cadence_notes(ws)
+  path = File.join(ws, ".flywheel/cadence.json")
+  return [] unless File.exist?(path)
+
+  body, err = read_for_report(path, ".flywheel/cadence.json")
+  return [err] if err
+
+  begin
+    data = JSON.parse(body)
+  rescue JSON::ParserError, ArgumentError => e
+    return ["`.flywheel/cadence.json`: JSON としてパースできない（#{e.class}）＝ start-day / run-cycle は" \
+            "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して構文を直す"]
+  end
+  # トップレベルがオブジェクトでなければキーの有無を判定できない（縮退して走る点は同じ）。
+  return ["`.flywheel/cadence.json`: トップレベルが JSON オブジェクトでない＝ start-day / run-cycle は" \
+          "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して直す"] unless data.is_a?(Hash)
+
+  # 変異注入（テスト専用）: 不足の判定を無条件に「追従済み」へ倒す。検出がタウトロジーでない
+  # ことを示すために使う。
+  return [] if FAULT == "cadence-always-current"
+
+  CADENCE_FALLBACK_KEYS.reject { |key, _, _| data.key?(key) }.map do |key, what, effect|
+    "`.flywheel/cadence.json`: `#{key}`（#{what}）が無い＝#{effect}。" \
+    "宣言した値で動かすには `<plugin>/templates/cadence.json` を参照して追記する（自動では書き足さない）"
+  end
+end
+
 # 見出しが `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）
 # を**すべて**返す（無ければ空配列）。「文書のどこかに語がある」ではなく「その節にあるか」を
 # 判定するための土台。
@@ -1008,6 +1062,33 @@ rescue SystemCallError
   nil
 end
 
+# 診断レポート用の読み取り。**例外を投げず**、読めなければ理由を診断ノート 1 行にして返す。
+#
+# `scaffold_report` 系は「追従状況を**診断する**」経路であり、1 ファイルが読めないだけで例外が
+# レポート全体を巻き込むと、**診断のための機能が診断できずに落ちる**（この repo が繰り返し
+# 塞いできた fail-closed の失敗形）。読めないこと自体も人間が直すべき状態なので、黙って
+# 飛ばさずノートとして出す。
+#
+# **`File.exist?` を通っても `File.read` は raise しうる**: 存在確認と読み取りの間の削除競合、
+# 権限変更（`EACCES`）、パスがディレクトリだった場合（`EISDIR`）。移行経路の `read_lines` が
+# `uncheckable`（＝処理を止める）へ倒すのとは**役割が違う**——移行は読めないファイルを書き換えて
+# はならないので止めるのが正しいが、診断は止めずに残りを報告するのが正しい。
+#
+# 戻り値: [本文, nil]（読めた） | [nil, 診断ノート]（読めない）
+def read_for_report(path, rel)
+  [File.read(path, encoding: "UTF-8"), nil]
+rescue SystemCallError => e
+  [nil, "`#{rel}`: 読み取れない（#{e.class}: #{e.message}）＝追従状況を検査できない。" \
+        "パーミッションと、パスがディレクトリになっていないかを確認する"]
+end
+
+# `read_for_report` の薄い呼び出し口。読めなければ `notes` へ診断ノートを積んで nil を返す。
+def read_or_note(path, rel, notes)
+  body, err = read_for_report(path, rel)
+  notes << err if err
+  body
+end
+
 # テンプレート側の版表（正本）。戻り値: [表, テンプレート側の通知]
 #   表: name => { version:, path:, rel: }
 def template_marker_table(templates)
@@ -1112,25 +1193,29 @@ def scaffold_report(ws, templates)
     path = File.join(ws, rel)
     tpl_path = File.join(templates, tpl)
     next unless File.exist?(path) && File.exist?(tpl_path)
-    next if File.read(path, encoding: "UTF-8") == File.read(tpl_path, encoding: "UTF-8")
+    body = read_or_note(path, rel, notes)
+    tpl_body = read_or_note(tpl_path, "<plugin>/templates/#{tpl}", notes)
+    next if body.nil? || tpl_body.nil?
+    next if body == tpl_body
     notes << "テンプレートと差分あり: #{rel}（自動上書きしない。`diff #{rel} <plugin>/templates/#{tpl}` で確認し、" \
              "利用先のカスタマイズでなければテンプレート側を取り込む）"
   end
 
   gitignore = File.join(ws, ".gitignore")
   if File.exist?(gitignore)
-    lines = File.read(gitignore, encoding: "UTF-8").split("\n").map { |l| l.sub(/\r\z/, "") }
-    notes << "`.gitignore`: `.flywheel/*` の行が無い（`.flywheel/` 丸ごと ignore だと cadence.json を追跡できない）" unless lines.include?(".flywheel/*")
-    notes << "`.gitignore`: `!.flywheel/cadence.json` の行が無い（cadence.json は運用設定として Git 追跡する）" unless lines.include?("!.flywheel/cadence.json")
-    notes << "`.gitignore`: 旧形式の `.flywheel/`（ディレクトリ丸ごと ignore）が残っている（`.flywheel/*` ＋ unignore へ置き換える）" if lines.include?(".flywheel/")
-    notes << "`.gitignore`: `container/.env` の行が無い（ホスト固有のため追跡しない）" unless lines.include?("container/.env")
-    notes << "`.gitignore`: `*.migrate-tmp` の行が無い（移行の一時ファイルが万一残ってもコミットされないようにする）" unless lines.include?("*.migrate-tmp")
+    body = read_or_note(gitignore, ".gitignore", notes)
+    lines = body.nil? ? nil : body.split("\n").map { |l| l.sub(/\r\z/, "") }
+    notes << "`.gitignore`: `.flywheel/*` の行が無い（`.flywheel/` 丸ごと ignore だと cadence.json を追跡できない）" if lines && !lines.include?(".flywheel/*")
+    notes << "`.gitignore`: `!.flywheel/cadence.json` の行が無い（cadence.json は運用設定として Git 追跡する）" if lines && !lines.include?("!.flywheel/cadence.json")
+    notes << "`.gitignore`: 旧形式の `.flywheel/`（ディレクトリ丸ごと ignore）が残っている（`.flywheel/*` ＋ unignore へ置き換える）" if lines&.include?(".flywheel/")
+    notes << "`.gitignore`: `container/.env` の行が無い（ホスト固有のため追跡しない）" if lines && !lines.include?("container/.env")
+    notes << "`.gitignore`: `*.migrate-tmp` の行が無い（移行の一時ファイルが万一残ってもコミットされないようにする）" if lines && !lines.include?("*.migrate-tmp")
   end
 
   settings = File.join(ws, ".claude/settings.json")
   if File.exist?(settings)
-    body = File.read(settings, encoding: "UTF-8")
-    notes << "`.claude/settings.json`: `Bash(claude -p:*)` の allow が無い（自走委譲が分類器でブロックされる）" unless body.include?("Bash(claude -p:*)")
+    body = read_or_note(settings, ".claude/settings.json", notes)
+    notes << "`.claude/settings.json`: `Bash(claude -p:*)` の allow が無い（自走委譲が分類器でブロックされる）" if body && !body.include?("Bash(claude -p:*)")
   end
 
   # 意思決定の主体（#107）: 旧 1 軸（課題のスコープだけ）の CLAUDE.md は、対話前提スキルでも
@@ -1138,8 +1223,9 @@ def scaffold_report(ws, templates)
   # **判定は節単位で行う**: 文書全体の部分一致だと、無関係な本文に「スキルの性質」があるだけで
   # 旧 1 軸の節が「追従済み」に化ける（偽陰性 = 旧動作が残ったまま報告されない）。
   claude_md = File.join(ws, "CLAUDE.md")
-  if File.exist?(claude_md)
-    sections = markdown_sections(File.read(claude_md, encoding: "UTF-8"), /意思決定の主体/)
+  claude_body = File.exist?(claude_md) ? read_or_note(claude_md, "CLAUDE.md", notes) : nil
+  if claude_body
+    sections = markdown_sections(claude_body, /意思決定の主体/)
     if sections.any? { |sec| sec.include?("スキルの性質") }
       content_ok << "CLAUDE.md"
     elsif !sections.empty?
@@ -1154,7 +1240,9 @@ def scaffold_report(ws, templates)
   # ポジションを「宣言済み」と誤認しない。値が `未宣言` であることは宣言項目の欠落と区別する
   # ＝ flywheel-init / bootstrap-domain-map が許す正規の状態であり、移行対象ではない）。
   Dir.glob(File.join(ws, "positions", "*.md")).sort.each do |path|
-    sections = markdown_sections(File.read(path, encoding: "UTF-8"), /接続ツール/)
+    pos_body = read_or_note(path, "positions/#{File.basename(path)}", notes)
+    next if pos_body.nil?
+    sections = markdown_sections(pos_body, /接続ツール/)
     if sections.empty?
       notes << "`positions/#{File.basename(path)}`: §接続ツール（実作業の委譲先）が無い＝対話前提スキルの対話相手が未宣言" \
                "（run-cycle は未宣言を安全側＝親がユーザー役として扱う）。`<plugin>/templates/position.md` の §接続ツール を追記する"
@@ -1176,9 +1264,11 @@ def scaffold_report(ws, templates)
 
   dockerfile = File.join(ws, "container/Dockerfile")
   if File.exist?(dockerfile)
-    body = File.read(dockerfile, encoding: "UTF-8")
-    notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" unless body =~ /^\s*(RUN|ARG|ENV)?.*\bruby\b/
+    body = read_or_note(dockerfile, "container/Dockerfile", notes)
+    notes << "`container/Dockerfile`: ruby を導入していない（コミットゲート＝validate-artifact.rb が起動できない。contracts/README.md §実行環境の前提）" if body && body !~ /^\s*(RUN|ARG|ENV)?.*\bruby\b/
   end
+
+  notes.concat(cadence_notes(ws))
 
   notes.concat(marker_notes(ws, templates, content_ok))
 

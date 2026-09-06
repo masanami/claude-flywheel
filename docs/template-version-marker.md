@@ -172,14 +172,23 @@ Issue [#107](https://github.com/masanami/claude-flywheel/issues/107) 由来の 2
 | 生成物 | 対象外の理由 | 現在の検出 |
 | --- | --- | --- |
 | `.claude/settings.json` | JSON にコメント構文が無い | `Bash(claude -p:*)` の allow 有無 |
-| `.flywheel/cadence.json` | 同上 | **無し（既知の穴）** |
+| `.flywheel/cadence.json` | 同上 | **内容ベース検出**（既定へ縮退するキーの不足を報告。[#148](https://github.com/masanami/claude-flywheel/issues/148) で穴を埋めた） |
 | `repos.tsv` | テンプレートではなく利用先のデータ | 対象外でよい |
 | `.gitignore` | 既存ファイルへの追記でありコピーではない | 必要な行の有無（5 検査） |
 | `container/Dockerfile` | 逐語コピーでバイト比較が完全に効く | バイト比較 ＋ ruby 導入検査 |
 | `container/compose.yml` | 同上 | バイト比較 |
 
-`cadence.json` の検出器が無いことは本課題では埋めない（Issue #118 のスコープ外）。ここに
-書き残すことで「対象外」と「見落とし」を区別できる状態にしておく。
+`cadence.json` の検出器が無いことは本課題（Issue #118）では埋めなかったが、[#148](https://github.com/masanami/claude-flywheel/issues/148)
+で `cycle_budget_usd`（サイクル全体の予算上限）を足した際に埋めた。**マーカーではなく内容ベースの
+検出**である——JSON にマーカーを置けない事情は変わらないため、`scripts/migrate-workspace.rb` が
+**「不足しても既定へ縮退して黙って走るキー」を列挙し、ワークスペースの `cadence.json` に無いものを
+報告する**（`heartbeat` / `cycle_budget_usd`）。列挙に載せるのは縮退するキーだけで、値の妥当性は
+検査しない（利用先ごとに値が違う運用設定であり、テンプレートとのバイト比較・版比較はどちらも
+偽陽性になる）。書き換えもしない（値を決めるのは人間）。**新しく「既定へ縮退するキー」を足したのに
+列挙へ載せ忘れると、追従漏れが再び黙る**ため、列挙はテストで固定する。
+
+他の行は引き続き対象外であり、ここに書き残すことで「対象外」と「見落とし」を区別できる状態に
+しておく。
 
 ## 8. テスト（`scripts/tests/migrate-workspace.test.sh` に追加）
 

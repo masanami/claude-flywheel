@@ -955,6 +955,199 @@ assert_out "すべて 0 の版は追従対象として報告する" '生成物�
 ws="$(mkmarker bignum 10.20.30)"
 assert_no_out "多桁の版を形式不正にしない" '版が semver でない' -- --workspace "$ws"
 assert_out "多桁の版は「テンプレートより新しい」として報告する" 'テンプレートより新しい' -- --workspace "$ws"
+# ---------------------------------------------------------------------------
+# 17. `.flywheel/cadence.json` の内容ベース追従検出（Issue #148）
+#     JSON には版マーカーを置けない（docs/template-version-marker.md §7）ため、
+#     「不足しても既定へ縮退して黙って走るキー」の列挙で追従漏れを拾う。
+#     固定するのは: 受理方向（テンプレート同等なら黙る）／検出方向（欠けたら名指し）／
+#     壊れた JSON の扱い／**列挙とテンプレートの一致**（載せ忘れを落とす）／変異注入。
+# ---------------------------------------------------------------------------
+echo
+echo "=== 17. cadence.json の内容ベース追従検出（#148） ==="
+
+mkcadence() {
+  ws="$(mkws "$1")"
+  mkdir -p "$ws/.flywheel"
+  printf '%s\n' "$2" > "$ws/.flywheel/cadence.json"
+  echo "$ws"
+}
+
+# 17-1. 受理方向: テンプレートを逐語コピーしたワークスペースには指摘を出さない。
+ws="$(mkws cadenceok)"
+mkdir -p "$ws/.flywheel"
+cp "$REPO_ROOT/templates/cadence.json" "$ws/.flywheel/cadence.json"
+assert_no_out "受理方向: テンプレート同等の cadence.json に指摘を出さない" \
+  '`.flywheel/cadence.json`:' -- --workspace "$ws"
+
+# 17-2. 検出方向: 既定へ縮退するキーが欠けているワークスペースを**キー名で**名指しする。
+#       実データ由来のケース（`heartbeat` を持たない既存ワークスペースが既定 1 営業日で
+#       走っていた）と、本課題で足した `cycle_budget_usd` の両方。
+ws="$(mkcadence cadencelegacy '{"business_days":"1-5","business_start":"10:00","reflect":{"every_n_cycles":10}}')"
+assert_out "cycle_budget_usd の欠落をキー名で検出する" '`cycle_budget_usd`' -- --workspace "$ws"
+assert_out "cycle_budget_usd の欠落に既定値と縮退先を添える" '既定 300 USD へ縮退' -- --workspace "$ws"
+assert_out "heartbeat の欠落もキー名で検出する" '`heartbeat`' -- --workspace "$ws"
+assert_out "検出は書き足し方を案内する（自動では書き足さない）" '自動では書き足さない' -- --workspace "$ws"
+
+# 17-3. 片方だけ欠けている場合、揃っているキーは報告しない（全欠落へ丸めない）。
+ws="$(mkcadence cadencepartial '{"cycle_budget_usd":50,"business_days":"1-5"}')"
+assert_out "欠けている heartbeat だけを報告する" '`heartbeat`' -- --workspace "$ws"
+assert_no_out "揃っている cycle_budget_usd は報告しない" '`cycle_budget_usd`（' -- --workspace "$ws"
+
+# 17-4. 値は検査しない（利用先ごとに違う運用設定。テンプレートと違う値は追従漏れではない）。
+ws="$(mkcadence cadencediffval '{"cycle_budget_usd":1000,"heartbeat":{"stale_after_business_days":3}}')"
+assert_no_out "テンプレートと異なる値を追従漏れとして報告しない" '`.flywheel/cadence.json`:' -- --workspace "$ws"
+
+# 17-5. 壊れた JSON・非オブジェクトは「全項目が既定へ縮退する」ものとして報告する
+#       （黙って通さない＝fail-closed 側の出力を定義しておく）。
+ws="$(mkcadence cadencebroken '{ "business_days": ')"
+assert_out "パース不可の cadence.json を報告する" 'JSON としてパースできない' -- --workspace "$ws"
+assert_out "パース不可でも縮退先を示す" '全項目を既定値へ縮退して走る' -- --workspace "$ws"
+ws="$(mkcadence cadencearray '[1,2]')"
+assert_out "トップレベルが配列の cadence.json を報告する" 'トップレベルが JSON オブジェクトでない' -- --workspace "$ws"
+
+# 17-6. 書き換えない（検出のみ。既存のマーカー検査と同型の性質）。
+ws="$(mkcadence cadencenowrite '{"business_days":"1-5"}')"
+cp "$ws/.flywheel/cadence.json" "$tmp/cadencenowrite.orig"
+/usr/bin/ruby "$SCRIPT" --workspace "$ws" --apply --backup-dir "$tmp/backup-cadence" >/dev/null 2>&1 || true
+assert_same "cadence 検査は cadence.json を書き換えない" "$tmp/cadencenowrite.orig" "$ws/.flywheel/cadence.json"
+
+# 17-7. **列挙の一致**（載せ忘れを落とす）: CADENCE_FALLBACK_KEYS に載せたキーは
+#       templates/cadence.json に実在すること。載っていないキーを検出しても人が直せない。
+#       あわせて**列挙が空でないこと**を見る（空リストなら 17-2 以外は空虚に真になる）。
+keys="$(/usr/bin/ruby -e '
+  src = File.read(ARGV[0], encoding: "UTF-8")
+  body = src[/^CADENCE_FALLBACK_KEYS = \[\n(.*?)^\]\.freeze$/m, 1].to_s
+  puts body.scan(/^  \["([a-z_]+)",$/).flatten
+' "$SCRIPT")"
+nkeys="$(printf '%s\n' "$keys" | grep -c . | tr -d ' ')"
+if [ "$nkeys" -ge 1 ]; then
+  pass "CADENCE_FALLBACK_KEYS が空でない（列挙が空だと検査は空虚に真になる）"
+else
+  fail "CADENCE_FALLBACK_KEYS が空でない（列挙が空だと検査は空虚に真になる）" "抽出できたキー数=$nkeys"
+fi
+missing_in_tpl=""
+for k in $keys; do
+  /usr/bin/ruby -rjson -e 'exit(JSON.parse(File.read(ARGV[0])).key?(ARGV[1]) ? 0 : 1)' \
+    "$REPO_ROOT/templates/cadence.json" "$k" || missing_in_tpl="${missing_in_tpl} ${k}"
+done
+if [ -z "$missing_in_tpl" ]; then
+  pass "CADENCE_FALLBACK_KEYS のキーはすべて templates/cadence.json に実在する"
+else
+  fail "CADENCE_FALLBACK_KEYS のキーはすべて templates/cadence.json に実在する" "不在:${missing_in_tpl}"
+fi
+
+# 17-8. 変異注入: 検出がタウトロジーでないことを示す。不足判定を「追従済み」へ倒すと
+#       17-2 が検出できなくなる（復元は不要＝環境変数による注入で、ファイルは変えない）。
+ws="$(mkcadence cadencemutation '{"business_days":"1-5"}')"
+out="$(MIGRATE_WORKSPACE_INJECT_FAULT=cadence-always-current /usr/bin/ruby "$SCRIPT" --workspace "$ws" 2>&1)"
+case "$out" in
+  *'`cycle_budget_usd`'*) fail "変異注入（cadence-always-current）で検出が消えることを示す" "変異を入れても報告が出た" ;;
+  *) pass "変異注入（cadence-always-current）で検出が消えることを示す" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 18. 読めないファイルを診断ノートへ落とす（PR #152 のレビュー指摘 / CodeRabbit Minor）
+#     `scaffold_report` 系は「追従状況を**診断する**」経路であり、1 ファイルが読めないだけで
+#     例外がレポート全体を巻き込むと、**診断のための機能が診断できずに落ちる**。
+#     `File.exist?` を通っても、削除競合・権限変更（EACCES）・ディレクトリ指定（EISDIR）で
+#     `File.read` は raise する。
+#
+#     固定するのは 3 点:
+#       (a) 読めないファイルが**名指しの診断ノート**になる（黙って飛ばさない）
+#       (b) **レポート全体が生き残る**（他の検出が消えない）＝この修正の本体
+#       (c) 例外で異常終了しない（exit は通常どおり）
+#     EISDIR はディレクトリを作れば**どの環境でも決定的に**再現するので主検査に使う。
+#     EACCES は root 実行等で再現しないため、再現可否を実測してから検査する（不可ならスキップ）。
+# ---------------------------------------------------------------------------
+echo
+echo "=== 18. 読めないファイルを診断ノートへ落とす（PR #152 レビュー指摘） ==="
+
+# `<rel>` の位置にディレクトリを作って EISDIR を決定的に起こす
+mkunreadable() {
+  ws="$(mkws "$1")"
+  mkdir -p "$ws/$(dirname "$2")" 2>/dev/null || true
+  mkdir -p "$ws/$2"
+  echo "$ws"
+}
+
+# 18-1. `.flywheel/cadence.json`（レビューで名指しされた経路）
+ws="$(mkunreadable unreadcadence ".flywheel/cadence.json")"
+assert_out "cadence.json が読めないと診断ノートを出す" \
+  '`.flywheel/cadence.json`: 読み取れない' -- --workspace "$ws"
+assert_out "診断ノートに例外クラスを添える（EISDIR）" \
+  '`.flywheel/cadence.json`: 読み取れない（Errno::EISDIR' -- --workspace "$ws"
+assert_out "診断ノートは確認すべき観点を示す" 'パスがディレクトリになっていないか' -- --workspace "$ws"
+# (b) レポート全体が生き残る＝本修正の本体。読めないファイル以外の検出が消えていない。
+assert_out "読めないファイルがあってもレポート全体が生き残る（他の不足検出が消えない）" \
+  '不足: CLAUDE.md' -- --workspace "$ws"
+# **cadence_notes より後段の検査まで到達する**ことを見る（scaffold_report は cadence →
+# marker の順で積むため、例外で止まると marker 側が丸ごと消える）。
+ws2="$(mkunreadable unreadcadence2 ".flywheel/cadence.json")"
+cp "$FIXTURES/legacy-0.18-CLAUDE.md" "$ws2/CLAUDE.md"
+assert_out "読めないファイルがあっても後段の版マーカー検査まで到達する" \
+  'CLAUDE.md に版マーカーが無い' -- --workspace "$ws2"
+assert_out "後段まで到達しても読み取り不能の診断ノートは残る" \
+  '`.flywheel/cadence.json`: 読み取れない' -- --workspace "$ws2"
+# (c) 例外で異常終了しない
+assert_exit "読めないファイルがあっても異常終了しない" 0 -- --workspace "$ws"
+
+# 18-2. 掃引した他の経路も同型に塞がれている（同じ穴を 1 箇所だけ塞いで満足しない）
+ws="$(mkunreadable unreadclaude "CLAUDE.md")"
+assert_out "CLAUDE.md が読めないと診断ノートを出す" '`CLAUDE.md`: 読み取れない' -- --workspace "$ws"
+assert_exit "CLAUDE.md が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadgitignore ".gitignore")"
+assert_out ".gitignore が読めないと診断ノートを出す" '`.gitignore`: 読み取れない' -- --workspace "$ws"
+# 読めないことを「5 行すべてが欠落」と誤報しない（診断ノート 1 行へ寄せる）
+assert_no_out ".gitignore が読めないときに行の欠落を誤報しない" \
+  '`.gitignore`: `.flywheel/*` の行が無い' -- --workspace "$ws"
+assert_exit ".gitignore が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadpos "positions/harness.md")"
+assert_out "positions/*.md が読めないと診断ノートを出す" '`positions/harness.md`: 読み取れない' -- --workspace "$ws"
+# 読めないポジションを「§接続ツールが無い」と誤報しない（読めない と 未宣言 は別の状態）
+assert_no_out "読めないポジションを未宣言として誤報しない" \
+  '§接続ツール（実作業の委譲先）が無い' -- --workspace "$ws"
+assert_exit "positions/*.md が読めなくても異常終了しない" 0 -- --workspace "$ws"
+
+ws="$(mkunreadable unreadsettings ".claude/settings.json")"
+assert_out ".claude/settings.json が読めないと診断ノートを出す" \
+  '`.claude/settings.json`: 読み取れない' -- --workspace "$ws"
+assert_no_out ".claude/settings.json が読めないときに allow 欠落を誤報しない" \
+  '`Bash(claude -p:*)` の allow が無い' -- --workspace "$ws"
+
+ws="$(mkunreadable unreaddockerfile "container/Dockerfile")"
+assert_out "container/Dockerfile が読めないと診断ノートを出す" \
+  '`container/Dockerfile`: 読み取れない' -- --workspace "$ws"
+assert_no_out "container/Dockerfile が読めないときに ruby 未導入を誤報しない" \
+  'ruby を導入していない' -- --workspace "$ws"
+
+ws="$(mkunreadable unreaddoccopy "runtime/README.md")"
+assert_out "DOC_COPIES の生成物が読めないと診断ノートを出す" '`runtime/README.md`: 読み取れない' -- --workspace "$ws"
+assert_no_out "読めない生成物を「テンプレートと差分あり」と誤報しない" \
+  'テンプレートと差分あり: runtime/README.md' -- --workspace "$ws"
+
+# 18-3. 受理方向: 読める通常のワークスペースには診断ノートを出さない（過検出しない）
+ws="$(mkws readableok)"
+mkdir -p "$ws/.flywheel"
+cp "$REPO_ROOT/templates/cadence.json" "$ws/.flywheel/cadence.json"
+assert_no_out "読めるワークスペースには読み取り不能の診断ノートを出さない" '読み取れない（' -- --workspace "$ws"
+
+# 18-4. EACCES（環境依存。再現できない環境ではスキップと分かる形で出す）
+ws="$(mkws unreadperm)"
+mkdir -p "$ws/.flywheel"
+cp "$REPO_ROOT/templates/cadence.json" "$ws/.flywheel/cadence.json"
+chmod 000 "$ws/.flywheel/cadence.json" 2>/dev/null || true
+if /usr/bin/ruby -e 'begin; File.read(ARGV[0]); exit 1; rescue Errno::EACCES; exit 0; rescue SystemCallError; exit 1; end' \
+     "$ws/.flywheel/cadence.json"; then
+  assert_out "権限で読めない cadence.json も診断ノートにする（EACCES）" \
+    '`.flywheel/cadence.json`: 読み取れない（Errno::EACCES' -- --workspace "$ws"
+  assert_exit "EACCES でも異常終了しない" 0 -- --workspace "$ws"
+else
+  echo "skip - EACCES: この環境では chmod 000 でも読めるため検査をスキップした（root 実行等）"
+fi
+chmod 644 "$ws/.flywheel/cadence.json" 2>/dev/null || true
+
 echo
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -eq 0 ]
