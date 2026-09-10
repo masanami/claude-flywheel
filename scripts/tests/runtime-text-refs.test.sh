@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #
-# runtime-text-refs.test.sh — 実行時テキスト（skills/ templates/）から docs/ を参照しないことの
-# 回帰テスト。規約の正本は docs/runtime-text-conventions.md（Issue #117）。
+# runtime-text-refs.test.sh — 実行時テキスト（skills/ templates/）からの**参照の健全性**の
+# 回帰テスト。2 つの軸を守る:
+#   (B)(C)(D) docs/ を参照しない。規約の正本は docs/runtime-text-conventions.md（Issue #117）。
+#   (G)(H)    名指ししたプラグイン内パス・イベント名が実在する（Issue #159）。参照先が消えても
+#             散文は何事も無かったように読めてしまい、実行時に初めて落ちるため。
 #
 # 実行: bash scripts/tests/runtime-text-refs.test.sh
 #   - 依存: bash（macOS 標準の 3.2 でも可）・grep・sed。テストフレームワーク不使用。
@@ -227,6 +230,135 @@ if [ -r "$CONV_DOC" ]; then
     pass "(F) 正本が強制の所在としてこのテストを指している"
   else
     fail "(F) 正本が強制の所在としてこのテストを指している" "$self_rel が正本に無い"
+  fi
+fi
+
+echo ""
+echo '=== (G) 名指しした ${CLAUDE_PLUGIN_ROOT} 配下のパスが実在する ==='
+# 実行時テキストは `${CLAUDE_PLUGIN_ROOT}/scripts/...` のようにプラグイン内のファイルを名指しして
+# 「これを実行しろ」と指示する。指示先が消える・改名されても散文は読めてしまい、実行時に初めて
+# 落ちる（best-effort の経路では黙って落ちる）。**allowlist を持たず、書かれている参照をその場で
+# 解決する**（ファイルの列挙は規約本文とは別に維持される第 2 のリストになり、ずれても気付けない）。
+
+# `${CLAUDE_PLUGIN_ROOT}/...` の参照を抽出する。パス文字だけを拾うので、直後の閉じバッククォート・
+# 引用符・全角の句読点は自然に境界になる。行末に付いた半角ピリオドだけは剥がす。
+plugin_refs() {
+  grep -rhoE '[$]\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9_./-]+' "$@" 2>/dev/null \
+    | sed -e 's/[.]*$//' | grep -v '^$' | sort -u
+}
+
+# 解決できなかった参照だけを返す。
+unresolved_refs() {
+  local p rel
+  plugin_refs "$@" | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    rel="$(printf '%s' "$p" | sed 's|^[$]{CLAUDE_PLUGIN_ROOT}/||')"
+    [ -e "$REPO_ROOT/$rel" ] || printf '%s\n' "$p"
+  done
+}
+
+# (G-1) 検出器の自己検査。ここが死んでいると (G-3) は空虚に真になる。
+mkdir -p "$TMP/refs"
+{
+  printf '%s\n' '- 参照実装は `${CLAUDE_PLUGIN_ROOT}/scripts/no-such-script.sh` を実行する。'
+  printf '%s\n' '- 雛形は `${CLAUDE_PLUGIN_ROOT}/templates/no-such-template.md`。'
+} > "$TMP/refs/broken.md"
+assert_eq "(G-1) 実在しない参照 2 件を検出する" "2" "$(unresolved_refs "$TMP/refs/broken.md" | grep -c .)"
+
+{
+  printf '%s\n' '- 参照実装は `${CLAUDE_PLUGIN_ROOT}/scripts/log-run-event.sh` を実行する。'
+  printf '%s\n' '- 雛形は `${CLAUDE_PLUGIN_ROOT}/templates/position.md`。'
+  printf '%s\n' '- 配下ごと指す形（`${CLAUDE_PLUGIN_ROOT}/templates/`）も解決できる。'
+} > "$TMP/refs/ok.md"
+assert_eq "(G-1) 実在する参照を誤検出しない" "0" "$(unresolved_refs "$TMP/refs/ok.md" | grep -c .)"
+
+# (G-2) 走査対象が空でない（抽出 0 件の「違反なし」を pass にしない）。
+n_refs="$(plugin_refs skills templates | grep -c .)"
+assert_eq "(G-2) 実行時テキストから参照を 1 件以上抽出できた" "true" \
+  "$(if [ "$n_refs" -ge 1 ]; then echo true; else echo false; fi)"
+
+# (G-3) 本体の検査。
+broken_refs="$(unresolved_refs skills templates)"
+if [ -z "$broken_refs" ]; then
+  pass "(G-3) skills/ templates/ の参照 ${n_refs} 件がすべて実在する"
+else
+  fail "(G-3) skills/ templates/ の参照 ${n_refs} 件がすべて実在する" "$(printf '%s' "$broken_refs" | tr '\n' '|')"
+fi
+
+echo ""
+echo "=== (H) 実行時テキストが使うイベント名が参照実装の語彙と一致する ==="
+# 語彙の正本は scripts/log-run-event.sh の受理 case（実行時に効く 1 箇所）。テスト側で 6 種を
+# 列挙し直すと 2 本目のリストになるため、**正本から導出**する。両方向を見る:
+#   使用 ⊆ 語彙 … 打ち間違えたイベント名（記録が落ちる）を検出する
+#   語彙 ⊆ 使用 … 語彙を増やしたのに規定を書かなかった（誰も打たないイベント）を検出する
+
+LOG_SCRIPT="scripts/log-run-event.sh"
+
+event_vocab() {
+  awk '
+    /^case "\$EVENT" in$/ {f=1; next}
+    f && /^esac$/ {exit}
+    f && /\) ;;$/ {
+      line=$0
+      sub(/\) ;;$/, "", line)
+      sub(/^[ \t]+/, "", line)
+      if (line == "*") next
+      print line
+    }
+  ' "$1" | tr '|' '\n' | grep -v '^$' | sort -u
+}
+
+# 実行時テキストで `log-run-event.sh <token>` の形で使われている名前（読み取りサブコマンド
+# `check` を含む）。
+used_events() {
+  grep -rhoE 'log-run-event\.sh"?[[:space:]]+[A-Za-z_][A-Za-z0-9_-]*' "$@" 2>/dev/null \
+    | sed -E 's/.*log-run-event\.sh"?[[:space:]]+//' | grep -v '^$' | sort -u
+}
+
+VOCAB="$(event_vocab "$LOG_SCRIPT")"
+n_vocab="$(printf '%s\n' "$VOCAB" | grep -c .)"
+assert_eq "(H-1) 参照実装からイベント語彙を 2 件以上抽出できた" "true" \
+  "$(if [ "$n_vocab" -ge 2 ]; then echo true; else echo false; fi)"
+
+USED="$(used_events skills templates)"
+n_used="$(printf '%s\n' "$USED" | grep -c .)"
+assert_eq "(H-1) 実行時テキストからイベント名を 1 件以上抽出できた" "true" \
+  "$(if [ "$n_used" -ge 1 ]; then echo true; else echo false; fi)"
+
+# (H-2) 検出器の自己検査: 語彙に無い名前を使った実行時テキストを検出できること。
+printf '%s\n' '  "${CLAUDE_PLUGIN_ROOT}/scripts/log-run-event.sh" adhoc_finish --id x' \
+  > "$TMP/refs/badevent.md"
+assert_eq "(H-2) 語彙に無いイベント名を抽出できる" "adhoc_finish" "$(used_events "$TMP/refs/badevent.md")"
+in_vocab=0
+printf '%s\n' "$VOCAB" | grep -qx "adhoc_finish" && in_vocab=1
+assert_eq "(H-2) 抽出した名前が語彙に無いと判定される" "0" "$in_vocab"
+
+if [ "$n_vocab" -ge 2 ] && [ "$n_used" -ge 1 ]; then
+  unknown=""
+  while IFS= read -r ev; do
+    [ -n "$ev" ] || continue
+    [ "$ev" = "check" ] && continue
+    printf '%s\n' "$VOCAB" | grep -qx "$ev" || unknown="${unknown} ${ev}"
+  done <<REFS_USED
+$USED
+REFS_USED
+  if [ -z "$unknown" ]; then
+    pass "(H-3) 実行時テキストのイベント名がすべて参照実装の語彙にある"
+  else
+    fail "(H-3) 実行時テキストのイベント名がすべて参照実装の語彙にある" "語彙に無い:${unknown}"
+  fi
+
+  unused=""
+  while IFS= read -r ev; do
+    [ -n "$ev" ] || continue
+    printf '%s\n' "$USED" | grep -qx "$ev" || unused="${unused} ${ev}"
+  done <<REFS_VOCAB
+$VOCAB
+REFS_VOCAB
+  if [ -z "$unused" ]; then
+    pass "(H-4) 参照実装の語彙 ${n_vocab} 種がすべて実行時テキストで使われている"
+  else
+    fail "(H-4) 参照実装の語彙 ${n_vocab} 種がすべて実行時テキストで使われている" "未使用:${unused}"
   fi
 fi
 
