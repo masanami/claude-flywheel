@@ -48,7 +48,7 @@ claude-flywheel は **Claude Code プラグイン**として install して使�
 ```
 
 提供物（プラグイン本体）:
-- **`skills/`** — `flywheel-init` / `bootstrap-domain-map` / `ingest-challenges` / `run-cycle` / `agent-memory` / `reflect` などのスキル群【成果物(a)】
+- **`skills/`** — `flywheel-init` / `bootstrap-domain-map` / `ingest-challenges` / `run-cycle` / `adhoc`（サイクル外の差し込み作業） / `agent-memory` / `reflect` などのスキル群【成果物(a)】
 - **`templates/`** — 利用先に scaffold する雛形（課題台帳・ポジション・関連リポジトリ・ランタイム設定）
 - **`scripts/`** — 機械的処理の純シェル（`sync-repos.sh`：関連リポジトリ（作業用クローン）の clone/fetch／`trust-clone.sh`：クローンの trust 承認（人間が一度だけ手動実行））
 - **`docs/`** — 設計ドキュメント（要件・アーキテクチャ・課題・memory運用・自己改善）
