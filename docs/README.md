@@ -18,6 +18,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [run-cycle-context-budget.md](./run-cycle-context-budget.md) | run-cycle の文脈コスト実測と規定の棚卸し（[#97](https://github.com/masanami/claude-flywheel/issues/97)）: 毎周ロードされる固定文脈の内訳（SKILL.md 27,652 tok / 課題台帳 27,913 tok）、151 規定単位の「残す・移す・消す」仕分け、置き場所候補ごとの到達性、許可パスの正本の充足判定。**D-1／D-2 は確定・実装済み（§3.3 に見積りと実績の校正）／D-3・D-5・D-6 は未決** | ドラフト |
 | [ledger-load-strategy.md](./ledger-load-strategy.md) | 課題台帳の読み込み方の見直し（[#122](https://github.com/masanami/claude-flywheel/issues/122)）: 台帳の 65.1% が「説明の原文引用」である実測（固定版 `aa0ac68`: 20,339 / 31,242 tok）、手順1・手順2 の規定 → 必要フィールドの対応表、4 案（ステータス絞り込み／索引＋必要分の読み出し／原文引用の置き場所／母数の削減）の削減量・波及（フォーマット契約・board パーサ・ingest `fp`）の評価。**採否は確定**（案 2 を投影スクリプト限定で採用・案 1／案 3 は不採用・案 4 は併用継続）・**実装は未着手** | ドラフト |
 | [human-hold-representation.md](./human-hold-representation.md) | 人間へ上げて保留した課題の台帳表現（[#116](https://github.com/masanami/claude-flywheel/issues/116)）: 保留を台帳に書けず毎サイクル再委譲されるループの成立条件、ステータス語彙の複製 6 箇所（上流）＋ 2 箇所（board）の特定、board パーサの実測（未知ステータスはカードが落ちる／未知フィールドは無視される）、語彙の正本が「直列の遷移列」でしか符号化できない制約、4 案の評価とマージ順序を含む実装計画。**2026-08-29 に案 A（専用ステータス `人間対応待ち`）の採用が決定**（副次の Q1〜Q4 は未決） | 確定 |
+| [approval-latency.md](./approval-latency.md) | 承認→着手のレイテンシ（[#160](https://github.com/masanami/claude-flywheel/issues/160)）: 経路1（人間の純粋な承認）と経路2（対話代行）を分離した実測（承認→前進 中央値 13.5 分／純粋な cron モデルでは中央値 81 分・最大 3.5 日）、board をトリガにしない判断と観測プレーンの条件① の追随要否、軽量パスと「1 周 1 journal」の非両立、one-shot cron の本数が決める最小間隔 15 分、真正性の author 検査が判別力を持っていない実測。**AO-01〜AO-04 は未決（人間判断）** | ドラフト |
 
 > 要件（What）とアーキテクチャ（How）を分離して管理する。本ディレクトリではまず要件を固め、合意後にアーキテクチャを別ドキュメントで設計する。
 
