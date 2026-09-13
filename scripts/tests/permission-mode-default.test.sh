@@ -79,11 +79,13 @@ assert_eq "(B) 手順3 に起動例の行がある" "true" \
 assert_eq "(B) 起動例の --permission-mode が auto" "$EXPECTED_MODE" \
   "$(printf '%s\n' "$launch_line" | extract_modes | head -1)"
 has "(B) 【権限前提】に auto で起動する規定がある" "$step3" \
-  '**【権限前提】子は `--permission-mode auto` で起動する（他の値を使わない）**'
+  '**【権限前提】子は `--permission-mode auto` で起動する**'
 has "(B) 分類器を不可逆操作の歯止めとして数えない" "$step3" \
   '**分類器を不可逆操作の歯止めとして数えない**'
 has "(B) 歯止めはブリーフの明示制約と commit 済み deny が担う" "$step3" \
   '**本番影響の不可逆操作（下記【承認ゲート FR-22】）の歯止めは、ブリーフの明示制約と対象 repo に commit された deny が担う**'
+has "(B) deny は前方一致で git -C 形に効かないため禁止操作をブリーフに明記する" "$step3" \
+  '`git -C <path> push --force` のような形には `Bash(git push --force:*)` が効かない——禁止する操作はブリーフに明記し'
 has "(B) 拒否された操作は迂回せず報告させる" "$step3" \
   '**迂回せず、拒否された操作と拒否文言を完了報告に列挙する**'
 has "(B) 複合形は allow にマッチしない規律が残っている" "$step3" \
