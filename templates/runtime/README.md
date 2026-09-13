@@ -1,4 +1,4 @@
-<!-- flywheel-template: runtime/README.md@0.28.0 -->
+<!-- flywheel-template: runtime/README.md@0.29.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
@@ -24,7 +24,7 @@ flowchart LR
 ## セットアップ（段階）
 
 1. **手動検証**: まず `/run-cycle`（または `/run-cycle --dry-run`）を手動実行し、1 周の挙動を確認する。
-2. **運用**: 人間が各エージェントワークスペースで対話セッションを開き、`/claude-flywheel:run-cycle` を実行する。**1 周を終えたらセッションを閉じ、次の周は新しいセッションで始める**（引き継ぎは台帳・journal・memory が担う。規約はワークスペースの `CLAUDE.md`「1 サイクル = 1 セッション」）。承認ゲートに達した課題は台帳へ駐機され、承認が入った後の周で前進する。
+2. **運用**: 人間が各エージェントワークスペースで対話セッションを開き、`/claude-flywheel:run-cycle` を実行する。**1 周を終えたらセッションを閉じ、次の周は新しいセッションで始める**（引き継ぎは台帳・journal・memory が担う。規約はワークスペースの `CLAUDE.md`「1 サイクル = 1 セッション」）。承認ゲートに達するとサイクルは終了せず一時停止し、対話で集合単位の承認をそろえてから同じ周で前進する（中断を指示した分は台帳へ駐機され、次の周の一時停止点で改めて承認を求める）。
    - `.flywheel/cadence.json` は運用設定（`execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect のしきい値 `reflect.every_n_cycles`）を置く。キーの意味・既定値・不在時の扱いの正本は `run-cycle` スキル。
    - `.flywheel/cadence.json` の `execution_mode`（既定 `native`）で起動導線が変わる:
 
@@ -51,7 +51,7 @@ flowchart LR
 
      container モードの雛形（`Dockerfile`・`compose.yml`）は `flywheel-init` が `templates/container/` から `container/` へ scaffold する。前提条件・設計根拠の**正本は [`container/compose.yml`](../container/compose.yml)・[`container/Dockerfile`](../container/Dockerfile) のコメント**（下記「container モードの前提条件」も参照）。
 3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（run-cycle が journal の周回数で `.flywheel/cadence.json` の `reflect.every_n_cycles` に達した周にサイクルレポートで実行を推奨するので、人間がそれを見て起動する。任意の時点での手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
-4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。サイクル内では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認。
+4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。承認ゲートではサイクルを終了せず一時停止し、対話で集合単位の承認をそろえてから同じ周で前進する（そろわないまま進めるのは人間の指示による例外だけ）。ハーネス改修の適用も人間承認。
 
 ## container モードの前提条件
 
