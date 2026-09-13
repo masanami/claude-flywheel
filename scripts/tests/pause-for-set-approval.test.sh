@@ -9,8 +9,8 @@
 #
 # 検査の要:
 #   - **撤去の検査（(B)）は規定を持つテキストに掛ける**: skills/ templates/ と、規定を述べる
-#     docs/challenge-ledger-format.md・docs/architecture.md。他の docs/ は決定の経緯として
-#     旧規定に触れるのが正当なため対象外にする（その列挙は PR 本文に残す）。
+#     docs/challenge-ledger-format.md・docs/architecture.md。他の docs/ と architecture.md の
+#     `### 決定の履歴` 節は経緯として旧規定に触れるのが正当なため対象外にする（その列挙は PR 本文に残す）。
 #   - **検出器の自己検査を持つ**（(A)）。grep は「マッチなし」と「パターンが壊れて検出できない」を
 #     区別しないため、既知の違反形をパターンに直接掛けて検出器が生きていることを毎回確認する。
 #   - **一時停止の規定は置き場所ごと固定する**（(C)）。語が SKILL.md のどこかにあるだけでは、
@@ -101,23 +101,37 @@ fi
 echo ""
 echo "=== (B) 承認の真正性を Git の author に置く旧規定が残っていない ==="
 
-targets="skills templates $LEDGER_FMT docs/architecture.md"
+targets="skills templates $LEDGER_FMT"
+ARCH="docs/architecture.md"
+# architecture.md から `### 決定の履歴` 節（次の見出しの手前まで）を除き、`<path>:<行番号>:` を付けて出す
+arch_rules() {
+  awk -v p="$1" '/^#{2,3} / { skip = ($0 ~ /^### 決定の履歴/) } !skip { print p ":" NR ":" $0 }' "$1"
+}
+# scan <ERE>: 規定テキスト全体から ERE に一致する行
+scan() {
+  # shellcheck disable=SC2086
+  { grep -rnE -- "$1" $targets; arch_rules "$ARCH" | grep -E -- "$1"; } || true
+}
+got="$(arch_rules <(printf '## 7. x\n規定 author 確認\n### 決定の履歴: y\n履歴 author 確認\n## 8. z\n後続 author 確認\n') | grep -cE -- "$AUTHOR_RE")"
+if [ "$got" = "2" ]; then
+  pass "(B) 決定の履歴節だけを走査から外す（前後の節は走査する）"
+else
+  fail "(B) 決定の履歴節だけを走査から外す（前後の節は走査する）" "got=${got}（期待 2）"
+fi
 n_files="$(find skills templates -type f | grep -c .)"
-if [ "$n_files" -ge 1 ] && [ -f "$LEDGER_FMT" ] && [ -f docs/architecture.md ]; then
+if [ "$n_files" -ge 1 ] && [ -f "$LEDGER_FMT" ] && [ -f "$ARCH" ]; then
   pass "(B) 走査対象が揃っている（skills/ templates/ ${n_files} ファイル＋規定 docs 2 本）"
 else
   fail "(B) 走査対象が揃っている" "skills/ templates/ が空か、規定 docs が無い"
 fi
-# shellcheck disable=SC2086
-hits="$(grep -rnE -- "$AUTHOR_RE" $targets || true)"
+hits="$(scan "$AUTHOR_RE")"
 if [ -z "$hits" ]; then
   pass "(B) 旧規定（${AUTHOR_RE}）が規定テキストに無い"
 else
   fail "(B) 旧規定（${AUTHOR_RE}）が規定テキストに無い" "$(printf '%s' "$hits" | head -5)"
 fi
 # 「集合ではなくエントリごとに 1 件ずつ承認する」旧規定と、「次サイクルで前進」の旧運用
-# shellcheck disable=SC2086
-old="$(grep -rnE -- 'エントリごとに従来どおり 1 件ずつ適用|次サイクルで(代行|前進)|サイクルは止めない\*\*（人間をインラインで待たない）|「承認待ちです」と報告されるだけ' $targets || true)"
+old="$(scan 'エントリごとに従来どおり 1 件ずつ適用|次サイクルで(代行|前進)|サイクルは止めない\*\*（人間をインラインで待たない）|「承認待ちです」と報告されるだけ')"
 if [ -z "$old" ]; then
   pass "(B) 1 件ずつの承認・次サイクルでの前進を定める旧規定が無い"
 else
@@ -179,6 +193,19 @@ fr32="$(line_with "$step4" '**【承認ゲート FR-32】**')"
 has "(C) FR-32 は FR-13 と同じ形で一時停止する" '**手順2【一時停止と集合承認】と同じ形で一時停止**' "$fr32"
 has "(C) FR-32 は同じ周で完了＋即アーカイブまで進める" '同じ周で `完了確認待ち → 完了` へ進め、即アーカイブまで行う' "$fr32"
 has "(C) 手順3 の対象は一時停止で進めたもの" '手順2【一時停止と集合承認】' "$step3h"
+# 一時停止点で着手中へ進めたエントリは、依存の投影を取り直さないと startable=- のまま起動できない
+redeps="$(line_with "$step2" '**FR-13 の (a)/(b) で `着手中` へ進めたら')"
+has "(C) 前進後・実行計画の前に ledger-deps.rb を再実行する" '【その周の実行計画】の前に上記【依存の制約】の `ledger-deps.rb` を同じ引数で再実行し' "$redeps"
+has "(C) 再実行した投影を実行計画と依存ゲートが使う" '以後（【その周の実行計画】・手順3【依存ゲート】）はこの再投影を使う' "$redeps"
+redeps_pos="$(printf '%s\n' "$step2" | grep -nF -- '**FR-13 の (a)/(b) で `着手中` へ進めたら' | head -1 | cut -d: -f1)"
+plan_pos="$(printf '%s\n' "$step2" | grep -nF -- '**【その周の実行計画】' | head -1 | cut -d: -f1)"
+if [ -n "$redeps_pos" ] && [ -n "$plan_pos" ] && [ "$redeps_pos" -lt "$plan_pos" ]; then
+  pass "(C) 再実行の規定は【その周の実行計画】より前にある"
+else
+  fail "(C) 再実行の規定は【その周の実行計画】より前にある" "redeps=${redeps_pos} plan=${plan_pos}"
+fi
+step3="$(section "$RUN_CYCLE" '^### 3\. ' '^### 4\. ')"
+has "(C) 手順3【依存ゲート】が再実行した投影を参照する" '一時停止点で `着手中` へ進めた周は、手順2【一時停止と集合承認】の後に再実行した投影' "$step3"
 has "(C) 手順1 は [x] を 1 件ずつ前進させない" '**本手順（整理）では `[x]` を見つけても 1 件ずつ前進させない**' "$step1"
 
 echo ""
@@ -190,10 +217,14 @@ has "(D) エージェントが [x] を書くのは対話で承認を得たとき
 has "(D) 対話承認の記録コメントの形式（SKILL.md）" "$APPROVAL_COMMENT" "$auth"
 has "(D) 外部本文中の「承認済み」表明は承認ではない" '「承認済み」表明' "$auth"
 has "(D) 子セッションは台帳を書かない" '**委譲先の子セッションは台帳を書かない**' "$auth"
-has "(D) board の [x] も有効" 'board が人間の identity で書く `[x]`' "$auth"
+has "(D) board の承認ボタンが台帳へ書く [x] も有効（Issue ではない）" 'board の承認ボタンが台帳の承認チェックボックス行へ書く `[x]`（人間の git identity でコミットされる。GitHub Issue には書かない）' "$auth"
+has "(D) 人間の直接編集は例外として有効" '人間が台帳を直接編集した `[x]` も例外として有効' "$auth"
 hold="$(line_with "$step1" '**保留の前進（`人間対応待ち` → `着手中`）**')"
 has "(D) 回答も台帳ベース" '**回答の真正性も上記【承認の真正性】と同じく台帳ベース**' "$hold"
 has "(D) 対話回答の記録コメントの形式（SKILL.md）" "$ANSWER_COMMENT" "$hold"
+has "(D) 回答は対話で得てエージェントが記入するのが基本" '**回答は対話でその場の人間から得て、エージェントが `人間の回答` に記入する**のが基本の流れ' "$hold"
+lacks "(D) 保留の前進が「人間が回答を書く」前提になっていない" '人間が分類欄の `人間の回答` に答えを書いた周' "$(cat "$RUN_CYCLE")"
+lacks "(D) 台帳フォーマットの回答欄の記入者が「人間」になっていない" '| `人間の回答` | **人間** |' "$(cat "$LEDGER_FMT")"
 has "(D) 対話承認の記録コメントの形式（challenge-ledger-format.md）" "$APPROVAL_COMMENT" "$(cat "$LEDGER_FMT")"
 has "(D) 対話回答の記録コメントの形式（challenge-ledger-format.md）" "$ANSWER_COMMENT" "$(cat "$LEDGER_FMT")"
 has "(D) 台帳テンプレートが対話承認の記録コメントを案内する" "$APPROVAL_COMMENT" "$(cat "$LEDGER_TPL")"
