@@ -182,7 +182,7 @@ Issue [#107](https://github.com/masanami/claude-flywheel/issues/107) 由来の 2
 で `cycle_budget_usd`（サイクル全体の予算上限）を足した際に埋めた。**マーカーではなく内容ベースの
 検出**である——JSON にマーカーを置けない事情は変わらないため、`scripts/migrate-workspace.rb` が
 **「不足しても既定へ縮退して黙って走るキー」を列挙し、ワークスペースの `cadence.json` に無いものを
-報告する**（`heartbeat` / `cycle_budget_usd`）。列挙に載せるのは縮退するキーだけで、値の妥当性は
+報告する**（`cycle_budget_usd` / `reflect`。当初の `heartbeat` は [#165](https://github.com/masanami/claude-flywheel/issues/165) で廃止し、廃止キーは残っていても無害＝「削除してよい」と案内する別の列挙へ移した）。列挙に載せるのは縮退するキーだけで、値の妥当性は
 検査しない（利用先ごとに値が違う運用設定であり、テンプレートとのバイト比較・版比較はどちらも
 偽陽性になる）。書き換えもしない（値を決めるのは人間）。**新しく「既定へ縮退するキー」を足したのに
 列挙へ載せ忘れると、追従漏れが再び黙る**ため、列挙はテストで固定する。

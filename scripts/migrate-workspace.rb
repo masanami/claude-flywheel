@@ -885,7 +885,7 @@ POSITION_TOOL_ITEMS = [
 #
 # 列挙するのは「**不足しても既定へ縮退して黙って走るキー**」だけ。縮退するからこそ、既存
 # ワークスペースは追従しないまま正常に見え、宣言者が「設定した値で動いている」と誤解する
-# （実測: `heartbeat` を持たないワークスペースが既定 1 営業日で走っていた）。縮退しないキーは
+# （実測: 当時の `heartbeat` キーを持たないワークスペースが既定値で走っていた）。縮退しないキーは
 # 不在時に別経路で失敗するのでここには載せない。
 #
 # **値の妥当性は検査しない**（利用先ごとに違う運用設定であり、テンプレートとのバイト比較も
@@ -898,9 +898,24 @@ CADENCE_FALLBACK_KEYS = [
   ["cycle_budget_usd",
    "サイクル全体の予算上限",
    "既定 300 USD へ縮退して費用ガードが走る（run-cycle 手順3。1 周に複数の委譲を起動すると天井が件数分だけ掛け算されるのを抑える上限）"],
-  ["heartbeat",
-   "拍動停止の検知しきい値（`heartbeat.stale_after_business_days`）",
-   "既定 1 営業日へ縮退して検査が走る（run-cycle 手順0）"],
+  ["reflect",
+   "reflect の実行推奨のしきい値（`reflect.every_n_cycles`）",
+   "既定 10 周へ縮退してしきい値判定が走る（run-cycle 手順6。サイクルレポートで reflect の実行を推奨する周回数）"],
+].freeze
+
+# 廃止済みのキー（#165 で定期便〔セッション内 cron〕とその拍動停止検知を撤去した際に読み手が消えた
+# キーと、それ以前に退役した `audit`）。**残っていても無害**（どのスキルも読まない）なので失敗とは
+# 扱わず、「削除してよい」と案内するだけにする。**書き換え・削除はしない**（ファイルを変えるのは人間）。
+# 案内が無いと、宣言者が「その設定がまだ効いている」と誤解したまま残し続ける。
+# この列挙のキーが templates/cadence.json に無いことは scripts/tests/migrate-workspace.test.sh が固定する。
+CADENCE_RETIRED_KEYS = %w[
+  business_days
+  business_start
+  business_end
+  run_cycle_interval_minutes
+  cron_minute_offset
+  heartbeat
+  audit
 ].freeze
 
 # ワークスペースの `.flywheel/cadence.json` に、既定へ縮退するキーが揃っているかを見る。
@@ -916,21 +931,26 @@ def cadence_notes(ws)
   begin
     data = JSON.parse(body)
   rescue JSON::ParserError, ArgumentError => e
-    return ["`.flywheel/cadence.json`: JSON としてパースできない（#{e.class}）＝ start-day / run-cycle は" \
+    return ["`.flywheel/cadence.json`: JSON としてパースできない（#{e.class}）＝ run-cycle は" \
             "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して構文を直す"]
   end
   # トップレベルがオブジェクトでなければキーの有無を判定できない（縮退して走る点は同じ）。
-  return ["`.flywheel/cadence.json`: トップレベルが JSON オブジェクトでない＝ start-day / run-cycle は" \
+  return ["`.flywheel/cadence.json`: トップレベルが JSON オブジェクトでない＝ run-cycle は" \
           "全項目を既定値へ縮退して走る。`<plugin>/templates/cadence.json` を参照して直す"] unless data.is_a?(Hash)
 
   # 変異注入（テスト専用）: 不足の判定を無条件に「追従済み」へ倒す。検出がタウトロジーでない
   # ことを示すために使う。
   return [] if FAULT == "cadence-always-current"
 
-  CADENCE_FALLBACK_KEYS.reject { |key, _, _| data.key?(key) }.map do |key, what, effect|
+  missing = CADENCE_FALLBACK_KEYS.reject { |key, _, _| data.key?(key) }.map do |key, what, effect|
     "`.flywheel/cadence.json`: `#{key}`（#{what}）が無い＝#{effect}。" \
     "宣言した値で動かすには `<plugin>/templates/cadence.json` を参照して追記する（自動では書き足さない）"
   end
+  retired = CADENCE_RETIRED_KEYS.select { |key| data.key?(key) }.map do |key|
+    "`.flywheel/cadence.json`: `#{key}` は廃止済みのキー＝どのスキルも読まないため残っていても無害。" \
+    "削除してよい（自動では削除しない）"
+  end
+  missing + retired
 end
 
 # 見出しが `title_re` にマッチする節の本文（見出し行を含み、同レベル以上の次の見出しの手前まで）

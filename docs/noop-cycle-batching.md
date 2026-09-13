@@ -38,8 +38,8 @@
 
 | 消費者 | 読み方（実装） | 行数・スキーマへの依存 |
 | --- | --- | --- |
-| `start-day` の締めジョブ（reflect しきい値判定） | [start-day SKILL.md](../skills/start-day/SKILL.md) 手順5-3: 総行数 `T` と当日分 `t` を数え `floor(T / N) > floor((T − t) / N)` | **行数に強く依存**。no-op 周の行を落とすと周回カウントがズレる |
-| `reflect` | [reflect SKILL.md](../skills/reflect/SKILL.md): `pending_approvals` の頻発ゲート・`delegations` の失敗傾向を集計する追加入力 | フィールドの形に依存（行数そのものは締めジョブ側の判定に使われる） |
+| run-cycle の reflect 実行推奨（しきい値判定。当時は `start-day` の締めジョブ手順5-3 が担い、[#165](https://github.com/masanami/claude-flywheel/issues/165) で run-cycle へ移した） | [run-cycle SKILL.md](../skills/run-cycle/SKILL.md) 手順6: 当周の append 後の非空行数 `T` で `floor(T / N) > floor((T − 1) / N)`（締めジョブ時代は当日分 `t` を使い `floor(T / N) > floor((T − t) / N)`） | **行数に強く依存**。no-op 周の行を落とすと周回カウントがズレる |
+| `reflect` | [reflect SKILL.md](../skills/reflect/SKILL.md): `pending_approvals` の頻発ゲート・`delegations` の失敗傾向を集計する追加入力 | フィールドの形に依存（行数そのものは上の reflect 実行推奨の判定に使われる） |
 | claude-flywheel-board のパーサ | `src/server/parsers/journal.ts` の `parseJournal`（行ごとに JSON.parse → 全 7 フィールドを型検証。`deriveLogEntries` は `touched_issues[].id` と `pending_approvals[].issue` を課題 ID で突き合わせる） | **全 7 フィールド必須の形に依存**。ファイルパスは `watcher.ts` の `JOURNAL_FILE_NAME = journal/index.jsonl` を chokidar で監視。**`.md` は一切読まない** |
 
 **確認できた重要な性質**:
@@ -51,7 +51,7 @@
 
 ## 3. 3 案の比較
 
-| # | 案 | スキーマ／1:1 対応 | `--tail --expect-cycle` | reflect / start-day の行数 | board | ノイズ削減 | 判定 |
+| # | 案 | スキーマ／1:1 対応 | `--tail --expect-cycle` | reflect 実行推奨の行数 | board | ノイズ削減 | 判定 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | no-op 周は `.md` を生成せず `index.jsonl` に 1 行だけ残す | **1:1 対応が崩れる**（`journal-md` 検査と board のセクション対応の前提）。`date`/`seq` から `.md` 名を導けない行が生まれる | 維持できる | 維持できる | 直接の破綻はない（`.md` を読まないため） | **不十分**（`.md` は減るが `index.jsonl` の append とコミットは毎周残る＝**履歴のノイズは減らない**） | **不採用** |
 | 2 | 連続 no-op を 1 エントリに集約（`seq` 範囲＋回数） | スキーマ変更（新フィールド）。集約のたびに**末尾行を書き換える**＝ `index.jsonl` の append-only 不変条項に違反 | **破綻**（末尾行が「当周の 1 行」でなくなる） | **破綻**（1 行＝ N 周になり、行数カウントを重み付き集計へ変更する必要） | **破綻**（`additionalProperties: false`・board の追随が必須） | 大きい | **不採用** |
@@ -119,9 +119,9 @@ dirty なパスは [`contracts/cycle-commit-paths.txt`](../contracts/cycle-commi
 1. **当日内**（条件 7）: 未コミットの `.md` に当周と異なる日付のものがあれば、その周は保留せずコミットする（＝翌日の最初の周が前日分をフラッシュする）。丸 1 日 no-op でも**その日のコミットは 1 本**に収まる。
 2. **次にコミットする周**: 変化のあった周は必ず保留分ごとコミットする（`git add -- <許可パス>` が未追跡ファイルを含めてステージするため、追加の手当ては不要）。
 
-結果として、未コミットの滞留期間は「**当日 + 次の 1 周が回るまで**」に収まる。次の周がいつまでも来ない場合（拍動そのものの停止）は本機構の守備範囲ではなく、[heartbeat-detection.md](./heartbeat-detection.md) の検知が担う。
+結果として、未コミットの滞留期間は「**当日 + 次の 1 周が回るまで**」に収まる。次の周がいつまでも来ない場合（人間が run-cycle を回していない期間）は本機構の守備範囲ではない（当時は [heartbeat-detection.md](./heartbeat-detection.md) の検知が担っていたが、start-day とともに撤去した。[#165](https://github.com/masanami/claude-flywheel/issues/165)）。
 
-**締めジョブ（start-day 手順5）でフラッシュしない理由**: 締めジョブはサイクルロックを取らないため、run-cycle 定期便と重なると書きかけの台帳を巻き込んだ部分コミットを作りうる。上限 1・2 で滞留は十分に抑えられるため、ロック設計へ手を入れる価値が無いと判断した。
+**締めジョブ（当時の start-day 手順5。[#165](https://github.com/masanami/claude-flywheel/issues/165) で撤去）でフラッシュしなかった理由**: 締めジョブはサイクルロックを取らないため、run-cycle 定期便と重なると書きかけの台帳を巻き込んだ部分コミットを作りうる。上限 1・2 で滞留は十分に抑えられるため、ロック設計へ手を入れる価値が無いと判断した。
 
 ## 6. まとめコミット時の検証範囲
 
@@ -145,4 +145,4 @@ dirty なパスは [`contracts/cycle-commit-paths.txt`](../contracts/cycle-commi
 - [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt) — サイクルコミットのパス集合の単一正本（許可パスと判定の分類を同じ出典から導く）
 - [templates/journal/README.md](../templates/journal/README.md) — journal の規則の散文正本（「書き出しは毎周・コミットは変化のあった周にまとめる」）
 - [contracts/README.md](../contracts/README.md) — フォーマット契約（`--tail` の範囲限定の意味論・実行環境の前提）
-- [docs/heartbeat-detection.md](./heartbeat-detection.md) — 拍動そのものが止まった場合の検知（本機構の守備範囲外）
+- [docs/heartbeat-detection.md](./heartbeat-detection.md) — 拍動そのものが止まった場合の検知（本機構の守備範囲外。start-day 廃止により撤去済み・設計記録）

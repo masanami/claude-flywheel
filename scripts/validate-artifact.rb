@@ -299,12 +299,12 @@ def validate_value(schema, value, path, errors)
       # （Time.iso8601 は不正日を繰り上げ正規化してしまうため使わない）。
       case schema["format"]
       when "date-time"
-        # うるう秒 :60 は一律違反にする（ISO 8601 としては正規だが、既知の消費者
-        # heartbeat-check.sh が委譲する GNU date -d は :60 を拒否し心拍検知が検査不能に
-        # なる〔BSD date は受理＝環境依存〕。契約は全サポート環境の消費者が読める値だけを
+        # うるう秒 :60 は一律違反にする（ISO 8601 としては正規だが、GNU date -d は :60 を
+        # 拒否する〔BSD date は受理＝環境依存〕。導入の契機だった消費者 heartbeat-check.sh は
+        # #165 で撤去したが、契約の受理範囲は広げない＝全サポート環境の消費者が読める値だけを
         # 受理する。DateTime.iso8601 は :60 を受理・正規化するため明示的に検査する）。
         if value =~ /T[0-9]{2}:[0-9]{2}:60/
-          errors << "#{loc}: うるう秒 :60 は不許可です（消費者 heartbeat-check の GNU date が解析できないため。実際: #{value.inspect}）"
+          errors << "#{loc}: うるう秒 :60 は不許可です（GNU date 等の日時パーサが解析できない環境があるため。実際: #{value.inspect}）"
         else
           begin
             DateTime.iso8601(value)

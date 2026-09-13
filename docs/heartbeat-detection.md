@@ -1,5 +1,7 @@
 # 拍動停止の検知 — 最小緩和の設計と根本方式の選択肢（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83)）
 
+> **start-day 廃止により撤去（[#165](https://github.com/masanami/claude-flywheel/issues/165)）**。定期便（セッション内 cron）が無くなり、run-cycle は人間が対話で 1 周ずつ起動するものになったため、「拍動が止まった」という前提そのものが無くなった（空白は人間が回していないだけ）。run-cycle 手順0 の heartbeat 検査・`scripts/heartbeat-check.sh`・そのテスト・`cadence.json` の `heartbeat` は削除済み。**未終了 `*_start` の検算（`log-run-event.sh check`・run-cycle 手順6）は残している**。以下は当時の設計記録であり、現行の規定ではない（経緯は [architecture.md §7「決定の履歴」](./architecture.md)）。
+
 > **ステータス**: §2（最小緩和）は実装済み。§3（セッション寿命に拍動を紐づけない方式）は**選択肢の比較まで**であり、**採否は人間判断（未決）**。本ドキュメントを読んだエージェントが §3 の実装へ自律的に進んではならない。
 
 ## 1. 背景（何が起きたか）
@@ -55,5 +57,5 @@
 - Issue [#83](https://github.com/masanami/claude-flywheel/issues/83)（実害報告・提案の起点）
 - [architecture.md §7](./architecture.md) — 拍動レイヤーの採用理由と不採用選択肢（launchd / クラウド routine）
 - [templates/runtime/README.md](../templates/runtime/README.md) — `runs.jsonl` スキーマの正本（雛形）と拍動停止検知の位置づけ
-- [skills/run-cycle/SKILL.md](../skills/run-cycle/SKILL.md) 手順0 — 検査の実行箇所 / [skills/start-day/SKILL.md](../skills/start-day/SKILL.md) — cadence 検証と警告の報告動線
-- [scripts/heartbeat-check.sh](../scripts/heartbeat-check.sh) — 検査の参照実装（テスト: [scripts/tests/heartbeat-check.test.sh](../scripts/tests/heartbeat-check.test.sh)）
+- `skills/run-cycle/SKILL.md` 手順0 — 検査の実行箇所（#165 で削除）/ `skills/start-day/SKILL.md` — cadence 検証と警告の報告動線（#165 でスキルごと削除）
+- `scripts/heartbeat-check.sh` — 検査の参照実装（テスト: `scripts/tests/heartbeat-check.test.sh`。いずれも #165 で削除。撤去前の最終版は `git show ef2f9df:scripts/heartbeat-check.sh` 等で参照できる）

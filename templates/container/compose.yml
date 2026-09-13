@@ -1,5 +1,5 @@
 # claude-flywheel コンテナ隔離モード（`.flywheel/cadence.json` の `execution_mode: container`）の
-# compose 雛形。start-day 層（その日のエージェントセッション全体）をこのコンテナに閉じ込める。
+# compose 雛形。エージェントの対話セッション全体（run-cycle を起動する親セッション）をこのコンテナに閉じ込める。
 #
 # クリティカル設計決定（Issue #54）:
 #   1) ワークスペースをホストと同一の絶対パスにマウントする（trust 承認〔~/.claude.json〕が
@@ -38,7 +38,7 @@
 # 使いたい値）がそのまま使われる。
 #
 #   docker compose -f container/compose.yml -p <agent> up -d
-#   docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:start-day"
+#   docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:run-cycle"
 #
 # 注意（bash/zsh 双方で必須）: `UID` はシェルの読み取り専用変数のため、
 # `UID=$(id -u) docker compose ...` のようにコマンド前置代入すると bash では
