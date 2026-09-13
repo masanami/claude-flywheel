@@ -1,4 +1,4 @@
-<!-- flywheel-template: CLAUDE.md@0.29.0 -->
+<!-- flywheel-template: CLAUDE.md@0.30.0 -->
 
 # <エージェント名>（claude-flywheel エージェント）
 

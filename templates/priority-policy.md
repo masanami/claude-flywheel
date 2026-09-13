@@ -1,4 +1,4 @@
-<!-- flywheel-template: priority-policy.md@0.28.0 -->
+<!-- flywheel-template: priority-policy.md@0.29.0 -->
 
 # タスク優先度の決定方針（Priority Policy）
 
