@@ -159,7 +159,7 @@ Flywheel の 1 周（観測 → 整理 → 計画 → 実行 → 検証 → 学�
 
     ```bash
     cd .flywheel/repos/<name>
-    cat brief.md | claude -p --session-id <uuid> --output-format json --permission-mode acceptEdits --max-budget-usd <導出した上限>
+    cat brief.md | claude -p --session-id <uuid> --output-format json --permission-mode auto --max-budget-usd <導出した上限>
     ```
 
   - **【費用ガード】サイクル全体の予算上限を起動前に評価する**: `--max-budget-usd` は **1 起動ごと**にしか効かないため、1 周に複数の委譲を起動すると天井が件数分だけ掛け算される（並列起動を入れると爆風半径が並列度に比例する）。**周単位の天井を別に置く**: 上限は `.flywheel/cadence.json` の `cycle_budget_usd`（**既定 `300` USD**＝ L サイズの委譲上限 100 の 3 件分）。**ファイル・フィールドが無い、または不正（数値でない・0 以下）な場合は既定値へ補正して続行**し、既定値使用の旨をサイクルレポートに含める（`reflect.every_n_cycles` と同じ「安全側に補正して継続」規律。**不在を「上限なし」へ縮退させない**）。
@@ -190,9 +190,12 @@ Flywheel の 1 周（観測 → 整理 → 計画 → 実行 → 検証 → 学�
     - **枠超過を 1 件でも観測した周は、その周の残りの委譲を起動しない（周内への伝播）**: 枠が回復するまでモデル呼び出しができないため、残りを起動しても同じ枠超過を返すだけで `delegate_start` だけが積み上がる（並列起動では N-1 件が起動済みのまま同じ枠を踏む）。**未起動の課題はステータスを進めずそのまま次周へ送り**、サイクルレポートの**次アクション**へ `report=` の行とあわせて抑止した課題 ID を出す。**既に起動済みの分は打ち切らず合流させてから閉じる**（返り値の受領 →【委譲結果の照合】→ `delegate_end`。走っている子にも成果が残っていることがあるため）。サイクル自体は止めず手順4以降へ進む。
     - **伝播させるのは exit 0（枠超過）のときだけ**: **exit 1（枠超過ではない）・exit 2（検査不能）では伝播しない**——上記「判定不能は枠超過ではない側へ倒す」と**同じ非対称を伝播にも同じ向きで適用する**（検査不能で残りの委譲まで止めると、枠が空いているのに当周の実行が丸ごと止まる）。
 
-  - **【権限前提】自走委譲の spawn は事前許可が要る**: 親（エージェントrepo）から headless `claude -p` を spawn する行為は、事前許可が無いと Claude Code の auto-mode セーフティ分類器にブロックされ、実装ステップに到達できない。親ワークスペースの `.claude/settings.json` に `Bash(claude -p:*)` を **allow**（flywheel-init が scaffold）しておくこと。**allow ルールは複合コマンドにマッチしない**: `cd <path> && claude -p … --permission-mode bypassPermissions` のような複合形は `Bash(claude -p:*)` にマッチせず、分類器ブロック（`[Create Unsafe Agents]`）の対象になる（2026-07 時点の運用実績）。`cd` は**単独コマンドで先に済ませ**（cwd はコマンド間で永続する）、委譲コマンドは `claude -p …`（例: `cat brief.md | claude -p …`）が allow ルールにマッチする単純形で発行する。
+  - **【権限前提】子は `--permission-mode auto` で起動する（他の値を使わない）**: `acceptEdits` はファイル編集だけを自動承認し Bash は対象 repo の allow で判定するため、allow が足りない repo では headless に確認する相手がおらず `git`・`gh`・テスト実行が全拒否されて実装に到達しない（通すには allow を列挙し続ける保守が要る）。`auto` は操作ごとに分類器が可否を判断し、通常の開発操作（編集・commit・作業ブランチへの push・PR 作成・テスト実行・パイプや `&&` の複合コマンド）は対象 repo の allow の整備状況によらず通過する（2026-09 時点の実測）。到達点と費用は `bypassPermissions` と変わらず、分類器の判断が加わる分だけ安全側にある。
+    - **分類器を不可逆操作の歯止めとして数えない**: 同じ破壊的コマンドを repo によって拒否したり通したりしており、止まるかどうかは決まっていない。**本番影響の不可逆操作（下記【承認ゲート FR-22】）の歯止めは、ブリーフの明示制約と対象 repo に commit された deny が担う**（deny は `auto` でも効く）。deny は前方一致のため `git -C <path> push --force` のような形には `Bash(git push --force:*)` が効かない——禁止する操作はブリーフに明記し、代替手段を添える。
+    - 分類器に拒否された操作は子にツール結果のエラーとして返る。ブリーフには「**迂回せず、拒否された操作と拒否文言を完了報告に列挙する**」を含める。
+  - **【権限前提】自走委譲の spawn は事前許可が要る**: 親（エージェントrepo）から headless `claude -p` を spawn する行為は、事前許可が無いと Claude Code の auto-mode セーフティ分類器にブロックされ、実装ステップに到達できない。親ワークスペースの `.claude/settings.json` に `Bash(claude -p:*)` を **allow**（flywheel-init が scaffold）しておくこと。**allow ルールは複合コマンドにマッチしない**: `cd <path> && claude -p … --permission-mode auto` のような複合形は `Bash(claude -p:*)` にマッチせず、分類器ブロック（`[Create Unsafe Agents]`）の対象になる（2026-07 時点の運用実績）。`cd` は**単独コマンドで先に済ませ**（cwd はコマンド間で永続する）、委譲コマンドは `claude -p …`（例: `cat brief.md | claude -p …`）が allow ルールにマッチする単純形で発行する。
   - **【権限前提】クローンの trust 承認も要る**: 対象クローンの `.claude/settings.json` の allow リストは、その絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まるため、**人間が一度だけ** `${CLAUDE_PLUGIN_ROOT}/scripts/trust-clone.sh <name>` を実行するか対象クローンで対話的に `claude` を起動して trust ダイアログを承認しておく必要がある（未承認クローンは `sync-repos.sh` が検出・警告する。エージェントによる `~/.claude.json` の自動書き込みは行わない＝flywheel-init の「自走委譲の権限前提」参照）。**本周で委譲する場合は、委譲前に必ず一度 `sync-repos.sh` を通して未承認クローンの警告有無を確認する**（step 0 の実行自体は「任意」表記だが、trust 確認としては委譲直前に必須。既にこの周で実行済みなら再実行不要）。警告が出た場合はその課題への委譲をスキップし、サイクルレポートの**次アクション**に「要対応（人間）: `<clone名>` の trust 未承認」を明記して保留する（サイクルは止めない）。
-  - **子に無制限 Bash を渡さない**: `--allowedTools Bash` のような“広範 Bash”は分類器の警戒対象。子の権限は **cwd の対象 repo の `.claude/settings.json`（allow/ask/deny）に統治させる**（設計どおりの委譲）。
+  - **子に無制限 Bash を渡さない**: `--allowedTools Bash` のような“広範 Bash”は分類器の警戒対象。子の権限は **`--permission-mode auto` と cwd の対象 repo の `.claude/settings.json`（allow/ask/deny）に統治させる**（設計どおりの委譲）。
   - **不可（反例）**: メインセッションで直接 skill を回す（対象 `CLAUDE.md` はオンデマンド・`settings.json` 不適用）／サブエージェントに委譲（親設定のまま切り替わらない）。注入/union 方式は多 repo でスケールしないため不採用。
   - **【既知の落とし穴（2026-07 時点の運用実績）】GitHub 操作のツール挙動**: いずれも環境・gh バージョン依存のため日付付きで注記する（挙動が解消されていれば従う必要はない）。
     - `.github/workflows/*` の変更は、gh の OAuth トークンに `workflow` スコープが無いと HTTPS push が拒否される（`refusing to allow an OAuth App to create or update workflow … without workflow scope`）。SSH remote での push（`git push git@github.com:<owner>/<repo>.git HEAD:<branch>`）は OAuth スコープ制限を受けない。ワークフロー変更を含む課題を委譲する場合はブリーフに明記すると安定する。
