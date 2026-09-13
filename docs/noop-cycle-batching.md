@@ -45,7 +45,7 @@
 **確認できた重要な性質**:
 
 - 3 者とも `index.jsonl` を**ファイルとして読む**（journal の履歴を `git log` から読む消費者はいない）。したがって**コミットの粒度を変えても消費者の入力は 1 バイトも変わらない**。
-  - なお `git log` を読む箇所は run-cycle 全体には 2 つある（[run-cycle SKILL.md](../skills/run-cycle/SKILL.md) 手順1 の承認の真正性＝`challenge-ledger.md` の author 確認／[challenge-ledger-format.md](./challenge-ledger-format.md) の完了 30 日の基準日特定）。**いずれも対象は台帳の履歴**で、台帳に未コミット差分があれば条件 1 が必ずコミットさせるため、台帳のコミット粒度は束ねの影響を受けない。
+  - なお `git log` を読む箇所は run-cycle 全体に 1 つある（[challenge-ledger-format.md](./challenge-ledger-format.md) の完了 30 日の基準日特定。本ドキュメント作成時点では手順1 の承認の真正性＝`challenge-ledger.md` の author 確認もあったが、[#164](https://github.com/masanami/claude-flywheel/issues/164) で廃止し台帳上の `[x]` を正とした）。**対象は台帳の履歴**で、台帳に未コミット差分があれば条件 1 が必ずコミットさせるため、台帳のコミット粒度は束ねの影響を受けない。
 - board のパーサは JSON オブジェクトの**追加フィールドを拒否しない**（`validateJournalEntry` は必須フィールドの型だけを見る）が、契約側のスキーマ（[`contracts/schemas/journal-index.schema.json`](../contracts/schemas/journal-index.schema.json)）は `additionalProperties: false` のため、フィールドを増やす案は**バリデータで違反**になる。
 - run-cycle 手順6 の `validate-artifact.rb journal-index --tail 1 --expect-cycle <当周>` は「当周に append した 1 行が当周のもの（`date`・`seq` 一致）であること」を証明する。**毎周 1 行 append される前提**の上に立っている。
 
