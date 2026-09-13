@@ -966,6 +966,7 @@ assert_out "多桁の版は「テンプレートより新しい」として報�
 #     JSON には版マーカーを置けない（docs/template-version-marker.md §7）ため、
 #     「不足しても既定へ縮退して黙って走るキー」の列挙で追従漏れを拾う。
 #     固定するのは: 受理方向（テンプレート同等なら黙る）／検出方向（欠けたら名指し）／
+#     廃止キーの案内（残っていたら「削除してよい」と名指し。#165）／
 #     壊れた JSON の扱い／**列挙とテンプレートの一致**（載せ忘れを落とす）／変異注入。
 # ---------------------------------------------------------------------------
 echo
@@ -986,21 +987,31 @@ assert_no_out "受理方向: テンプレート同等の cadence.json に指摘�
   '`.flywheel/cadence.json`:' -- --workspace "$ws"
 
 # 17-2. 検出方向: 既定へ縮退するキーが欠けているワークスペースを**キー名で**名指しする。
-#       実データ由来のケース（`heartbeat` を持たない既存ワークスペースが既定 1 営業日で
-#       走っていた）と、本課題で足した `cycle_budget_usd` の両方。
-ws="$(mkcadence cadencelegacy '{"business_days":"1-5","business_start":"10:00","reflect":{"every_n_cycles":10}}')"
+#       `cycle_budget_usd`（#148）と、#165 で run-cycle が読むようになった `reflect` の両方。
+#       fixture は定期便の時代に scaffold された形（業務時間・拍動停止検知のキーを持つ）。
+ws="$(mkcadence cadencelegacy '{"business_days":"1-5","business_start":"10:00","heartbeat":{"stale_after_business_days":1}}')"
 assert_out "cycle_budget_usd の欠落をキー名で検出する" '`cycle_budget_usd`' -- --workspace "$ws"
 assert_out "cycle_budget_usd の欠落に既定値と縮退先を添える" '既定 300 USD へ縮退' -- --workspace "$ws"
-assert_out "heartbeat の欠落もキー名で検出する" '`heartbeat`' -- --workspace "$ws"
+assert_out "reflect の欠落もキー名で検出する" '`reflect`（' -- --workspace "$ws"
+assert_out "reflect の欠落に既定値と縮退先を添える" '既定 10 周へ縮退' -- --workspace "$ws"
 assert_out "検出は書き足し方を案内する（自動では書き足さない）" '自動では書き足さない' -- --workspace "$ws"
 
+# 17-2b. 廃止キーの案内（#165）: 残っている廃止キーを**キー名で**名指しし、無害・削除してよい・
+#        自動では削除しない、の 3 点を添える。残っていない廃止キーは名指ししない。
+assert_out "廃止キー business_days を名指しする" '`business_days` は廃止済みのキー' -- --workspace "$ws"
+assert_out "廃止キー business_start を名指しする" '`business_start` は廃止済みのキー' -- --workspace "$ws"
+assert_out "廃止キー heartbeat を名指しする" '`heartbeat` は廃止済みのキー' -- --workspace "$ws"
+assert_out "廃止キーは無害と案内する" '残っていても無害' -- --workspace "$ws"
+assert_out "廃止キーは削除してよいと案内する（自動では削除しない）" '削除してよい（自動では削除しない）' -- --workspace "$ws"
+assert_no_out "残っていない廃止キーは名指ししない" '`cron_minute_offset` は廃止済みのキー' -- --workspace "$ws"
+
 # 17-3. 片方だけ欠けている場合、揃っているキーは報告しない（全欠落へ丸めない）。
-ws="$(mkcadence cadencepartial '{"cycle_budget_usd":50,"business_days":"1-5"}')"
-assert_out "欠けている heartbeat だけを報告する" '`heartbeat`' -- --workspace "$ws"
+ws="$(mkcadence cadencepartial '{"cycle_budget_usd":50,"execution_mode":"native"}')"
+assert_out "欠けている reflect だけを報告する" '`reflect`（' -- --workspace "$ws"
 assert_no_out "揃っている cycle_budget_usd は報告しない" '`cycle_budget_usd`（' -- --workspace "$ws"
 
 # 17-4. 値は検査しない（利用先ごとに違う運用設定。テンプレートと違う値は追従漏れではない）。
-ws="$(mkcadence cadencediffval '{"cycle_budget_usd":1000,"heartbeat":{"stale_after_business_days":3}}')"
+ws="$(mkcadence cadencediffval '{"cycle_budget_usd":1000,"reflect":{"every_n_cycles":3}}')"
 assert_no_out "テンプレートと異なる値を追従漏れとして報告しない" '`.flywheel/cadence.json`:' -- --workspace "$ws"
 
 # 17-5. 壊れた JSON・非オブジェクトは「全項目が既定へ縮退する」ものとして報告する
@@ -1040,6 +1051,38 @@ if [ -z "$missing_in_tpl" ]; then
   pass "CADENCE_FALLBACK_KEYS のキーはすべて templates/cadence.json に実在する"
 else
   fail "CADENCE_FALLBACK_KEYS のキーはすべて templates/cadence.json に実在する" "不在:${missing_in_tpl}"
+fi
+
+# 17-7b. 廃止キーの列挙の一致（#165）: CADENCE_RETIRED_KEYS は空でなく、どのキーも
+#        templates/cadence.json に**無い**こと（テンプレートに残っていると、scaffold した
+#        ばかりのワークスペースに「削除してよい」と案内してしまう）。縮退キーとも重ならないこと。
+retired="$(/usr/bin/ruby -e '
+  src = File.read(ARGV[0], encoding: "UTF-8")
+  body = src[/^CADENCE_RETIRED_KEYS = %w\[\n(.*?)^\]\.freeze$/m, 1].to_s
+  puts body.split
+' "$SCRIPT")"
+nretired="$(printf '%s\n' "$retired" | grep -c . | tr -d ' ')"
+if [ "$nretired" -ge 1 ]; then
+  pass "CADENCE_RETIRED_KEYS が空でない（列挙が空だと 17-7b は空虚に真になる）"
+else
+  fail "CADENCE_RETIRED_KEYS が空でない（列挙が空だと 17-7b は空虚に真になる）" "抽出できたキー数=$nretired"
+fi
+present_in_tpl=""
+overlap=""
+for k in $retired; do
+  /usr/bin/ruby -rjson -e 'exit(JSON.parse(File.read(ARGV[0])).key?(ARGV[1]) ? 0 : 1)' \
+    "$REPO_ROOT/templates/cadence.json" "$k" && present_in_tpl="${present_in_tpl} ${k}"
+  printf '%s\n' "$keys" | grep -qx -- "$k" && overlap="${overlap} ${k}"
+done
+if [ -z "$present_in_tpl" ]; then
+  pass "CADENCE_RETIRED_KEYS のキーは templates/cadence.json に無い"
+else
+  fail "CADENCE_RETIRED_KEYS のキーは templates/cadence.json に無い" "残存:${present_in_tpl}"
+fi
+if [ -z "$overlap" ]; then
+  pass "CADENCE_RETIRED_KEYS と CADENCE_FALLBACK_KEYS が重ならない"
+else
+  fail "CADENCE_RETIRED_KEYS と CADENCE_FALLBACK_KEYS が重ならない" "重複:${overlap}"
 fi
 
 # 17-8. 変異注入: 検出がタウトロジーでないことを示す。不足判定を「追従済み」へ倒すと

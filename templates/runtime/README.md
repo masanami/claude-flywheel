@@ -1,41 +1,37 @@
-<!-- flywheel-template: runtime/README.md@0.26.0 -->
+<!-- flywheel-template: runtime/README.md@0.28.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
-自走エージェントを定期的に起こすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code のセッション内 cron（`start-day` スキルが登録）＋ `run-cycle` スキルで実現する。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。
+自走エージェントを動かすための構成。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、人間が対話セッションで起動する `run-cycle` スキル（1 回の起動＝1 周）で実現する。定期起動の仕組みは持たない。状態ファイルを読んで可視化するだけの**読み取り専用の観測プレーン**（別アプリ。例: [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)）は、①状態ファイルに書き込まない ②制御プレーンの依存にならない（止まっても自走に影響しない）——の 2 条件を満たす限り許容する。
 
 ## 4 レイヤー
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
-| ① 拍動（cadence） | いつ起こすか | セッション内 cron（Claude Code の CronCreate）。`start-day` スキルが起動時に登録 |
+| ① 起動 | いつ回すか | 人間が対話セッションで `/claude-flywheel:run-cycle` を実行する（1 セッション＝1 周） |
 | ② サイクル本体 | 1 周の制御フロー | `run-cycle` スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群 ＋ 記憶。横断はワークフローでファンアウト |
 | ④ 自己改善 | ②③ を磨く別ループ | `reflect` スキル（低頻度・内省） |
 
-*図: ランタイム — セッション内 cron（start-day が登録）が run-cycle を定期起動し、状態はファイルに保持して冪等に回す。*
+*図: ランタイム — 人間が対話セッションで run-cycle を起動し、状態はファイルに保持して冪等に回す。*
 
 ```mermaid
 flowchart LR
-    startday["start-day<br/>（cadence 読込→初回 run-cycle→cron 登録）"] -->|セッション内 cron 登録| cron["セッション内 cron (CronCreate)"]
-    cron -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
+    human["人間（対話セッション）"] -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
     cycle --- state["状態はファイル（冪等）<br/>challenge-ledger.md / memory/ / positions/"]
 ```
 
 ## セットアップ（段階）
 
 1. **手動検証**: まず `/run-cycle`（または `/run-cycle --dry-run`）を手動実行し、1 周の挙動を確認する。
-2. **定期自走**: board（または人間）が各エージェントワークスペースで `claude "/claude-flywheel:start-day"` を起動する。`start-day` スキルが cadence 設定（`.flywheel/cadence.json`。無ければ既定値＝平日 10:00–18:00・90 分間隔で続行し、その旨を報告）を読み、**初回 `run-cycle` を即実行**したうえで、セッション内 cron（Claude Code の CronCreate）に次を登録する:
-   - **run-cycle 定期便**（起動日の日付に固定した one-shot 群）: 業務時間内かつ起動時点より後の発火時刻を間隔から算出し、1 発火時刻＝1 の one-shot cron（`分 時 <日> <月> *`・曜日フィールド不使用・recurring なし）として登録する（例: 8/14 起動・開始 10:00・間隔 90 分・オフセット 5 分なら `5 10 14 8 *` 〜 `35 17 14 8 *` の 6 ジョブ。分はエージェントごとにずらし `:00`/`:30` を避ける＝fleet で複数エージェントが同時発火して API バーストしないため）。日付固定のため翌日以降には発火せず、発火後は自動削除される（自己清掃）。「当日働くかどうか」は start-day を起動するか否かで表現する（cadence の `business_days` は cron 式には使わず、board 等の上位レイヤーの起動判定向けの宣言値）。**各発火後、実行可能な未完了課題も `計画承認待ち`/`完了確認待ち` 等の承認待ち課題も無く、当周の取り込み（ingest）でも新規が無い場合にのみ定期便を自動削除**し「課題が枯渇した。次は要件定義から」と報告して終了する（承認待ちが 1 件でも残る場合は止めない）。
-   - **就業前の締めジョブ**（one-shot）: 業務時間終了直前に本日サマリを報告 → 未発火で残っている run-cycle 定期便を削除（日付固定 one-shot 化により自己清掃のバックアップ扱い） → reflect しきい値（`.flywheel/cadence.json` の `reflect.every_n_cycles` 等）到達時のみ `/claude-flywheel:reflect` を起動する。
-   - セッション（board の埋め込みターミナル等）を閉じると自走は一旦停止するが、`--resume`/`--continue` で再開すると未発火の one-shot cron が復元され得るため永続停止ではない（永続的に止めたい場合は CronList→CronDelete で `flywheel-` プレフィックスのジョブを削除する）。ただし各ジョブは日付固定＋プロンプト内の日付ガードを持つため、起動日を過ぎての発火・実行は構造的に防がれる。対話割り込み中は発火が遅延する（承認対話を邪魔しない望ましい挙動）。
-   - 拍動（cadence）の詳細仕様（手順・設計メモ）の**正本は [`skills/start-day/SKILL.md`](../../skills/start-day/SKILL.md)**。本 README と architecture.md §7 は要約であり、食い違う場合はスキル側が正（runs.jsonl の正本が本 README にあるのと同じレイヤリング規律）。
+2. **運用**: 人間が各エージェントワークスペースで対話セッションを開き、`/claude-flywheel:run-cycle` を実行する。**1 周を終えたらセッションを閉じ、次の周は新しいセッションで始める**（引き継ぎは台帳・journal・memory が担う。規約はワークスペースの `CLAUDE.md`「1 サイクル = 1 セッション」）。承認ゲートに達した課題は台帳へ駐機され、承認が入った後の周で前進する。
+   - `.flywheel/cadence.json` は運用設定（`execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect のしきい値 `reflect.every_n_cycles`）を置く。キーの意味・既定値・不在時の扱いの正本は `run-cycle` スキル。
    - `.flywheel/cadence.json` の `execution_mode`（既定 `native`）で起動導線が変わる:
 
      | モード | 起動方法 |
      | --- | --- |
-     | `native`（既定） | ホスト上で直接 `claude "/claude-flywheel:start-day"` を実行する（従来どおり） |
-     | `container` | 事前に `docker compose up -d` でコンテナを起こし、その中で `claude "/claude-flywheel:start-day"` を実行する（コンテナの起動自体は `start-day` スキルの外側＝人間が行う。board からの起動導線は下記「メモ」を参照） |
+     | `native`（既定） | ホスト上で直接 `claude "/claude-flywheel:run-cycle"` を実行する（従来どおり） |
+     | `container` | 事前に `docker compose up -d` でコンテナを起こし、その中で `claude "/claude-flywheel:run-cycle"` を実行する（コンテナの起動自体は `run-cycle` スキルの外側＝人間が行う。`run-cycle` は手順0 で宣言と実態の食い違いを検知したら中止する。board からの起動導線は下記「メモ」を参照） |
 
      ```bash
      # 初回のみ（ワークスペース直下で実行）: 必須環境変数を container/.env に書く（詳細と理由は
@@ -46,16 +42,16 @@ flowchart LR
      HOST_GID=$(id -g)
      EOF
 
-     # 朝一度（container モードの場合）
+     # 作業を始める前に一度（container モードの場合）
      docker compose -f container/compose.yml -p <agent> up -d
 
      # 埋め込みターミナル等から（.env があるため以後は素の docker compose コマンドで良い）
-     docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:start-day"
+     docker compose -f container/compose.yml -p <agent> exec workspace claude "/claude-flywheel:run-cycle"
      ```
 
      container モードの雛形（`Dockerfile`・`compose.yml`）は `flywheel-init` が `templates/container/` から `container/` へ scaffold する。前提条件・設計根拠の**正本は [`container/compose.yml`](../container/compose.yml)・[`container/Dockerfile`](../container/Dockerfile) のコメント**（下記「container モードの前提条件」も参照）。
-3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（通常は上記 `start-day` の締めジョブがしきい値判定で条件付き起動する。手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
-4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。スケジュール実行では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認。
+3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（run-cycle が journal の周回数で `.flywheel/cadence.json` の `reflect.every_n_cycles` に達した周にサイクルレポートで実行を推奨するので、人間がそれを見て起動する。任意の時点での手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
+4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。サイクル内では人間をインラインで待たず、「提案を残して保留 → 次サイクルで前進」とする。ハーネス改修の適用も人間承認。
 
 ## container モードの前提条件
 
@@ -155,7 +151,6 @@ flowchart LR
 - プラグインは書き込みの**参照実装**として `scripts/log-run-event.sh`（イベント append。読み取り専用の検算サブコマンド `check` も同梱＝上記 3 種〔`dangling_start` / `orphan_end` / `duplicate_end`〕のいずれかがあれば `<種別ラベル><TAB><該当行>` の形式で列挙して exit 1。3 種を同じ exit code に含めるのは、呼び出し側が「exit 1 なら実状態を確認する」という 1 つの扱いで済むようにするため）・`scripts/cycle-lock.sh`（サイクルロックの取得・解放と stale 回収時の `abandoned` 代筆）を同梱する。仕様の正本は引き続き本セクションであり、スクリプトと本仕様が食い違う場合は本仕様が正。
   - `log-run-event.sh` の書き込みイベントの exit code は 2 値: **環境要因の失敗（日時取得・`mkdir`・`append`）は exit 0**（呼び出し側で回復できず、サイクルを止める理由にならないため）／**引数エラーは exit 2 で、イベントは記録されていない**（不正なイベント名・不明な引数・値の欠落／曖昧・必須フィールドの欠落・対応付けキーの不正文字・空の `--workspace`）。呼び出し側は exit 2 を見たら引数を直して同じイベントを記録し直す。
   - 値の渡し方は `--opt <value>` と `--opt=<value>` の 2 形式で、**値が `-` / `--` で始まってもそのまま値として扱う**（`--result "--tail を非空レコード基準へ"` のようにオプション名で始まる 1 行要約は実運用で普通に起きるため）。次の引数をフラグとみなすのは**それがオプション名と一致するとき**だけで、一致して曖昧になる場合は `--opt=<value>` 形式で明示する（例: `--result=--dry-run`）。
-- **拍動停止の検知（派生読み取り・スキーマ不変）**: run-cycle 手順0 は、最終 `cycle_end` からの空白期間（営業日ベース。しきい値は `.flywheel/cadence.json` の `heartbeat.stale_after_business_days`・既定 1）を読み取り専用の `scripts/heartbeat-check.sh` で検査し、しきい値超過時は未終了 `*_start`・対応不整合 `*_end` の件数と該当行を**上記 3 種のラベルごとに個別に**（`dangling_start` / `orphan_end` / `duplicate_end` をそれぞれ別の件数として。未知のラベルは「その他」へ寄せて捨てない）サイクルレポートへ警告として出す。**種別を 1 枠へ束ねない**——原因も対処も違う異常（`*_start` の記録が落ちた／同じ作業を二度閉じた）が同じ数字に見えると、読み手が取り違えるため（Issue [#83](https://github.com/masanami/claude-flywheel/issues/83) の最小緩和。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・`cycle_end` 未記録の場合は「検査不能」であり「空白なし」ではない**（exit 2 で区別。初回サイクルなら正常だが、0 件・正常とは読み替えない）。
 - **no-op 周の判定（派生読み取り・スキーマ不変）**: run-cycle 手順6 は、当周のコミットを打つか次の周へ束ねるかを決めるために、読み取り専用の `scripts/noop-check.rb` で**当周の `cycle_start` 以降に `cycle_start` / `cycle_end` 以外のイベントが記録されていないか**を検査する（委譲・差し込み・`delegate_end` の事後補記が起きた周を「変化なし」と誤判定しないための裏取り。Issue [#82](https://github.com/masanami/claude-flywheel/issues/82)。イベントの追加・意味変更はなし）。**runs.jsonl が不在・読めない・当周の `cycle_start` が見つからない場合は「判定不能」であり「委譲なし」ではない**（exit 2 で区別し、呼び出し側は従来どおりコミットする）。
 
 ## メモ

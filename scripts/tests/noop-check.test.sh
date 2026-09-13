@@ -462,9 +462,9 @@ fi
 # --- 条件 6: --notable ---
 
 reset_ws; add_cycle "$CYCLE" 2026-08-21 1
-check "--notable が 1 件でもあれば exit 1" 1 "reason=notable: heartbeat exit 1" --notable "heartbeat exit 1"
+check "--notable が 1 件でもあれば exit 1" 1 "reason=notable: priority-policy.md に未コミットの変更" --notable "priority-policy.md に未コミットの変更"
 check "--notable が複数でも全件が理由に出る" 1 "reason=notable: 適用方針モードのフォールバック" \
-  --notable "heartbeat exit 1" --notable "適用方針モードのフォールバック"
+  --notable "priority-policy.md に未コミットの変更" --notable "適用方針モードのフォールバック"
 
 # --- 条件 7: 保留は当日内に限る（日跨ぎはフラッシュ） ---
 

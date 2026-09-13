@@ -46,7 +46,7 @@
 #   載せてよいことになり射影が本体化する。
 #   エントリ 0 件でもヘッダ行は出す（呼び出し側の解析を一様にするため）。
 #
-# 終了コード（heartbeat-check.sh / noop-check.rb / priority-policy-resolve.sh の 3 値規約に倣う。
+# 終了コード（noop-check.rb / priority-policy-resolve.sh の 3 値規約に倣う。
 # ただし本スクリプトに「違反」の概念は無いため 1 は使わない）:
 #   0 = 投影した（エントリ 0 件でも 0）
 #   2 = 検査不能（引数不正・対象不在・読み取り不可・UTF-8 として解釈不能）。stderr に理由。

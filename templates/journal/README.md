@@ -1,4 +1,4 @@
-<!-- flywheel-template: journal/README.md@0.23.0 -->
+<!-- flywheel-template: journal/README.md@0.28.0 -->
 
 # journal — サイクルジャーナル【成果物】
 
@@ -24,7 +24,7 @@ journal/
 - `index.jsonl` は既存内容を書き換えず、**末尾に 1 行 append** する。
 - **秘密情報（トークン・資格情報・Cookie 等）は書かない**（run-cycle 本体の原則を踏襲）。
 - `run-cycle --dry-run` 実行時は journal への書き込みを行わない（コミットも発生しない）。
-- **書き出しは毎周・Git コミットは変化のあった周にまとめる**（[#82](https://github.com/masanami/claude-flywheel/issues/82)）。外部状態に変化が無かった周（no-op 周）も `.md` と `index.jsonl` は**通常どおり書く**が、サイクルコミットは打たずワーキングツリーに残し、次にコミットする周へ束ねる。**1 周 1 ファイル・1 周 1 行・両者の 1:1 対応は変わらない**ため、`reflect` / `start-day` のしきい値判定（`index.jsonl` の行数）や観測プレーンの読み取りには影響しない（消費者はコミットではなくファイルを読む）。保留は**当日内に限る**（日を跨いだ保留は次の周がフラッシュする）。判定の正本は run-cycle 手順6 と `scripts/noop-check.rb`。
+- **書き出しは毎周・Git コミットは変化のあった周にまとめる**（[#82](https://github.com/masanami/claude-flywheel/issues/82)）。外部状態に変化が無かった周（no-op 周）も `.md` と `index.jsonl` は**通常どおり書く**が、サイクルコミットは打たずワーキングツリーに残し、次にコミットする周へ束ねる。**1 周 1 ファイル・1 周 1 行・両者の 1:1 対応は変わらない**ため、run-cycle の reflect 実行推奨のしきい値判定（`index.jsonl` の行数）や観測プレーンの読み取りには影響しない（消費者はコミットではなくファイルを読む）。保留は**当日内に限る**（日を跨いだ保留は次の周がフラッシュする）。判定の正本は run-cycle 手順6 と `scripts/noop-check.rb`。
 
 ## `.md` の定型セクション（5 つ・この順）
 

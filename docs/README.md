@@ -13,7 +13,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
 | [runtime-text-conventions.md](./runtime-text-conventions.md) | 実行時テキスト（`skills/` `templates/`）と docs の書き分け（[#117](https://github.com/masanami/claude-flywheel/issues/117)）: 判定軸「この文を削るとモデルの振る舞いが変わるか」と、実行時テキストから `docs/` を参照しない規約。検査は [scripts/tests/runtime-text-refs.test.sh](../scripts/tests/runtime-text-refs.test.sh) | 確定 |
 | [noop-cycle-batching.md](./noop-cycle-batching.md) | no-op 周の軽量化（[#82](https://github.com/masanami/claude-flywheel/issues/82)）: 変化ゼロの周のコミットを次の周へ束ねる設計、3 案の比較と採用根拠、「変化なし」の機械的定義 | 確定 |
-| [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: 実装済みの最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較（採否は人間判断・未決） | ドラフト |
+| [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: **start-day 廃止により撤去済み（[#165](https://github.com/masanami/claude-flywheel/issues/165)）**。当時の最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較を設計記録として残す | 撤去済み（記録） |
 | [template-version-marker.md](./template-version-marker.md) | テンプレート版マーカー（[#118](https://github.com/masanami/claude-flywheel/issues/118)）: scaffold 生成物に `flywheel-template` マーカーを刻み、追従検出を項目ごとの手書き検出器から汎用検出へ移す設計。粒度・形式・置き場所・既存世代の扱い・内容ベース検出器との併用の決定 | 確定 |
 | [run-cycle-context-budget.md](./run-cycle-context-budget.md) | run-cycle の文脈コスト実測と規定の棚卸し（[#97](https://github.com/masanami/claude-flywheel/issues/97)）: 毎周ロードされる固定文脈の内訳（SKILL.md 27,652 tok / 課題台帳 27,913 tok）、151 規定単位の「残す・移す・消す」仕分け、置き場所候補ごとの到達性、許可パスの正本の充足判定。**D-1／D-2 は確定・実装済み（§3.3 に見積りと実績の校正）／D-3・D-5・D-6 は未決** | ドラフト |
 | [ledger-load-strategy.md](./ledger-load-strategy.md) | 課題台帳の読み込み方の見直し（[#122](https://github.com/masanami/claude-flywheel/issues/122)）: 台帳の 65.1% が「説明の原文引用」である実測（固定版 `aa0ac68`: 20,339 / 31,242 tok）、手順1・手順2 の規定 → 必要フィールドの対応表、4 案（ステータス絞り込み／索引＋必要分の読み出し／原文引用の置き場所／母数の削減）の削減量・波及（フォーマット契約・board パーサ・ingest `fp`）の評価。**採否は確定**（案 2 を投影スクリプト限定で採用・案 1／案 3 は不採用・案 4 は併用継続）・**実装は未着手** | ドラフト |
@@ -38,8 +38,7 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [flywheel-init](../skills/flywheel-init/SKILL.md) | エージェントのリポジトリに状態を初期化（scaffold） |
 | [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) | ドメイン地図づくり → ポジション案・記憶 seed |
 | [ingest-challenges](../skills/ingest-challenges/SKILL.md) | 外部ソース（共有 repo / Notion / Doc / Slack 等）から課題を正本台帳へ冪等に取り込み（pluggable） |
-| [start-day](../skills/start-day/SKILL.md) | 一日の自走を開始（cadence 読込→初回 run-cycle→セッション内 cron 登録） |
-| [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告） |
+| [run-cycle](../skills/run-cycle/SKILL.md) | 自走サイクル1周（観測→…→学習→報告）。人間が対話セッションで 1 周ずつ起動する |
 | [agent-memory](../skills/agent-memory/SKILL.md) | ドメイン記憶の構造化管理（save/recall/promote/maintain） |
 | [reflect](../skills/reflect/SKILL.md) | 自己改善（内省）ループ1周（good/bad の記録を集計→改修提案、低頻度） |
 
@@ -54,8 +53,8 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [position.md](../templates/position.md) | ポジション定義の雛形 |
 | [repos.tsv](../templates/repos.tsv) | 関連リポジトリのマニフェスト雛形（作業用クローン） |
 | [settings.json](../templates/settings.json) | 自走委譲の権限雛形（`Bash(claude -p:*)` を allow。`.claude/settings.json` として scaffold） |
-| [cadence.json](../templates/cadence.json) | 拍動設定の雛形（業務時間・run-cycle 間隔・発火分オフセット・実行モード `execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect しきい値・拍動停止検知しきい値 `heartbeat.stale_after_business_days`。`start-day` / `run-cycle` が読む） |
-| [container/{Dockerfile,compose.yml}](../templates/container/) | コンテナ隔離モード（`execution_mode: container`）の雛形。start-day 層をコンテナに閉じ込める |
+| [cadence.json](../templates/cadence.json) | 運用設定の雛形（実行モード `execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect の実行推奨しきい値 `reflect.every_n_cycles`。`run-cycle` が読む） |
+| [container/{Dockerfile,compose.yml}](../templates/container/) | コンテナ隔離モード（`execution_mode: container`）の雛形。run-cycle を起動する対話セッション全体をコンテナに閉じ込める |
 | [runtime/README.md](../templates/runtime/README.md) | 自律実行ランタイム設定の雛形（実行イベントログ `runs.jsonl` の仕様の正本を含む） |
 | [journal/README.md](../templates/journal/README.md) | サイクルジャーナル（行動履歴・append-only）の説明の雛形 |
 | [journal/cycle-template.md](../templates/journal/cycle-template.md) | サイクルジャーナル 1 周分の雛形（run-cycle step 6 が参照） |
@@ -68,7 +67,6 @@ claude-flywheel は **Claude Code プラグイン**として配布し、1 つの
 | [trust-clone.sh](../scripts/trust-clone.sh) | 作業用クローンを Claude Code の trust 承認済みにする（`~/.claude.json` を更新。人間が一度だけ手動実行） |
 | [log-run-event.sh](../scripts/log-run-event.sh) | 実行イベントログ `.flywheel/runs.jsonl` へ 1 イベントを append（読み取り専用の検算サブコマンド `check` 同梱＝`dangling_start` / `orphan_end` / `duplicate_end` を種別ラベル付きで列挙（[#55](https://github.com/masanami/claude-flywheel/issues/55)・[#142](https://github.com/masanami/claude-flywheel/issues/142)）。環境要因の失敗は exit 0＝best-effort、引数エラーは exit 2＝イベント未記録。[#98](https://github.com/masanami/claude-flywheel/issues/98)） |
 | [cycle-lock.sh](../scripts/cycle-lock.sh) | run-cycle の多重起動を排他するロック `.flywheel/cycle.lock` の取得・解放（stale 回収時の `abandoned` 代筆を内包） |
-| [heartbeat-check.sh](../scripts/heartbeat-check.sh) | 拍動停止の検知（最終 `cycle_end` からの空白営業日数がしきい値超過なら未終了 `*_start`・対応不整合 `*_end` を種別ラベルごとに個別集計して警告。読み取り専用。[#83](https://github.com/masanami/claude-flywheel/issues/83)） |
 | [priority-policy-resolve.sh](../scripts/priority-policy-resolve.sh) | `priority-policy.md` の適用条件を検証し**適用方針モード**を 1 つの解決結果として返す（run-cycle 手順0 が呼ぶ。控えた SHA から読み**作業ツリーは開かない**。フォールバック 5 分類と、サイクルレポートへ転記する `report=` 文言の正本。読み取り専用。[#97](https://github.com/masanami/claude-flywheel/issues/97)） |
 | [noop-check.rb](../scripts/noop-check.rb) | 当周に外部状態の変化があったかの機械判定（run-cycle 手順6 がコミット／保留の分岐に使う。読み取り専用。許可パスの正本は [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt)。[#82](https://github.com/masanami/claude-flywheel/issues/82)） |
 | [cycle-commit.sh](../scripts/cycle-commit.sh) | run-cycle 手順6 の検算・サイクルコミット・事後補記の追加コミット（`verify` / `commit` / `amend`）。**許可パスの pathspec を [contracts/cycle-commit-paths.txt](../contracts/cycle-commit-paths.txt) の `[commit]` から導く**（`noop-check.rb` の分類と同じ正本＝両者がずれない）。コミット後に `git diff-tree` で許可パス外の非混入を実際のコミット内容から検証する。[#97](https://github.com/masanami/claude-flywheel/issues/97) |

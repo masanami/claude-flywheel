@@ -44,7 +44,7 @@ claude-flywheel は **Claude Code プラグイン**として install して使�
 
 # 3. 共有ソースから自分に関係する課題を取り込み → 自走
 #   /claude-flywheel:ingest-challenges で challenge-ledger.md へ取り込み（run-cycle 内でも自動実行）
-#   → /claude-flywheel:run-cycle（routine で定期実行も可）
+#   → /claude-flywheel:run-cycle（対話セッションで 1 周ずつ起動する。1 セッション＝1 周）
 ```
 
 提供物（プラグイン本体）:

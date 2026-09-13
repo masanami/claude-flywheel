@@ -227,7 +227,7 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 
 **帰結**: どの案も **`session_id` を台帳フィールドとして持つ必要はない**。台帳に持つと `runs.jsonl` と二重管理になり、不変則「正本 1 つ」に反する。
 （注記: 保留中の委譲を `delegate_end` で閉じずに持ち越すと `delegate_start` が未終了のまま残る。これは正常だが、拍動停止が疑われた周に
-`heartbeat-check.sh` が「未終了の `*_start`」として列挙する対象になる——**放置された委譲と意図的な保留が区別できない**。
+`heartbeat-check.sh`（当時。[#165](https://github.com/masanami/claude-flywheel/issues/165) で撤去）が「未終了の `*_start`」として列挙する対象になる——**放置された委譲と意図的な保留が区別できない**。
 実害は警告レポートのノイズのみで、§4.4 のとおり保留時に `delegate_end` を打って閉じれば発生しない（宛先の復元は上記のとおり閉じても効く）。
 案 A の実装時に `templates/runtime/README.md` の注記へ 1 行足す価値がある。）
 
@@ -302,7 +302,7 @@ Issue 本文は「元の `session_id` への `--resume` 経路」をライフサ
 - board は `runs.jsonl` を読むが表示は実行中 Run のカードであり、**承認キューには載らない**（`needsHuman` は台帳側の派生値）。
 
 ただし案 D の観察は残る: **`delegate_end` の `result` に保留の事実を書くこと自体は、どの案とも両立し、推奨できる**（`result` は `minLength: 1` の自由文字列＝スキーマ変更なし）。
-未終了 `delegate_start` を残さずに閉じられる（＝手順6 の検算と `heartbeat-check.sh` のノイズが消える）うえ、**閉じても `--resume` の宛先は失われない**——
+未終了 `delegate_start` を残さずに閉じられる（＝手順6 の検算と、当時の `heartbeat-check.sh` のノイズが消える）うえ、**閉じても `--resume` の宛先は失われない**——
 §3.2 の復元は「当該 `challenge` の**最新の `delegate_start`**」を鍵に引くのであって「未終了の start」を探すのではなく、
 `templates/runtime/README.md:141` が「別サイクルに持ち越した resume は新しい `delegate_start`（同じ `session_id` の再登場可）で挟む」と定めているため、閉じた start の `session_id` がそのまま次周の宛先になる。
 （この点は当初「`delegate_end` で閉じたら §3.2 の検索で引けなくなるのでは」と読める書き方をしていたが、§3.2 のとおり**ペアリングのキー規律と宛先の検索規則は別物**であり、矛盾しない。）

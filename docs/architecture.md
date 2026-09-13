@@ -50,7 +50,7 @@ claude-flywheel は **Claude Code プラグイン**として install し、**自
 1. claude-flywheel をプラグインとして install
 2. エージェント用リポジトリで /claude-flywheel:flywheel-init → 状態を scaffold（templates/ から生成）
 3. /claude-flywheel:bootstrap-domain-map → positions/・memory/ を生成（ドメイン地図）
-4. 共有ソースから自分に関係する課題を取り込み → /claude-flywheel:run-cycle（または /claude-flywheel:start-day でセッション内 cron による業務時間内の定期自走を開始）
+4. 共有ソースから自分に関係する課題を取り込み → /claude-flywheel:run-cycle（人間が対話セッションで 1 周ずつ起動する）
 ```
 
 - プラグインは配布・更新されるコードなので、**日々書き換わる運用状態をプラグイン内に置かない**。状態は各エージェントのリポジトリに持つ。
@@ -172,12 +172,12 @@ flowchart TD
 
 ### 3.8 自律実行ランタイム【主要成果物 (b)】
 
-- エージェントを**自律的に動かすための実行基盤**。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で構成する。
+- エージェントを**自律的に動かすための実行基盤**。**制御プレーン（自走の実行基盤）には専用アプリを作らず**、Claude Code ネイティブ（対話セッション＋スキル＋サブエージェント／ワークフロー）で構成する。
 - 「専用アプリは作らない」原則は**制御プレーンに限定**する。**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（条件・消費者例は §7 冒頭、実行イベントログ `.flywheel/runs.jsonl` の仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
-- 構成は 3 レイヤー（詳細は §7）: ①拍動（セッション内 cron。[`start-day`](../skills/start-day/SKILL.md) スキルが起動時に登録）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
-- 配置: 各エージェントのリポジトリの `runtime/`（スケジュール設定・運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
-- 段階的に整備する（§8 ロードマップ）。当面は手動で `run-cycle` を実行 → のちに `start-day` スキルでセッション内 cron を登録し定期自走。
-- **実行モード（`native` / `container`）**: `.flywheel/cadence.json` の `execution_mode` で宣言する。境界は `start-day`（起動層。その日のエージェントセッション全体をコンテナに入れる）に置き、run-cycle の委譲層（`claude -p` spawn）はコンテナ化しない（理由・不採用案は §7「採用しない選択肢」）。雛形は [`templates/container/`](../templates/container/)（`Dockerfile`・`compose.yml`）、前提条件は [`templates/runtime/README.md`](../templates/runtime/README.md)「container モードの前提条件」（[#54](https://github.com/masanami/claude-flywheel/issues/54)）。
+- 構成は 3 レイヤー（詳細は §7）: ①起動（人間が対話セッションで `run-cycle` を実行する。定期起動の仕組みは持たない）／②サイクル本体（[`run-cycle`](../skills/run-cycle/SKILL.md) スキル）／③能力（ポジション別スキル＋記憶）。
+- 配置: 各エージェントのリポジトリの `runtime/`（運用手順）。雛形は [`templates/runtime/README.md`](../templates/runtime/README.md)。
+- 段階的に整備する（§8 ロードマップ）。現行は人間が対話で `run-cycle` を 1 周ずつ起動する。セッション内 cron による定期自走（`start-day`）は一度導入したのち廃止した（経緯は §7「決定の履歴: 定期便（start-day）の導入と廃止」）。
+- **実行モード（`native` / `container`）**: `.flywheel/cadence.json` の `execution_mode` で宣言する。境界は起動層（`run-cycle` を起動する親の対話セッション全体をコンテナに入れる）に置き、run-cycle の委譲層（`claude -p` spawn）はコンテナ化しない（理由・不採用案は §7「採用しない選択肢」）。宣言と実態の食い違い（`container` と宣言したのにコンテナ外で起動した等）は run-cycle 手順0 がロック取得前に fail-closed で検知して中止する。雛形は [`templates/container/`](../templates/container/)（`Dockerfile`・`compose.yml`）、前提条件は [`templates/runtime/README.md`](../templates/runtime/README.md)「container モードの前提条件」（[#54](https://github.com/masanami/claude-flywheel/issues/54)）。
 
 ### 3.9 ツール層（差し替え可能なエグゼキュータ）
 
@@ -230,7 +230,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
   - ヘッドレス `claude -p` を cwd＝作業用クローンで起動する。多ターンが必要なら `-c`（`--continue`）/ `--resume <session-id>`。
   - **Agent SDK / `claude --bg` は前提にしない**（必要になるまで導入しない）。
   - 非対話の権限は `--permission-mode` と **cwd の対象 repo の `.claude/settings.json`** で制御する。**`--allowedTools Bash` のような“無制限 Bash”は子に渡さない**（下記「権限前提」）。
-  - **【権限前提】親からの `claude -p` spawn は事前許可が要る**: ネスト起動は技術的には可能（`CLAUDECODE=1` が立つのみでプロセス上のハードガードは無い）だが、**auto-mode（routine/cron の自走）では headless `claude -p` の spawn がセーフティ分類器にブロックされる**。分類理由は「編集自動承認（acceptEdits）＋広範な Bash（`--allowedTools Bash`）＋ headless `claude -p` ＝ 承認ゲート無しの自律サブエージェントループ」。回避は 2 つを併用する:
+  - **【権限前提】親からの `claude -p` spawn は事前許可が要る**: ネスト起動は技術的には可能（`CLAUDECODE=1` が立つのみでプロセス上のハードガードは無い）だが、**auto-mode では headless `claude -p` の spawn がセーフティ分類器にブロックされる**。分類理由は「編集自動承認（acceptEdits）＋広範な Bash（`--allowedTools Bash`）＋ headless `claude -p` ＝ 承認ゲート無しの自律サブエージェントループ」。回避は 2 つを併用する:
     1. **親（エージェントrepo）の `.claude/settings.json` に `Bash(claude -p:*)` を allow** して委譲 spawn を事前許可する（flywheel-init が scaffold・§3.9.2 の [#18](https://github.com/masanami/claude-flywheel/issues/18)）。allow にマッチすれば分類器を経ずに spawn できる。多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ 1 ルールで通るよう `-p` を先頭に置く。
     2. **子に `--allowedTools Bash` を渡さず**、Bash 権限は **cwd の対象 repo の `.claude/settings.json`（allow/ask/deny）に統治させる**（例: npm/git=allow、cdk deploy/docker push=ask→headless では自動 deny、rm/sudo/force-push=deny）。“広範 Bash”警戒を避けつつ、対象本来の設定で開発できる。
     3. **委譲先クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。クローンの `.claude/settings.json` の allow は、その絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まるため、**人間が一度だけ** `scripts/trust-clone.sh <name>` を実行するか、対話的に `claude` を起動して trust ダイアログを承認する（未承認クローンは `sync-repos.sh` が読み取り専用で検出・警告する。エージェントによる自動書き込みは Self-Modification としてブロックされるため行わない・`trust-clone.sh` もエージェント自身は実行しない・[#27](https://github.com/masanami/claude-flywheel/issues/27)）。**trust 承認は当該パスの将来の変更にも及ぶ**点に注意: 承認後も同期で対象 repo の `.claude/settings.json`・`CLAUDE.md` は更新され続け、再承認なしに子セッションへ効くため、委譲先リポジトリの書き込み権者は実質このエージェントの権限・指示の定義者になる。委譲先の既定ブランチには branch protection を設定し、`.claude/settings.json`・`CLAUDE.md` の変更はレビュー必須とする運用を前提にする。
@@ -276,7 +276,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
     - **したがって分担は**: `templates/CLAUDE.md` は「必ず `--max-budget-usd` を付ける・既定 100・`--resume` にも都度指定」**だけ**（差し込み委譲でも自己完結して効く最小限）。判別契約・照合・`delegate_end` / journal への記録という**完全な契約は run-cycle SKILL.md に一本化**する（照合と記録の手順がそこにあるため）。**同じ契約を両方に書くことこそが本当の重複**であり、2 つのリストは必ずずれるので避ける。
   - **上限は 1 回の `claude -p` 起動ごと**に効き、`--resume` は別起動としてカウンタが 0 に戻る。返り値の `total_cost_usd` も**その起動分のみ**を返す（1 委譲あたりの累計は親が積算して journal に記録する）。
   - **周単位の天井を別に置く（`cycle_budget_usd`・[#148](https://github.com/masanami/claude-flywheel/issues/148)）**: 上限が 1 起動ごとにしか効かない以上、1 周に N 件起動すれば天井は N 倍になる（並列起動を入れると爆風半径が並列度に比例する）。**並列化そのものより先に**、サイクル全体の予算上限を `.flywheel/cadence.json` の `cycle_budget_usd`（既定 **300** USD ＝ L サイズの委譲上限 100 の 3 件分）として置き、run-cycle 手順3 が**起動前**に「当周の既消費額 ＋ 起動済み未合流分の予約額 ＋ これから起動する分の `--max-budget-usd`」で評価して超える起動を抑止する（[#149](https://github.com/masanami/claude-flywheel/issues/149) で予約額の項を足した。**同時に複数起動すると先行分の `total_cost_usd` がまだ無い**ため、確定消費だけで評価すると走っている分を 0 と見なして天井が起動本数分だけ掛け算される。1 件ずつ順に起動する周は先行分が合流済みで予約額 0 となり、従来の式に退化する）。
-    - **不在・不正は既定へ補正して継続する**（`business_days`・`heartbeat.stale_after_business_days` と同じ規律）。**「上限なし」へ縮退させない**——縮退させると、設定していないワークスペースでだけ天井が消えるという #83 型の失敗様式になる。補正した事実はサイクルレポートに出す。
+    - **不在・不正は既定へ補正して継続する**（`reflect.every_n_cycles` と同じ規律）。**「上限なし」へ縮退させない**——縮退させると、設定していないワークスペースでだけ天井が消えるという #83 型の失敗様式になる。補正した事実はサイクルレポートに出す。
     - **委譲 0 件の周でも評価を飛ばさない**（既消費額 `0` で同じ式を評価する）。件数が 0 のとき評価ごと省くと、この条件は空虚に真になり「単一委譲だけでサイクル上限を超える」ケースを取りこぼす。
     - **既存ワークスペースへの追従は内容ベース検出で拾う**: JSON にコメント構文が無く版マーカーを置けない（[template-version-marker.md](./template-version-marker.md) §7）ため、`scripts/migrate-workspace.rb` が **`cadence.json` の「既定へ縮退するキー」を列挙して不足を報告する**（同 §7 が「既知の穴」と書き残していた検出器をここで置いた。書き換えはしない＝人間が値を決める）。
   - **枠（レート制限）超過は周内へ伝播させる**: 枠は並列 N 件が同時に踏むため、1 件が `You've hit your …` を返しても残りは起動済みで止まらない。**枠超過（`quota-check.sh` exit 0）を 1 件でも観測した周は、その周の残りの委譲を起動しない**。既に起動済みの分は打ち切らず**合流させてから閉じる**（走っている子にも成果が残っていることがある）。**伝播するのは exit 0 のときだけ**で、exit 1 / 2 では伝播しない——判定不能を「枠超過」側へ倒すと自走が止まるという上記の非対称を、伝播にも同じ向きで適用する。
@@ -330,7 +330,6 @@ claude-flywheel/
 │   ├── flywheel-init/           # 利用先に状態を scaffold
 │   ├── bootstrap-domain-map/    # ドメイン地図づくり
 │   ├── ingest-challenges/       # 外部ソースから課題を正本台帳へ冪等取り込み（pluggable）
-│   ├── start-day/               # 一日の自走を開始（cadence読込→初回run-cycle→cron登録）
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
@@ -345,7 +344,7 @@ claude-flywheel/
 │   ├── position.md
 │   ├── repos.tsv
 │   ├── settings.json            # .claude/settings.json の雛形（自走委譲の権限前提・§3.9.2）
-│   ├── cadence.json             # 拍動設定の雛形（業務時間・run-cycle間隔・実行モード等。start-dayが読む）
+│   ├── cadence.json             # 運用設定の雛形（実行モード・サイクル全体の予算上限・reflectしきい値。run-cycleが読む）
 │   ├── container/{Dockerfile,compose.yml}  # コンテナ隔離モード（execution_mode: container）の雛形
 │   ├── runtime/README.md
 │   └── journal/{README.md,cycle-template.md}
@@ -365,7 +364,7 @@ claude-flywheel/
 ├── priority-policy.md           # タスク優先度の決定方針（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。run-cycleが手順1/2で読む。不在時は現状どおりエージェント裁量）
 ├── repos.tsv                    # 関連リポジトリのマニフェスト（Git 追跡）
 ├── .claude/settings.json        # 自走委譲の権限前提（Bash(claude -p:*) を allow。flywheel-init が scaffold・§3.9.2）
-├── .flywheel/cadence.json       # 拍動設定（業務時間・run-cycle間隔・発火分オフセット・実行モード〔execution_mode〕・reflectしきい値。Git追跡＝gitignore対象外）
+├── .flywheel/cadence.json       # 運用設定（実行モード〔execution_mode〕・サイクル全体の予算上限〔cycle_budget_usd〕・reflectしきい値。Git追跡＝gitignore対象外）
 ├── .flywheel/repos/             # 関連リポジトリの作業用クローン（.gitignore・編集/ブランチ/コミット可）
 ├── .flywheel/runs.jsonl         # 実行イベントログ（run-cycle・差し込みセッションが append／観測プレーンが読む／.gitignore）
 ├── positions/                   # ポジション定義（このエージェントの守備範囲）
@@ -450,48 +449,47 @@ flowchart TD
 
 ## 7. 自律実行サイクルの実装
 
-**制御プレーン（自走の実行基盤）には専用アプリを作らない**。Claude Code ネイティブ（スケジュール実行＋スキル＋サブエージェント／ワークフロー）で、3 レイヤーに分けて構成する。この原則は制御プレーンに限定し、**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（§3.8）。観測プレーンの条件は 2 つ: **①状態ファイルに書き込まない**、**②制御プレーンの依存にならない（止まっても自走に影響しない）**。消費者例は [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)（`.flywheel/runs.jsonl`〔§4.2〕を読む。仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
+**制御プレーン（自走の実行基盤）には専用アプリを作らない**。Claude Code ネイティブ（対話セッション＋スキル＋サブエージェント／ワークフロー）で、3 レイヤーに分けて構成する。この原則は制御プレーンに限定し、**読み取り専用の観測プレーン**（状態ファイルを読んで可視化する別アプリ）は明示的に許容する（§3.8）。観測プレーンの条件は 2 つ: **①状態ファイルに書き込まない**、**②制御プレーンの依存にならない（止まっても自走に影響しない）**。消費者例は [claude-flywheel-board](https://github.com/masanami/claude-flywheel-board)（`.flywheel/runs.jsonl`〔§4.2〕を読む。仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。
 
 | レイヤー | 役割 | 実体 |
 | --- | --- | --- |
-| ① 拍動（cadence） | いつ起こすか＝自律性の心臓部 | セッション内 cron（Claude Code の CronCreate）。[`start-day`](../skills/start-day/SKILL.md) スキルが起動時に登録 |
+| ① 起動 | いつ回すか | 人間が対話セッションで `/claude-flywheel:run-cycle` を実行する（1 セッション＝1 周。定期起動の仕組みは持たない） |
 | ② サイクル本体 | 1 周の制御フロー | [`run-cycle`](../skills/run-cycle/SKILL.md) スキル |
 | ③ 能力 | 各エージェントの能力 | ポジション別スキル群（3.7）＋ 記憶（3.5）。横断はワークフローでファンアウト |
 | ④ 自己改善 | ②③ を継続的に磨く別ループ | [`reflect`](../skills/reflect/SKILL.md) スキル（低頻度・3.10）。run-cycle は good/bad の記録のみ |
 
-*図: 自律実行ランタイム — cron が run-cycle を定期起動し、状態はすべてファイルに保持（冪等に回せる）。*
+*図: 自律実行ランタイム — 人間が対話セッションで run-cycle を起動し、状態はすべてファイルに保持（冪等に回せる）。*
 
 ```mermaid
 flowchart LR
-    startday["start-day<br/>（cadence 読込→初回 run-cycle→cron 登録）"] -->|セッション内 cron 登録| cron["セッション内 cron (CronCreate)"]
-    cron -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
+    human["人間（対話セッション）"] -->|起動| cycle["/run-cycle<br/>観測→整理→計画→実行（接続ツール委譲）→検証→学習→報告→コミット"]
     cycle --- state["状態はファイル<br/>challenge-ledger.md / memory/ / positions/"]
 ```
 
 ### 冪等性と状態
 
-- 状態はすべてファイル（台帳のステータス／記憶／ポジション）。サイクルは**ステータスに基づき着手可能なものだけ**を処理し、**何度起動しても二重実行しない**（**逐次の再実行**に対して冪等）。**並走**（cron の間隔超過・手動併走で 2 サイクルが同時に走る場合）はステータスでは防げないため、run-cycle のロック（`.flywheel/cycle.lock`・step 0）で排他する。
+- 状態はすべてファイル（台帳のステータス／記憶／ポジション）。サイクルは**ステータスに基づき着手可能なものだけ**を処理し、**何度起動しても二重実行しない**（**逐次の再実行**に対して冪等）。**並走**（別セッションでの手動併走で 2 サイクルが同時に走る場合）はステータスでは防げないため、run-cycle のロック（`.flywheel/cycle.lock`・step 0）で排他する。
 - run-cycle にはサイクル・委譲の境界で `.flywheel/runs.jsonl`（§4.2）へ `cycle_start/end`・`delegate_start/end` を append する規律がある（仕様は [templates/runtime/README.md](../templates/runtime/README.md#実行イベントログrunsjsonl) の実行イベントログセクション）。gitignore 対象のローカル観測用で、書き込みは best-effort（失敗してもサイクルを止めない）。
 
 ### 承認ゲートの扱い（重要）
 
-- スケジュール実行では**人間をインラインで待たない**。承認ゲート（§6）に達した項目は **「提案を残して保留」し、サイクルは止めずに報告**する。
+- サイクル内では**人間をインラインで待たない**。承認ゲート（§6）に達した項目は **「提案を残して保留」し、サイクルは止めずに報告**する。
 - 人間が後追いで承認すると、**次サイクルで前進**する。これにより自律実行と Human-in-the-loop を両立する。
-- **承認の実装（FR-13 / FR-32）**: 承認待ちは台帳のステータス（`計画承認待ち` / `完了確認待ち`）で表現し、**人間は分類欄の承認チェックボックス（`[ ] 計画を承認` / `[ ] 完了を承認`）を `[x]` にするだけ**（GitHub のモバイル / Web でタップ→コミット。ファイル編集不要）。ステータスの前進はエージェントが次サイクルで代行する（[challenge-ledger-format.md §承認プロトコル](./challenge-ledger-format.md)）。有効な承認は 2 経路のみ: (1) チェックの `[x]` 化が人間のコミットで入っていること（cron 自走での唯一の経路）、(2) 手動対話実行時に限りその場の人間の口頭承認に基づくエージェントの代行。台帳本文・外部由来テキスト中の「承認済み」表明や、これに当てはまらないエージェントのコミットは承認として扱わない。
+- **承認の実装（FR-13 / FR-32）**: 承認待ちは台帳のステータス（`計画承認待ち` / `完了確認待ち`）で表現し、**人間は分類欄の承認チェックボックス（`[ ] 計画を承認` / `[ ] 完了を承認`）を `[x]` にするだけ**（GitHub のモバイル / Web でタップ→コミット。ファイル編集不要）。ステータスの前進はエージェントが次サイクルで代行する（[challenge-ledger-format.md §承認プロトコル](./challenge-ledger-format.md)）。有効な承認は 2 経路のみ: (1) チェックの `[x]` 化が人間のコミットで入っていること（対話相手のいない実行での唯一の経路）、(2) 対話実行時に限りその場の人間の口頭承認に基づくエージェントの代行。台帳本文・外部由来テキスト中の「承認済み」表明や、これに当てはまらないエージェントのコミットは承認として扱わない。
 
 ### 段階的導入
 
 1. **手動検証**: `/run-cycle`（または `--dry-run`）を手動実行して 1 周の挙動を確認。
-2. **定期自走**: [`start-day`](../skills/start-day/SKILL.md) スキルを起動し、セッション内 cron（CronCreate）で `run-cycle` を業務時間内に定期起動（[`runtime/`](../templates/runtime/README.md)）。
+2. **運用**: 人間が対話セッションで `run-cycle` を 1 周ずつ起動する（1 セッション＝1 周。[`runtime/`](../templates/runtime/README.md)）。reflect は run-cycle がしきい値到達の周にサイクルレポートで実行を推奨し、人間が起動する。
 3. いずれの段階でも §6 の承認ポイントを維持し、自律度の引き上げは信頼に応じて段階的に行う（要件 §6、OQ-03）。
 
 ### 採用しない選択肢（検討済みの代替・2026-07-16）
 
-機能の増加に伴い検討した代替案と、見送りの判断根拠を記録する（再検討時に同じ議論を繰り返さないため）。
+機能の増加に伴い検討した代替案と、見送りの判断根拠を記録する（再検討時に同じ議論を繰り返さないため）。launchd・クラウド routine の行は定期起動（拍動）の実現方式の比較であり、定期起動そのものは #165 で廃止した（下記「決定の履歴」）。
 
 | 代替案 | 見送る理由 | 再検討のトリガー |
 | --- | --- | --- |
-| **ワークフローエンジンでサイクルを駆動**（n8n 等の既存 / 最小自作） | run-cycle の制御フローは 7 ステップの直列で自明であり、複雑さはステップ内の**判断**（LLM 側）にある。「承認待ちで止まらず台帳へ駐機 → 次サイクルが拾う」設計により **cron ＋ 冪等な再入が durable execution を代替済み**。エンジン導入は常時稼働デーモン（＝制御プレーンの依存）と第二の状態正本を生み、エンジン主導への反転はステップ間の**文脈の連続性**（整理で読んだ台帳が計画・ブリーフの質を支える）を分断する。実行の可視化は runs.jsonl ＋ 観測プレーンが担う | 1 サイクル内で多数課題の並列委譲・個別リトライポリシーが必要になったとき。その場合も外部エンジンではなく **Claude Code ネイティブの [Dynamic Workflows](https://code.claude.com/docs/en/workflows.md)**（セッション内でスクリプトがサブエージェント群を決定的に制御。デーモン・第二の状態正本を持たない＝本行の見送り理由に抵触しない）を第一候補とする。なお直列の判断の背骨には使わず、ファンアウト形のステップ（例: bootstrap-domain-map の並列探索〔[#47](https://github.com/masanami/claude-flywheel/issues/47)〕・検証パネル・reflect の集計）に限る。サブエージェントは親設定を継承し cwd 不変のため、委譲エグゼキュータ（§3.9.2）の代替にはならない点は変わらない |
+| **ワークフローエンジンでサイクルを駆動**（n8n 等の既存 / 最小自作） | run-cycle の制御フローは 7 ステップの直列で自明であり、複雑さはステップ内の**判断**（LLM 側）にある。「承認待ちで止まらず台帳へ駐機 → 次サイクルが拾う」設計により **都度起動 ＋ 冪等な再入が durable execution を代替済み**。エンジン導入は常時稼働デーモン（＝制御プレーンの依存）と第二の状態正本を生み、エンジン主導への反転はステップ間の**文脈の連続性**（整理で読んだ台帳が計画・ブリーフの質を支える）を分断する。実行の可視化は runs.jsonl ＋ 観測プレーンが担う | 1 サイクル内で多数課題の並列委譲・個別リトライポリシーが必要になったとき。その場合も外部エンジンではなく **Claude Code ネイティブの [Dynamic Workflows](https://code.claude.com/docs/en/workflows.md)**（セッション内でスクリプトがサブエージェント群を決定的に制御。デーモン・第二の状態正本を持たない＝本行の見送り理由に抵触しない）を第一候補とする。なお直列の判断の背骨には使わず、ファンアウト形のステップ（例: bootstrap-domain-map の並列探索〔[#47](https://github.com/masanami/claude-flywheel/issues/47)〕・検証パネル・reflect の集計）に限る。サブエージェントは親設定を継承し cwd 不変のため、委譲エグゼキュータ（§3.9.2）の代替にはならない点は変わらない |
 | **状態管理のライト DB 化**（SQLite 等を正本に） | エージェントのネイティブ操作（Read/Edit/Grep）が CLI 呼び出しに置き換わり全スキルの信頼性が下がる。観測プレーンの fs-watch 契約が壊れる（DB に変更通知は無い）。ロック・append まわりの痛みは**機械処理の scripts 化（[#46](https://github.com/masanami/claude-flywheel/issues/46)）が解く問題**であり、DB でもロック競合として形を変えて残るだけ | Git 追跡外のローカル実行状態（runs.jsonl 系）に肥大・競合の**実痛が観測された**とき（予期では移行しない。設計方針 §1-9 と同じ規律） |
 | **launchd（OS スケジューラ）→ headless `claude -p` で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | スリープ復帰時の追い掛け実行など耐久性は上だが、業務時間内運用（board でセッションを開いたまま自走）では過剰。セッションが無いため**対話承認が使えず**、「人間コミットの `[x]`」経路（§7 承認ゲート）の実運用検証が必要になる。サブスク消費の制御（起動頻度の対話的な調整・即時停止）もしにくい | 夜間・無人時間帯の自走が必要になったとき |
 | **クラウド routine（`/schedule`）で拍動**（[#52](https://github.com/masanami/claude-flywheel/issues/52)） | 状態正本がローカルファイル（台帳・memory・`.flywheel/`）で、委譲もローカルクローンへの `claude -p` spawn、trust 承認も `~/.claude.json` 依存のため、クラウド実行環境と噛み合わない | ワークスペースごとクラウド常駐へ移す将来フェーズ |
@@ -499,6 +497,19 @@ flowchart LR
 | **ホスト直実行のまま権限で制御**（コンテナ隔離を導入しない。[#54](https://github.com/masanami/claude-flywheel/issues/54)） | 並列度を上げるほど確認プロンプトが増え、#52 の自走と噛み合わない。破壊の影響範囲がホスト全体に及び、並列時の干渉・リソース制御不能という課題が残る | fleet の並列度を上げない小規模運用に限定する場合 |
 
 いずれも「skills（散文）がきつくなってきた」という同じ動機から出た案だが、痛みの正体は**機械的処理の散文化**であり、解は判断と機械の分離（設計方針 §1-9・[#46](https://github.com/masanami/claude-flywheel/issues/46)）にある、というのが判断の要点。
+
+### 決定の履歴: 定期便（start-day）の導入と廃止
+
+現行の設計（人間が対話で run-cycle を 1 周ずつ起動する）に至った経緯を残す。再び定期起動を検討するときに、同じ議論を繰り返さないため。
+
+- **導入（[#52](https://github.com/masanami/claude-flywheel/issues/52)）**: 業務時間内に board 等で開いたセッションの中で、Claude Code のセッション内 cron（CronCreate）に run-cycle の定期便と就業前の締めジョブを登録する `start-day` スキルを置いた。人間が 1 周ずつ起動しなくても自走させるため。セッション内 cron を選んだのは、REPL アイドル時のみ発火するため run-cycle が自然に直列化され、対話承認も使えるから（launchd・クラウド routine を採らなかった理由は上表）。reflect のしきい値判定（`index.jsonl` の行数）も締めジョブが担った。
+- **one-shot 化（[#78](https://github.com/masanami/claude-flywheel/issues/78)）**: recurring cron だと締めジョブが発火しない日（日付境界を跨ぐ・セッションを閉じて後日 `--resume`）に「当日限定」が破れ、`business_days` を曜日フィールドに焼き込むと土日運用と噛み合わなかった。定期便を起動日の日付に固定した one-shot 群へ改めた。
+- **拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）**: セッションを閉じると拍動が止まり、`start-day` の起動忘れに誰も気づけない実害（5 日間の空白）が出た。最小緩和として run-cycle 手順0 に `heartbeat-check.sh`（最終 `cycle_end` からの空白営業日数の検査）を置いた。
+- **廃止（[#165](https://github.com/masanami/claude-flywheel/issues/165)・2026-09-13 オーナー判断）**: 定期便には対話相手の人間がいないため、承認ゲートに達するたびにサイクルを終えるしかなく、それが「1 課題を通すのに 3 周かかる」「課題の集合単位で承認を扱えない」の前提になっていた。[#164](https://github.com/masanami/claude-flywheel/issues/164)（計画承認待ちで一時停止し、対話で集合単位の承認をそろえてから後続へ進む）は対話実行を前提に進め方を組み直すもので、定期便を残すと人間のいない実行での一時停止を別に設計し続ける必要がある。そこで #164 の前提として定期便を撤去した。
+  - **撤去したもの**: `start-day` スキル／`cadence.json` の `business_days`・`business_start`・`business_end`・`run_cycle_interval_minutes`・`cron_minute_offset`・`heartbeat`／拍動停止の検知（run-cycle 手順0 の heartbeat 検査・`scripts/heartbeat-check.sh`。人間が回していないだけの空白を「止まった」と警告する意味が無くなったため。設計記録の [heartbeat-detection.md](./heartbeat-detection.md) は削除せず残す）。
+  - **移したもの**: reflect の起動契機は、run-cycle 手順6 が `index.jsonl` の行数で `reflect.every_n_cycles` のしきい値を判定し、到達した周にサイクルレポートで**実行を推奨するだけ**にした（自動では起動しない）。`execution_mode` の fail-closed 検証（不正値・宣言と実態の食い違いで中止）は start-day 手順1 から run-cycle 手順0 へ移した（実行モードの仕組み自体は変えていない）。
+  - **残したもの**: `execution_mode`・`cycle_budget_usd`・`reflect.every_n_cycles`（ファイル名 `cadence.json` も変えない）／未終了 `*_start` の検算（`log-run-event.sh check`・run-cycle 手順6）。既存ワークスペースに残る廃止キーは無害で、`scripts/migrate-workspace.rb` が「削除してよい」と案内する（書き換えはしない）。
+  - **再検討のトリガー**: 人間のいない時間帯の自走が再び必要になったとき。その場合は起動方式（上表）だけでなく、承認待ちでの一時停止（#164）を人間不在でどう扱うかを合わせて設計する。
 
 ## 8. 段階的実装ロードマップ
 
@@ -509,7 +520,7 @@ flowchart LR
 | **P2 ポジション別スキル＆ランタイム** | 自走に必要なスキル群と実行基盤を整備【成果物(a)(b)】 | ポジション別スキル、`runtime/`（手動トリガ版） |
 | **P3 単一エージェント自走** | 1 エージェントで取り込み→自己選択→ツール委譲→検証→学習を一巡 | 1 エージェントの Flywheel 実証（受け入れ基準 [requirements.md §11](./requirements.md)） |
 | **P4 fleet 化** | 複数の独立エージェント＋共有ソースからの取り込み | 複数エージェント、fleet 横断は人間ルーティング |
-| **P5 自律化** | スケジュール実行・自動トリアージ・fleet 調整の委譲・自己改善 | 定期実行、fleet スコープ（§3.2(B)）の自動化、reflect による内省ループ（§3.10） |
+| **P5 自律化** | スケジュール実行・自動トリアージ・fleet 調整の委譲・自己改善 | 定期実行（セッション内 cron による定期起動は一度導入して #165 で廃止。再導入の条件は §7「決定の履歴」）、fleet スコープ（§3.2(B)）の自動化、reflect による内省ループ（§3.10） |
 | **P6 課題ソース外部化**（任意） | 共有ソースを外部ドキュメント（Notion 等）にする | 取り込み（ingestion）スキル [ingest-challenges](../skills/ingest-challenges/SKILL.md)＝pluggable な読み取り・正規化・冪等マージ＋ `challenge-sources.md`（[#3](https://github.com/masanami/claude-flywheel/issues/3) / AO-06） |
 
 ## 9. 要件トレーサビリティ
