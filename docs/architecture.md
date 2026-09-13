@@ -234,7 +234,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
     1. **親（エージェントrepo）の `.claude/settings.json` に `Bash(claude -p:*)` を allow** して委譲 spawn を事前許可する（flywheel-init が scaffold・§3.9.2 の [#18](https://github.com/masanami/claude-flywheel/issues/18)）。allow にマッチすれば分類器を経ずに spawn できる。多ターン継続（`claude -p -c` / `claude -p --resume <id>`）も同じ 1 ルールで通るよう `-p` を先頭に置く。
     2. **子に `--allowedTools Bash` を渡さず**、Bash 権限は **cwd の対象 repo の `.claude/settings.json`（allow/ask/deny）に統治させる**（例: npm/git=allow、cdk deploy/docker push=ask→headless では自動 deny、rm/sudo/force-push=deny）。“広範 Bash”警戒を避けつつ、対象本来の設定で開発できる。
     3. **委譲先クローンの trust 承認**（`Bash(claude -p:*)` の allow とは別物）。クローンの `.claude/settings.json` の allow は、その絶対パスが Claude Code に**trust 承認済み**（`~/.claude.json` の `projects["<絶対パス>"].hasTrustDialogAccepted: true`）でない限り無視される。`sync-repos.sh` が用意する新規クローンは常に未承認から始まるため、**人間が一度だけ** `scripts/trust-clone.sh <name>` を実行するか、対話的に `claude` を起動して trust ダイアログを承認する（未承認クローンは `sync-repos.sh` が読み取り専用で検出・警告する。エージェントによる自動書き込みは Self-Modification としてブロックされるため行わない・`trust-clone.sh` もエージェント自身は実行しない・[#27](https://github.com/masanami/claude-flywheel/issues/27)）。**trust 承認は当該パスの将来の変更にも及ぶ**点に注意: 承認後も同期で対象 repo の `.claude/settings.json`・`CLAUDE.md` は更新され続け、再承認なしに子セッションへ効くため、委譲先リポジトリの書き込み権者は実質このエージェントの権限・指示の定義者になる。委譲先の既定ブランチには branch protection を設定し、`.claude/settings.json`・`CLAUDE.md` の変更はレビュー必須とする運用を前提にする。
-  - 権限は **FR-22 の承認境界**に従う: ローカル編集・commit・**作業ブランチへの push・PR（draft 含む）作成・統合ブランチ／親Issueブランチ（いずれも本番非反映）へのマージは自律可**（本番影響が無く可逆）、**既定ブランチ〔`main`〕への昇格マージ / 本番影響 / 削除 / 履歴破壊が承認ゲート対象**（§5.2 step 4・§6・[#24](https://github.com/masanami/claude-flywheel/issues/24)）。判定軸は「本番への影響」と「可逆性」。起動例の `--permission-mode acceptEdits` は編集の自動承認で、force-push 等の不可逆操作は対象 repo の `settings.json`（deny）でゲートする。
+  - 権限は **FR-22 の承認境界**に従う: ローカル編集・commit・**作業ブランチへの push・PR（draft 含む）作成・統合ブランチ／親Issueブランチ（いずれも本番非反映）へのマージは自律可**（本番影響が無く可逆）、**既定ブランチ〔`main`〕への昇格マージ / 本番影響 / 削除 / 履歴破壊が承認ゲート対象**（§5.2 step 4・§6・[#24](https://github.com/masanami/claude-flywheel/issues/24)）。判定軸は「本番への影響」と「可逆性」。起動例の `--permission-mode auto` は操作ごとに分類器が可否を判断するモードで、既定をこれに揃える（[#167](https://github.com/masanami/claude-flywheel/issues/167)。`acceptEdits` は Bash を allow で判定するため allow 不足の repo で headless の Bash が全拒否され、利用先は `bypassPermissions` で上書きしていた。`auto` は通常の開発操作が allow の整備状況によらず通過し、到達点・費用は `bypassPermissions` と同等で、分類器の判断が加わる分だけ安全側にある＝2026-09-13・Claude Code 2.1.270 の実測）。**分類器は不可逆操作の歯止めとして数えない**（同じ破壊的コマンドを repo によって拒否したり通したりした）。force-push 等の不可逆操作の歯止めは**ブリーフの明示制約**と**対象 repo に commit された deny**（`auto` でも効くことを実測。ただし前方一致のため `git -C <path> push --force` の形には `Bash(git push --force:*)` が効かない）が担う。
   - 起動例（cwd を対象クローンに固定して非対話実行）:
 
     ```bash
@@ -245,7 +245,7 @@ run-cycle の「実行（§5.2 step 4 ＝ run-cycle SKILL.md step 3）」で接�
     # --max-budget-usd は必須（費用ガード・下記）。
     cd .flywheel/repos/<name>
     claude -p "（ブリーフ: 目標・recall した map/tacit/reference・完了条件）" \
-      --permission-mode acceptEdits \
+      --permission-mode auto \
       --max-budget-usd <承認済みタスク案の予算上限>
     ```
 
