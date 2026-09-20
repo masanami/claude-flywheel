@@ -24,6 +24,8 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 ├── priority-policy.md        # タスク優先度の決定方針（正本・切り替えの意思決定は人間〔編集は人間指示を受けたAI代行可〕。テンプレートから生成。run-cycleが読む）
 ├── repos.tsv                 # 関連リポジトリのマニフェスト（テンプレートから生成）
 ├── .claude/settings.json     # 自走委譲の権限（Bash(claude -p:*) を allow。§権限前提）
+├── .claude/skills/           # ローカル skill の置き場（最初は空。reflect の「ローカル skill」target）
+├── briefs/                   # 委譲ブリーフ雛形の置き場（最初は空。reflect の `brief` target）
 ├── positions/                # ポジション定義（最初は空。bootstrap で生成）
 ├── memory/                   # エージェント記憶（最初は空。運用で蓄積）
 ├── runtime/                  # 自律実行ランタイム設定（テンプレートから生成）
@@ -43,7 +45,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
 | **初回 scaffold** | `./challenge-ledger.md` が無い | 下の「手順」（不足分をテンプレートから生成する。既存は上書きしない） |
 | **再実行＝テンプレート追従（マイグレーション）** | `./challenge-ledger.md` がある | 下の「手順」（不足ファイルの補完）に加えて **§再実行（テンプレート追従）** を実行する |
 
-> **なぜ再実行が要るか**: 初回 scaffold は「既存を上書きしない」冪等設計のため、**scaffold 後にテンプレートが更新されても既存ワークスペースは追従しない**。実際、`templates/challenge-ledger.md` に「タスク案」行と承認チェックボックス行が入った後（PR #39）、それ以前に scaffold された 2 エージェントが追従できず、3 エージェントで 3 通りのタスク案形式に分岐し、観測プレーンで承認対象が欠落表示になった（Issue [#87](https://github.com/masanami/claude-flywheel/issues/87) / [#88](https://github.com/masanami/claude-flywheel/issues/88)）。
+> **なぜ再実行が要るか**: 初回 scaffold は「既存を上書きしない」冪等設計のため、**scaffold 後にテンプレートが更新されても既存ワークスペースは追従しない**。実際、`templates/challenge-ledger.md` に「タスク案」行と承認チェックボックス行が入った後（PR #39）、それ以前に scaffold された 2 エージェントが追従できず、3 エージェントで 3 通りのタスク案形式に分岐し、観測プレーンで承認対象が欠落表示になった（Issue #87 / #88）。
 
 ## 手順
 
@@ -53,7 +55,7 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    - `templates/challenge-sources.md` → `./challenge-sources.md`（**任意**。外部ソースから取り込む場合のみ生成。初期は内部台帳直接記入だけでも可）。
    - `templates/settings.json` → `./.claude/settings.json`（非自明なパス対応）。既存があれば `permissions.allow` に `Bash(claude -p:*)` を追記/マージする。
    - `templates/cadence.json` → `./.flywheel/cadence.json`（非自明なパス対応）。
-   - `positions/`・`memory/` は空ディレクトリ（`.gitkeep`）で作成。
+   - `positions/`・`memory/`・`briefs/`・`.claude/skills/` は空ディレクトリ（`.gitkeep`）で作成。**`briefs/` と `.claude/skills/` は [reflect](../reflect/SKILL.md) 手順3 が「直接 diff 提案」の target と定めた資産（`brief` ＝委譲ブリーフの雛形 / ローカル skill）の置き場**で、`contracts/cycle-commit-paths.txt` の `[commit]` もこの 2 つを指す（置き場が未定義だと、改修した周に毎回 `out-of-scope-dirty` が出たままサイクルコミットにも入らない＝Issue #174）。**空のまま運用してもよい**（cycle-commit.sh は実体の無い許可パスを pathspec から落とす）。
 3. `.gitignore` に**ローカル実行状態**（`.flywheel/` 配下）を除外する行を追記する（既存の `.gitignore` があれば追記、無ければ作成。重複追記しない）。**`cadence.json` は運用設定として Git 追跡する**ため、ディレクトリ丸ごとの ignore（`.flywheel/`）ではなく `.flywheel/*` ＋個別 unignore の形にする（`dir/` 形式で丸ごと ignore すると Git がディレクトリ内を走査せず `!` の例外が効かないため）:
 
    ```text
@@ -64,6 +66,14 @@ claude-flywheel プラグインを導入した**利用先ワークスペース**
    ```
 
    既存の `.gitignore` に旧来の `.flywheel/`（ディレクトリ丸ごと ignore）が既にある場合は、上記の `.flywheel/*` ＋ `!.flywheel/cadence.json` の形へ置き換える（`cadence.json` を Git 追跡させるため）。
+
+   **`.claude/skills/` が Git 追跡されることを確認し、ignore されていれば un-ignore 行を足す**（`git check-ignore -v .claude/skills` で確認する）。`.claude/*` を除外する設定を**実行者のグローバル除外ファイル**（既定 `~/.config/git/ignore`）に置いている環境があり、その場合ローカル skill は `[commit]` に載っていても永久にコミットされない（`git status` にも現れないため、誰も気づけない）。ワークスペースの `.gitignore` はグローバル除外より優先されるので、次の 1 行で回復できる（親ディレクトリ `.claude` 自体は除外されていないため re-include が効く）:
+
+   ```text
+   # ローカル skill はサイクルコミットの対象（contracts/cycle-commit-paths.txt の [commit]）。
+   # 実行者のグローバル除外ファイルが .claude/* を除外していても追跡する
+   !.claude/skills/
+   ```
 
    同じ手順で `container/.env` の ignore 行も追記する（コンテナ隔離モードを使う場合に人間が作成するファイル。ホスト固有の絶対パス・UID/GID を含むため Git 追跡しない。詳細は `runtime/README.md`「container モードの前提条件」）:
 
