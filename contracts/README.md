@@ -86,7 +86,7 @@ scripts/validate-artifact.rb <type> <file> [--schema-dir <dir>] [--vocabulary <f
 
 **結合切れの検査範囲は分類欄のみ**（エージェントが書く領域）。人間記入欄は人間の自由記述と外部本文の転記（ブロック引用）が入るため、行頭の箇条書きを違反にしない——**規定側も「人間記入欄は機械検査の対象外」と明記**しており、散文と検査の範囲を一致させている。
 
-**書き手がいつ形 A へ切り替えるかは別問題（順序制約）**: 受理は最初から形 A〜D すべてを通すが、**書き手（run-cycle 手順2・ingest-challenges 手順3）が形 A で書き始めるのは唯一の消費者（board）の追随後**とする（`docs/challenge-ledger-format.md` §移行フェーズが正本。#151 以前の board はインデント行を捨てたため、先に切り替えると board のカード詳細が `-` 表示になり、Issue #87 の症状を拡大する）。**受理表の「規定上の値」列は消費者が実装すべき読み取り結果であって、現行 board の挙動ではない**。**旧い承認ラベル（`- [ ] 計画を承認（FR-13）`）も受理し続ける**（新表記は `（FR-13・承認対象＝タスク案）`。検出は前方一致）。journal は空の周（`- なし`）も正規（`fixtures/journal-md/valid/minimal.md`）。runs.jsonl は `title`/`skill` 無しの `delegate_start` や `abandoned` の `cycle_end` も正規（`fixtures/runs/valid/optional-fields.jsonl`）。
+**書き手がいつ形 A へ切り替えるかは別問題（順序制約）**: 受理は最初から形 A〜D すべてを通すが、**書き手（run-cycle 手順2・ingest-challenges 手順3）が形 A で書き始めるのは唯一の消費者（board）の追随後**とする（`docs/challenge-ledger-format.md` §移行フェーズが正本。#151 以前の board はインデント行を捨てたため、先に切り替えると board のカード詳細が `-` 表示になり、Issue #87 の症状を拡大する）。**受理表の「規定上の値」列は消費者が実装すべき読み取り結果であって、現行 board の挙動ではない**。**旧い承認ラベル（`- [ ] 計画を承認（FR-13）`）も受理し続ける**（新表記は `（FR-13・承認対象＝タスク案）`。検出は前方一致）。**3 つ目の `- [ ] 昇格を承認（FR-22）` は任意**で、無いエントリも正規（必須行にすると既存ワークスペースの台帳を一斉に弾くため）。journal は空の周（`- なし`）も正規（`fixtures/journal-md/valid/minimal.md`）。runs.jsonl は `title`/`skill` 無しの `delegate_start` や `abandoned` の `cycle_end` も正規（`fixtures/runs/valid/optional-fields.jsonl`）。
 
 ## スキーマはバリデータが直接解釈する
 

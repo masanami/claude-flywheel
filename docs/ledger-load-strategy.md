@@ -383,7 +383,7 @@ git diff <前周の基準SHA>..<当周の検査対象SHA> -- challenge-ledger.md
 #   id / status / prio / pos / svc / opened / repos / approvals / ingested / title
 #   - svc      = 関連サービス（domain-bootstrap モードの着手順判定に必要。§2.4）
 #   - ingested = 取り込み元マーカーの有無だけを y/- で表す（値そのものは載せない。2-d）
-#   - approvals = 承認チェック 2 個の状態を x/- の 2 文字で表す（1-f）
+#   - approvals = 承認チェック 2 個の状態を x/- の 2 文字で表す（1-f。昇格〔FR-22〕は載せない）
 ```
 
 実測結果（全 11 エントリ）:
