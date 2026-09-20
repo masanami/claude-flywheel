@@ -163,6 +163,9 @@ reset_ws() {
   git -C "$WS" init -q .
   git -C "$WS" config user.email tester@example.com
   git -C "$WS" config user.name tester
+  # 既定の除外ファイル（~/.config/git/ignore）を遮断する。実行者の設定に `.claude/*` 等が
+  # あると、被検体ではなく環境の都合で dirty が `git status` に現れず検査が空虚に真になる。
+  git -C "$WS" config core.excludesFile /dev/null
   printf '.flywheel/*\n!.flywheel/cadence.json\n' > "$WS/.gitignore"
   printf '# 課題台帳\n' > "$WS/challenge-ledger.md"
   printf '# 記憶\n' > "$WS/memory/note.md"
@@ -254,6 +257,38 @@ reset_ws; add_cycle "$CYCLE" 2026-08-21 1
 printf 'x\n' >> "$WS/repos.tsv"
 check "許可パス外の変更は state-dirty ではなく out-of-scope-dirty として区別する" 1 "reason=out-of-scope-dirty"
 assert_absent_out "許可パス外の変更を state-dirty と誤分類しない" 1 "reason=state-dirty" \
+  -- --workspace "$WS" --cycle "$CYCLE"
+
+# reflect が「直接 diff 提案」の target と定めた 3 つ（recall＝CLAUDE.md / brief＝briefs/ /
+# ローカル skill＝.claude/skills/）は [commit] 側＝state-dirty。置き場が未定義だった頃は
+# 毎周 out-of-scope-dirty が出たままサイクルコミットにも入らなかった（Issue #174）。
+reset_ws; add_cycle "$CYCLE" 2026-08-21 1
+printf 'x\n' >> "$WS/CLAUDE.md"
+check "recall の target（CLAUDE.md）の変更は state-dirty" 1 "reason=state-dirty"
+assert_absent_out "CLAUDE.md を out-of-scope-dirty と誤分類しない" 1 "reason=out-of-scope-dirty" \
+  -- --workspace "$WS" --cycle "$CYCLE"
+
+reset_ws; add_cycle "$CYCLE" 2026-08-21 1
+mkdir -p "$WS/briefs"
+printf '# 委譲ブリーフ雛形\n' > "$WS/briefs/delegation-brief.md"
+check "brief の target（briefs/ 配下の新規）は state-dirty" 1 "reason=state-dirty"
+assert_absent_out "briefs/ を out-of-scope-dirty と誤分類しない" 1 "reason=out-of-scope-dirty" \
+  -- --workspace "$WS" --cycle "$CYCLE"
+
+reset_ws; add_cycle "$CYCLE" 2026-08-21 1
+mkdir -p "$WS/.claude/skills/my-skill"
+printf '# ローカル skill\n' > "$WS/.claude/skills/my-skill/SKILL.md"
+check "ローカル skill の target（.claude/skills/ 配下の新規）は state-dirty" 1 "reason=state-dirty"
+assert_absent_out ".claude/skills/ を out-of-scope-dirty と誤分類しない" 1 "reason=out-of-scope-dirty" \
+  -- --workspace "$WS" --cycle "$CYCLE"
+
+# 前置一致が `.claude` 丸ごとへ広がっていないこと（settings.json は権限定義であり、
+# サイクルコミットが自動で取り込んでよいものではない＝従来どおり範囲外で人間へ知らせる）
+reset_ws; add_cycle "$CYCLE" 2026-08-21 1
+mkdir -p "$WS/.claude"
+printf '{}\n' > "$WS/.claude/settings.json"
+check ".claude/settings.json は [commit] 外のまま（out-of-scope-dirty）" 1 "reason=out-of-scope-dirty"
+assert_absent_out ".claude/skills の前置一致が .claude 全体へ広がっていない" 1 "reason=state-dirty" \
   -- --workspace "$WS" --cycle "$CYCLE"
 
 reset_ws; add_cycle "$CYCLE" 2026-08-21 1

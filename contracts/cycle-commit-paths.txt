@@ -13,8 +13,15 @@
 #                    人間の作業中かを人間へ知らせる。**新しいパスが黙って「変化なし」側へ
 #                    落ちることが構造的に起きない**＝両者がずれたら気づける）
 #
-# 追加・削除したら scripts/tests/noop-check.test.sh が固定している結線（SKILL の許可パス列挙・
-# 分類テスト）も同時に更新すること。
+# 追加・削除したら次も同時に更新すること（テストが落ちる形で気づけるようにしてある）:
+#   - scripts/tests/noop-check.test.sh   … commit_path 出力の一致（データ駆動）と分類テスト
+#   - skills/adhoc/SKILL.md              … 「読み取りだけ（書かない）」の列挙。[commit] 全件が
+#                                          載っていることを scripts/tests/adhoc-skill.test.sh (D)
+#                                          が固定する（run-cycle が同じ周で書き換えるため）
+#
+# **実体が無いエントリを書いてよい**。`challenge-archive.md` は初回アーカイブまで存在せず、
+# `briefs` / `.claude/skills` も使い始めるまで無い。cycle-commit.sh は git が解決できない
+# エントリを pathspec から落としてコミットする（落としても入れる内容が無いため失われない）。
 
 [commit]
 challenge-ledger.md
@@ -22,6 +29,17 @@ challenge-archive.md
 memory
 journal
 positions
+# reflect が「直接 diff 提案」の target と定めた資産（skills/reflect/SKILL.md 手順3 の表）。
+# 置き場が [commit] にも [exclude] にも無いと、改修した周に毎回 out-of-scope-dirty が出たまま
+# サイクルコミットにも入らない（Issue #174）。target の実体と置き場を 1 対 1 で対応させる:
+#   recall        → CLAUDE.md（ベースライン。所在は flywheel-init の scaffold で確定済み）
+#   brief         → briefs/（委譲ブリーフの雛形。例: briefs/delegation-brief.md）
+#   ローカル skill → .claude/skills/（エージェントrepo 内の独自スキル）
+# `.claude` 全体ではなく `.claude/skills` だけを挙げる——`.claude/settings.json` は権限定義で
+# あり、サイクルコミットが自動で取り込んでよいものではない（従来どおり範囲外＝人間へ知らせる）。
+CLAUDE.md
+briefs
+.claude/skills
 
 [exclude]
 # 優先度方針は「サイクルコミットに混ぜず専用の独立コミット」と規定されている（run-cycle 手順6）。

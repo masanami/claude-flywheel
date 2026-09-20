@@ -502,15 +502,51 @@ EOF
   fi
 }
 
+# git_known_paths — 許可パスのうち **git が解決できるもの**だけを 1 行 1 件で返す。
+#
+# `git commit -- <pathspec>` は、どこにも一致しない pathspec を 1 つでも渡されると
+# `error: pathspec '...' did not match any file(s) known to git` を返し、**他のパスの変更ごと
+# コミット全体を失敗**させる（`git add` も `git diff --cached` も一致ゼロを黙って許すため、
+# 失敗点はここだけ＝正本にエントリを足したときに他のテストでは現れない）。
+#
+# 正本には「そのワークスペースにまだ実体が無いパス」が**正当に**含まれる:
+# `challenge-archive.md` は初回アーカイブまで存在せず、`briefs` / `.claude/skills` も
+# 使い始めるまで無い（Issue #174）。実体が無いパスはコミットへ入れる内容も持たないので、
+# pathspec から落としても失われるものは無い——**範囲を狭める方向にしか効かない**
+# （正本の権威を緩めるのではなく、正本が指す空集合を git へ渡さないだけ）。
+#
+# 見るのは index と HEAD の 2 つ（＝git の言う「known to git」）:
+#   - index … `stage_allowed` 後なので、未追跡の新規ファイルもここに現れる
+#   - HEAD  … 追跡済みが丸ごと削除されステージされた場合、index からは消えるが
+#             削除自体はコミットすべき。HEAD を見ないとこの削除を取りこぼす
+# ワーキングツリーの実在は**見ない**。gitignore されたファイルは git から見えず、
+# 渡せば上のエラーになるため（実在を根拠に残すと逆に失敗する）。
+git_known_paths() {
+  while IFS= read -r p; do
+    [ -n "${p}" ] || continue
+    if [ -n "$(git_ws ls-files --cached -- "${p}" 2>/dev/null)" ]; then
+      printf '%s\n' "${p}"
+    elif [ -n "$(git_ws ls-tree -r --name-only HEAD -- "${p}" 2>/dev/null)" ]; then
+      printf '%s\n' "${p}"
+    fi
+  done <<EOF
+${COMMIT_PATHS}
+EOF
+}
+
 # commit_allowed — 許可パスを明示した pathspec でコミットし、SHA を控える
 commit_allowed() {
+  known="$(git_known_paths)"
   set --
   while IFS= read -r p; do
     [ -n "${p}" ] || continue
     set -- "$@" "${p}"
   done <<EOF
-${COMMIT_PATHS}
+${known}
 EOF
+  # 解決できるパスが 1 つも無い＝コミットする内容が無い。pathspec 無しの `git commit` へ
+  # 縮退させない（ステージ済みの全変更を取り込み、許可パス外まで巻き込むため）。
+  [ "$#" -gt 0 ] || return 1
   msgfile="$(mktemp)"
   build_message > "${msgfile}"
   git_ws commit -q -F "${msgfile}" -- "$@" >/dev/null 2>&1

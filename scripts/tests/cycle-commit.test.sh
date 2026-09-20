@@ -136,6 +136,9 @@ new_ws() {
   git -C "$ws" config user.name test            >/dev/null 2>&1 || { echo "cfg name"    > "$tmp/setup-error"; return 1; }
   git -C "$ws" config commit.gpgsign false      >/dev/null 2>&1 || { echo "cfg gpg"     > "$tmp/setup-error"; return 1; }
   git -C "$ws" config core.hooksPath /dev/null  >/dev/null 2>&1 || { echo "cfg hooks"   > "$tmp/setup-error"; return 1; }
+  # 既定の除外ファイル（~/.config/git/ignore）は GIT_CONFIG_GLOBAL=/dev/null では遮断できない。
+  # 実行者の設定に `.claude/*` 等があると、被検体ではなく環境の都合で許可パスが落ちる。
+  git -C "$ws" config core.excludesFile /dev/null >/dev/null 2>&1 || { echo "cfg excludes" > "$tmp/setup-error"; return 1; }
   ledger_min > "$ws/challenge-ledger.md"
   printf '# 課題アーカイブ（Challenge Archive）\n\n> テスト用。\n\n---\n\n' > "$ws/challenge-archive.md"
   printf 'active: normal\n' > "$ws/priority-policy.md"
@@ -215,6 +218,40 @@ grep -v '^positions$' "$PATHS_FILE" > "$reduced_paths"
 run commit --workspace "$ws" --cycle 2026-08-27-cycle --paths-file "$reduced_paths"
 assert_exit "正本から外した状態でもコミットは成功する" 0
 assert_not_committed "正本から外した positions/ はコミット対象にならない" "$ws" "positions/harness.md"
+
+# 実体の無い許可パスがコミット全体を失敗させない（Issue #174）。
+# `git commit -- <pathspec>` は一致ゼロの pathspec を 1 つでも渡されるとコミット全体を
+# 失敗させる（`git add` / `git diff --cached` は黙って許すため、ここだけが失敗点）。
+# 正本には実体の無いパスが正当に含まれる（`challenge-archive.md` は初回アーカイブまで、
+# `briefs` / `.claude/skills` は使い始めるまで無い）。
+ws="$(new_ws canon-absent)" || setup_fail "$(setup_reason)"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+if [ ! -e "$ws/briefs" ] && [ ! -e "$ws/.claude" ]; then
+  pass "前提確認: ワークスペースに briefs/ も .claude/ も存在しない"
+else
+  fail "前提確認: ワークスペースに briefs/ も .claude/ も存在しない" "$(ls -A "$ws" | tr '\n' ' ')"
+fi
+if [ "$(grep -c -e '^briefs$' -e '^\.claude/skills$' "$PATHS_FILE")" -eq 2 ]; then
+  pass "前提確認: 正本にその実体の無いパスが載っている"
+else
+  fail "前提確認: 正本にその実体の無いパスが載っている" \
+       "$(grep -n -e '^briefs$' -e '^\.claude/skills$' "$PATHS_FILE" | tr '\n' ' ')"
+fi
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "実体の無い許可パスがあってもコミットは成功する" 0
+assert_field "実体の無い許可パスがあっても committed=yes" committed yes
+assert_committed "他の許可パスの変更は通常どおりコミットされる" "$ws" "journal/2026-08-27-cycle.md"
+
+# 実体ができたら拾われる（上の緩和が「そのパスを恒久的に無視する」形になっていないこと）
+ws="$(new_ws canon-present)" || setup_fail "$(setup_reason)"
+mkdir -p "$ws/briefs" "$ws/.claude/skills"
+printf '# 委譲ブリーフ雛形\n' > "$ws/briefs/delegation-brief.md"
+printf '# ローカル skill\n' > "$ws/.claude/skills/SKILL.md"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "実体ができた周のコミットも成功する" 0
+assert_committed "実体ができた briefs/ はコミット対象になる" "$ws" "briefs/delegation-brief.md"
+assert_committed "実体ができた .claude/skills/ はコミット対象になる" "$ws" ".claude/skills/SKILL.md"
 
 # 正本が読めない/空なら fail-closed（推測でパスを組み立てない）
 ws="$(new_ws canon-broken)" || setup_fail "$(setup_reason)"

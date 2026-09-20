@@ -50,7 +50,7 @@ description: サイクル外の差し込み作業（対象が特定できてい�
 | `.flywheel/runs.jsonl` | `${CLAUDE_PLUGIN_ROOT}/scripts/log-run-event.sh` 経由のみ（直接 append しない） |
 | **作業用クローン配下**（対象 repo のワーキングツリー） | 通常どおり。編集・コミット・作業ブランチへの push・PR 作成 |
 
-**読み取りだけ（書かない）**: `challenge-ledger.md` / `challenge-archive.md` / `journal/` / `memory/` / `priority-policy.md` / `positions/` / `.flywheel/cycle.lock` / `.flywheel/cadence.json`。**これらは run-cycle が同じ周で書き換える**。
+**読み取りだけ（書かない）**: `challenge-ledger.md` / `challenge-archive.md` / `journal/` / `memory/` / `priority-policy.md` / `positions/` / `CLAUDE.md` / `briefs/` / `.claude/skills/` / `.flywheel/cycle.lock` / `.flywheel/cadence.json`。**これらは run-cycle が同じ周で書き換える**。
 
 **書きたくなったときの代替手段**（行き先を先に決めておく。禁止だけでは守られない）:
 
@@ -59,6 +59,7 @@ description: サイクル外の差し込み作業（対象が特定できてい�
 | `challenge-ledger.md`（起票・ステータス更新） | 書かず、**起票内容の草案**（分類欄の記入案）を手順5 の報告に出す。次の run-cycle 手順1 か人間が書く |
 | `journal/`（この作業の記録を残したい） | 書かず、**やったこと 1 行**を手順4 の `--result` に入れる。恒久記録は次の run-cycle の journal が担う |
 | `memory/`（学びを save したい） | 書かず、**記憶の草案**（種別・タイトル・本文の要点）を手順5 の報告に出す。save は次の run-cycle 手順5 か、人間が明示的に `agent-memory` を呼んで行う |
+| `CLAUDE.md` / `briefs/` / `.claude/skills/`（ハーネス自体を直したい） | 書かず、**diff 案**を手順5 の報告に出す。ハーネスの改修提案は `reflect` の担当（`recall` / `brief` / ローカル skill の target）で、承認を経て適用される |
 | `.flywheel/cycle.lock`（並走を止めたい） | **取得しない**。上の書き込み範囲を守っていれば、run-cycle と同時に走っても競合しない |
 | `.flywheel/cadence.json`（上限・間隔を変えたい） | 書かず、変更案を手順5 の報告に出す（cadence の書き換えは人間が行う） |
 
