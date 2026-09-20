@@ -43,6 +43,7 @@ metadata:
 ```
 
 - 1 周あたり数行・コストほぼゼロ。冪等（同じ経験を二重記録しない）。
+- `reflected` / `applied_as`（reflect が後から付ける印）は**この雛形に書かない**。雛形に置くと書き手が値を埋め、日付でない値（`未処理` 等）が入って集計窓から外れる（[#137](https://github.com/masanami/claude-flywheel/issues/137)）。
 - `target` は「どの資産を直せば再発防止/再現できるか」の当たりを付けるためのタグ。
 
 ### 層2: reflect スキル（内省・改修提案、低頻度）
@@ -100,6 +101,6 @@ flowchart TD
 ## 7. 検討中の論点（Open Questions）
 
 - **しきい値**: 再発回数 N（既定 2）や good 昇格の基準をどう調整するか。
-- **集計範囲**: reflect が見る experience の窓（直近 N 周 / 期間）と、適用済み記録の扱い。
+- **集計範囲**: reflect が見る experience の窓（直近 N 周 / 期間）。**「処理済み」の判定は決着済み**で、`reflected` が `YYYY-MM-DD` として解釈できる値のときだけ処理済み・それ以外（フィールド無し・空値・日付として読めない値）はすべて未処理として拾う fail-closed（正本は [reflect スキル §1 集計](../skills/reflect/SKILL.md)、[#137](https://github.com/masanami/claude-flywheel/issues/137)）。
 - **upstream 連携**: プラグイン改善 Issue の粒度・テンプレ。fleet 全体で共通課題が出たときの集約。
 - **回帰ガードの実体**: good を「壊さない基準」としてどう機械的に効かせるか（チェックリスト化 / テスト化）。

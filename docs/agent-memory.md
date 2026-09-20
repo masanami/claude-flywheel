@@ -40,6 +40,7 @@ metadata:
 
 - **bad** = 改修トリガー、**good** = 再利用資産化・回帰ガード・recall 正例（[self-improvement.md §2](self-improvement.md)）。
 - run-cycle 内では評価・改修をせず、good/bad を記録するだけ（軽量・冪等）。
+- reflect が集計後に付ける `reflected` / `applied_as` は**この雛形に含めない**（書き手が値を埋めてしまうと、日付でない値が入り集計窓から外れる。[#137](https://github.com/masanami/claude-flywheel/issues/137)）。
 
 ## 3. 置き場所・構造
 
