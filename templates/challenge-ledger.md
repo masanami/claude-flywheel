@@ -1,4 +1,4 @@
-<!-- flywheel-template: challenge-ledger.md@0.30.0 -->
+<!-- flywheel-template: challenge-ledger.md@0.29.0 -->
 
 # 課題台帳（Challenge Ledger）
 
