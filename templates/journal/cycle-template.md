@@ -1,4 +1,4 @@
-<!-- flywheel-template: journal/cycle-template.md@0.20.0 -->
+<!-- flywheel-template: journal/cycle-template.md@0.29.0 -->
 
 <!--
 cycle-template.md — journal/YYYY-MM-DD-cycle.md の雛形。
@@ -19,6 +19,7 @@ run-cycle step 6 がコピーして日付・内容を埋める。セクション
 ## 作成した PR・ブランチの URL
 
 - `<https://github.com/.../pull/NN>`
+- 未マージのまま完了した昇格 PR: `<owner>/<repo>#<番号>`（`<課題ID>`・FR-22 未承認）
 
 ## 承認待ちゲート一覧
 
