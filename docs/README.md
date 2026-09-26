@@ -11,6 +11,7 @@ claude-flywheel の設計ドキュメント置き場。
 | [architecture.md](./architecture.md) | アーキテクチャ・実現方式（どう作るか / How） | ドラフト |
 | [challenge-ledger-format.md](./challenge-ledger-format.md) | 課題台帳の記入形式（人間記入欄＋分類欄） | ドラフト |
 | [authoring-style.md](./authoring-style.md) | ドキュメント出力規約（AI 可読性: 図は mermaid・言語タグ・キャプション） | ドラフト |
+| [effort-policy.md](./effort-policy.md) | スキルの reasoning effort の方針（[#184](https://github.com/masanami/claude-flywheel/issues/184)）: 7 スキルの frontmatter `effort` の対応表と理由、frontmatter がセッションの設定より優先されること、委譲コマンド（`claude -p`）では effort を指定しない方針 | 確定 |
 | [runtime-text-conventions.md](./runtime-text-conventions.md) | 実行時テキスト（`skills/` `templates/`）と docs の書き分け（[#117](https://github.com/masanami/claude-flywheel/issues/117)）: 判定軸「この文を削るとモデルの振る舞いが変わるか」と、実行時テキストから `docs/` を参照しない規約。検査は [scripts/tests/runtime-text-refs.test.sh](../scripts/tests/runtime-text-refs.test.sh) | 確定 |
 | [noop-cycle-batching.md](./noop-cycle-batching.md) | no-op 周の軽量化（[#82](https://github.com/masanami/claude-flywheel/issues/82)）: 変化ゼロの周のコミットを次の周へ束ねる設計、3 案の比較と採用根拠、「変化なし」の機械的定義 | 確定 |
 | [heartbeat-detection.md](./heartbeat-detection.md) | 拍動停止の検知（[#83](https://github.com/masanami/claude-flywheel/issues/83)）: **start-day 廃止により撤去済み（[#165](https://github.com/masanami/claude-flywheel/issues/165)）**。当時の最小緩和の設計と、セッション寿命に拍動を紐づけない方式の選択肢比較を設計記録として残す | 撤去済み（記録） |

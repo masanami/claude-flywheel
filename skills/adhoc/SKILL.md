@@ -1,6 +1,8 @@
 ---
 name: adhoc
 description: サイクル外の差し込み作業（対象が特定できている対話作業）を、実行イベントログの adhoc_start / adhoc_end で挟んで実行する。サイクルの状態ファイル（課題台帳・journal・memory）には書かないため、並走する run-cycle と競合しない。Triggers on：「差し込みで」「サイクル外で」「adhoc」「この PR をマージして」「この Issue を立てて」。
+# effort: 定型の処理（記録の開始と終了）のため low。
+effort: low
 ---
 
 # adhoc

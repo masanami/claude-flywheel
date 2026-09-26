@@ -1,6 +1,8 @@
 ---
 name: ingest-challenges
 description: 外部ソース（共有 repo / Notion / Google Doc / Slack ログ等）から、このエージェントに関係する課題を読み取り・正規化して、正本の課題台帳 challenge-ledger.md へ冪等に取り込む（ingestion）。分類・ステータスは内部正本を保持し、外部へは書き戻さない。Triggers on：「課題を取り込んで」「ingest-challenges」「共有ソースから取り込み」。run-cycle の観測ステップ(step 0)、および計画ステップ(step 2)の assignee 再照合から呼ばれる想定。
+# effort: 定型の取り込み（fp や照合はスクリプトが担う）のため low。
+effort: low
 ---
 
 # ingest-challenges
