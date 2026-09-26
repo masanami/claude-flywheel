@@ -1,6 +1,8 @@
 ---
 name: reflect
 description: 自己改善（内省）ループを1周実行する。run-cycle が残した good/bad の記録（experience）を集計し、skill/サブエージェント/ブリーフ/ポジション/recall の改修を提案する。改修は提案までで人間承認まで適用しない。Triggers on：「内省して」「reflect」「ハーネスを改善」。run-cycle とは別に低頻度（N周ごと／しきい値到達／手動）で起動する。
+# effort: 記録の集計から改修を提案するため、深い検討が要り high。
+effort: high
 ---
 
 # reflect

@@ -1,6 +1,8 @@
 ---
 name: flywheel-init
 description: claude-flywheel を導入したワークスペースに、運用状態（課題台帳・positions・memory・runtime）を初期化（scaffold）する。Triggers on：「flywheel をセットアップ」「flywheel-init」「自走環境を初期化」。プラグイン導入後に最初に一度だけ実行する。
+# effort: 定型の処理のため low。
+effort: low
 ---
 
 # flywheel-init
