@@ -1,4 +1,4 @@
-<!-- flywheel-template: challenge-sources.md@0.28.0 -->
+<!-- flywheel-template: challenge-sources.md@0.31.0 -->
 
 # 課題の取り込み元（challenge sources）
 
