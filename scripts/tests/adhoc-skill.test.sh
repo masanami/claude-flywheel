@@ -19,6 +19,10 @@
 #   3. **代替手段が用意されている**: 「書くな」だけの行を作らない。代替手段の表の各行に
 #      行き先（書かず〜／取得しない〜）が書かれていること。禁止だけでは守られない。
 #   4. **停止条件の明文化**: 未終了 adhoc_start の扱い 3 点が在る。
+#   5. **代行編集の枠が閉じている**（Issue #181）: 人間の明示指示で書いてよい例外は
+#      【代行編集】表の行だけで、ロック取得を条件とする行の対象は challenge-ledger.md と
+#      priority-policy.md の 2 つちょうど。[commit] の他のパス（journal・memory 等）が
+#      例外側へ漏れたら落ちる（語彙駆動）。条件は「確認」ではなく「取得」、解放は取得成功時だけ。
 #
 # **走査対象・抽出結果が空のまま pass しない**ことを各所で確認する（空リストは全称条件を
 # 空虚に真にする）。
@@ -73,6 +77,7 @@ DETAIL_TOKENS=(
   'adhoc-YYYYMMDD'
   '--result'
   '代筆'
+  'cycle-lock.sh'
 )
 for tok in "${DETAIL_TOKENS[@]}"; do
   if grep -qF -- "$tok" "$SKILL"; then
@@ -209,6 +214,124 @@ for ph in "${STOP_PHRASES[@]}"; do
     fail "(F) 停止条件が在る: ${ph}" "見つからない"
   fi
 done
+
+echo ""
+echo "=== (G) 代行編集の枠（人間の明示指示 ∧ ロック取得）が閉じている ==="
+
+# 【代行編集】表の本文行（見出し行・区切り行を除く）を取り出す。
+delegate_rows() {
+  awk '
+    /\*\*【代行編集】/ {f=1; next}
+    f && $0 !~ /^\|/ && NF==0 {next}
+    f && $0 !~ /^\|/ {f=0}
+    f && $0 ~ /^\|/ {
+      if ($0 ~ /^\| *---/) next
+      if ($0 ~ /^\| *対象 *\|/) next
+      print $0
+    }
+  ' "$1"
+}
+# ロック取得を条件とする行の対象（1 列目のバッククォート内）を 1 行 1 件で返す。
+locked_targets() {
+  delegate_rows "$1" | grep -F 'ロック取得' | awk -F'|' '{print $2}' \
+    | sed -n 's/^[^`]*`\([^`]*\)`.*$/\1/p' | sort
+}
+# 表の 1 列目（対象）だけを返す。
+delegate_first_cells() {
+  delegate_rows "$1" | awk -F'|' '{print $2}'
+}
+
+n_drows="$(delegate_rows "$SKILL" | grep -c .)"
+n_drows="$(printf '%s' "$n_drows" | tr -d ' ')"
+assert_eq "(G) 【代行編集】表から本文行を 1 行以上抽出できた" "true" \
+  "$(if [ "$n_drows" -ge 1 ]; then echo true; else echo false; fi)"
+
+assert_eq "(G) ロック取得を条件とする対象は台帳と priority-policy.md の 2 つちょうど" \
+  "$(printf '%s\n' challenge-ledger.md priority-policy.md | sort)" \
+  "$(locked_targets "$SKILL")"
+
+# 語彙駆動: [commit] のパスのうち台帳以外は、どれも代行編集の対象に現れない。
+check_no_leak() {
+  leaked=""
+  first_cells="$(delegate_first_cells "$1")"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ "$p" = "challenge-ledger.md" ] && continue
+    case "$first_cells" in
+      *"$p"*) leaked="${leaked} ${p}" ;;
+    esac
+  done <<EOF
+$commit_paths
+cadence.json
+EOF
+  printf '%s' "$leaked"
+}
+if [ "$n_drows" -ge 1 ] && [ "$n_paths" -ge 1 ]; then
+  assert_eq "(G) [commit] の他パスと cadence.json が代行編集の対象に漏れていない" "" "$(check_no_leak "$SKILL")"
+
+  # 検出器の自己検査: 表へ journal/ の行を足した版では漏れとして検出されること。
+  # 抽出が壊れて空になると上の 2 件が空虚に通るため、変異版で検出器が生きていることを示す。
+  tmpd="$(mktemp -d "${TMPDIR:-/tmp}/adhoc-skill-test.XXXXXX")"
+  awk '{print} /^\| `priority-policy.md` \|/ {print "| `journal/` | (a) 対話中の人間の明示指示 ∧ (b) ロック取得 | 変異 |"}' \
+    "$SKILL" > "$tmpd/mutant.md"
+  case "$(check_no_leak "$tmpd/mutant.md")" in
+    *journal*) pass "(G) 検出器の自己検査（漏れを足した変異を検出する）" ;;
+    *) fail "(G) 検出器の自己検査（漏れを足した変異を検出する）" "journal/ の行を足しても検出しなかった" ;;
+  esac
+  if [ "$(locked_targets "$tmpd/mutant.md" | grep -c .)" -eq 3 ]; then
+    pass "(G) 検出器の自己検査（ロック条件の対象が増えたら件数が変わる）"
+  else
+    fail "(G) 検出器の自己検査（ロック条件の対象が増えたら件数が変わる）" "変異版の抽出件数が 3 でない"
+  fi
+  rm -rf "$tmpd"
+fi
+
+# 規定の骨格。「確認」ではなく「取得」、失敗時は書かない、解放は取得成功時だけ、書き方の条件。
+DELEGATE_PHRASES=(
+  '「ロックが無いことを確認する」ではなく**取得する**'
+  'cycle-lock.sh" acquire --session-id <手順2 で発番した id> --workspace <エージェント repo ルート>'
+  '**exit 2（並走検出）** → run-cycle（または別の差し込み）が保持中。**従来どおり書かず**'
+  '**解放は取得に成功した場合だけ**'
+  'cycle-lock.sh" release --session-id <手順2 で発番した id> --workspace <エージェント repo ルート>'
+  '**`--dry-run` は付けない**'
+  '`challenge-ledger.md.tmp` に対して行い'
+  '`mv` で置換する'
+  '`.flywheel/ledger-tx.json`'
+  '**専用の独立コミット**'
+  '`git commit -- <書いたパス>`'
+  '`[commit]` にも `[exclude]` にも載っていないパス'
+  '**ただし `.flywheel/` 配下（`cadence.json` を含む）と `.claude/` 配下'
+)
+for ph in "${DELEGATE_PHRASES[@]}"; do
+  if grep -qF -- "$ph" "$SKILL"; then
+    pass "(G) 規定が在る: ${ph}"
+  else
+    fail "(G) 規定が在る: ${ph}" "見つからない"
+  fi
+done
+
+# acquire のコマンド行に --dry-run が付いていない（付けると stale 回収時の abandoned 代筆が
+# 飛び、前周クラッシュの cycle_start が未終了のまま残る）。
+acq_lines="$(grep -F 'cycle-lock.sh" acquire' "$SKILL")"
+if [ -z "$acq_lines" ]; then
+  fail "(G) acquire のコマンド行に --dry-run が無い" "acquire のコマンド行が見つからない"
+elif printf '%s\n' "$acq_lines" | grep -qF -- '--dry-run'; then
+  fail "(G) acquire のコマンド行に --dry-run が無い" "付いている"
+else
+  pass "(G) acquire のコマンド行に --dry-run が無い"
+fi
+
+# CLAUDE.md の台帳起票の規定が、旧規定（「並走していない」ことの確認）から取得条件へ移っている。
+if grep -qF -- '並走していない対話セッションに限る' "$CLAUDE_TPL"; then
+  fail "(G) CLAUDE.md に旧規定「並走していない対話セッションに限る」が残っていない" "見つかった"
+else
+  pass "(G) CLAUDE.md に旧規定「並走していない対話セッションに限る」が残っていない"
+fi
+if grep -qF -- '**取得できたとき**' "$CLAUDE_TPL"; then
+  pass "(G) CLAUDE.md が台帳起票の条件をロックの取得としている"
+else
+  fail "(G) CLAUDE.md が台帳起票の条件をロックの取得としている" "**取得できたとき** が無い"
+fi
 
 echo ""
 echo "=== summary === pass: ${PASS}, fail: ${FAIL}"
