@@ -16,6 +16,7 @@ effort: low
 
 - 利用先ワークスペースが初期化済み（`.flywheel/` は `log-run-event.sh` が append の前に `mkdir -p` するため、無くてよい）。
 - **対話セッションで実行する**（人間が対象を名指ししている作業が対象）。
+- 起票する Issue・PR 本文、手順5 の報告、台帳へ代行で書く記述の日本語は `${CLAUDE_PLUGIN_ROOT}/references/japanese-writing.md`（日本語出力の規約）に従う。差し込みで委譲するブリーフも同じ規約に従い、パス・コマンド・ID は逐語のまま残す。
 
 ## 入力
 

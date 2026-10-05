@@ -333,6 +333,8 @@ claude-flywheel/
 │   ├── run-cycle/               # 自走サイクル1周
 │   ├── agent-memory/            # ドメイン記憶の管理
 │   └── reflect/                 # 自己改善（内省）ループ1周
+├── references/                  # 複数スキルが共有する実行時テキスト
+│   └── japanese-writing.md      # 日本語出力の規約（run-cycle・ingest-challenges・reflect・adhoc が参照）
 ├── scripts/                     # 機械的処理の純シェル
 │   ├── sync-repos.sh            # 関連リポジトリ（作業用クローン）の冪等な clone/fetch
 │   └── trust-clone.sh           # クローンの trust 承認（人間が一度だけ手動実行）

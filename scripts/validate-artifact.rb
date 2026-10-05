@@ -14,7 +14,7 @@
 #   type:
 #     ledger         challenge-ledger.md（課題台帳）
 #     archive        challenge-archive.md（アーカイブ。検査は ledger とほぼ同一だが、
-#                    **結合切れ・参照フィールドの値の形の 2 検査は ledger 限定**＝アーカイブは
+#                    **結合切れ・参照フィールドの値の形・カードの 4 項目の形の 3 検査は ledger 限定**＝アーカイブは
 #                    「ステータス行以外は原文のまま」の履歴で修復が禁じられているため）
 #     journal-md     journal/YYYY-MM-DD-cycle.md（サイクルジャーナル）
 #     journal-index  journal/index.jsonl
@@ -456,11 +456,26 @@ LEDGER_REF_FIELDS = [
    "課題 ID（見出し `### [<ID>]` の `<ID>`。例 `C-012`）のカンマ区切り"],
 ].freeze
 
+# カードの 4 項目（任意・1 行。docs/challenge-ledger-format.md §カードの 4 項目）。
+# **必須にはしない**（4 項目を持たない既存エントリはそのまま正規）。検査するのは**形だけ**:
+#   - フィールド行の直下に継続行（インデント行・引用行）を続けない。消費側（board）は複数行の値を
+#     `タスク案`・`完了条件`・`説明` の 3 欄でしか集めず、他の欄の継続行は読み捨てる——書いた内容が
+#     表示から黙って落ちる（Issue #87 の欠落表示と同型）。
+#   - 同じ項目を 1 エントリに 2 回書かない（board は同一ラベルの先勝ちで後の行を無視する）。
+# 文字数・文数・「動詞で終える」等の目安は検査しない（機械で判定すると正当な書き方を拒む）。
+LEDGER_CARD_FIELDS = [
+  ["一言で", /^- 一言で:/],
+  ["位置づけ", /^- 位置づけ:/],
+  ["いまの状態", /^- いまの状態:/],
+  ["次に人間がすること", /^- 次に人間がすること:/],
+].freeze
+
 # エントリ固有のフィールド行（必須行＋マーカー行＋参照フィールド行）。見出しが破損・削除されると
 # 本文が「前文」か直前エントリへ吸収されて課題ごと不可視になるため、これらの行が認識済み
 # エントリの外に現れたら見出し破損の兆候として違反にする。
 LEDGER_FIELD_LINES = (LEDGER_REQUIRED_LINES.map { |_, re| re } +
                       LEDGER_REF_FIELDS.map { |_, re, _, _| re } +
+                      LEDGER_CARD_FIELDS.map { |_, re| re } +
                       [/^- 取り込み元:/]).freeze
 
 # ステータス語彙の**正本**（contracts/ledger-status-vocabulary.tsv）を実行時に読む。
@@ -705,6 +720,24 @@ def check_ledger(file, expect_ids = nil, live: true, vocabulary:)
       next if vocabulary.include?(value)
       shown = value.empty? ? "（空）" : value
       errors << "#{lineno}: 「ステータス」の値が閉じた語彙にありません（完全一致。遷移列・括弧・注記を付けない。語彙: #{vocabulary.join(' | ')}。実際: #{shown}）: #{heading[0, 60]}"
+    end
+
+    # (9) カードの 4 項目は 1 行・各 1 回（LEDGER_CARD_FIELDS の注記）。
+    #     (6)(7) と同じく live（台帳）限定: アーカイブは原文保存の履歴であり修復を強いない。
+    LEDGER_CARD_FIELDS.each do |label, re|
+      next unless live
+      c = body.count { |l| re =~ l }
+      if c > 1
+        errors << "#{lineno}: 「#{label}」行が #{c} 回出現しています（カードの項目は 1 エントリに 1 回。board は最初の行だけを読む）: #{heading[0, 60]}"
+      end
+      body.each_with_index do |l, i|
+        next unless re =~ l
+        nxt = body[i + 1]
+        next if nxt.nil?
+        if nxt =~ /^[ \t]+\S/ || nxt.start_with?(">")
+          errors << "#{lineno}: 「#{label}」の直下に継続行があります（カードの項目は 1 行で書き、改行・ネスト項目・引用を続けない。board が 2 行目以降を表示から落とす）: #{nxt[0, 50]}"
+        end
+      end
     end
   end
 

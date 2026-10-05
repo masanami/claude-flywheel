@@ -6,6 +6,7 @@
 > この規約は docs に置くだけでは生成時に効かないため、**図/ドキュメントを生成するスキルは要点をスキル本文にインライン明記して自己完結させる**（例: [bootstrap-domain-map](../skills/bootstrap-domain-map/SKILL.md) / [agent-memory](../skills/agent-memory/SKILL.md) / [reflect](../skills/reflect/SKILL.md)）。スキルは配布時に利用元へ渡り、この docs を実行時に参照できない前提のため、**docs へのポインタは置かず、判断基準（mermaid・言語タグ・キャプション・ツリーは text 例外・エスケープ）をスキル本文へ直接記載する**。
 > この「実行時に届かない docs へポインタを置かない」という原則は、図・ドキュメント生成に限らず `skills/` `templates/` 全体に及ぶ。一般形と判定軸・機械検査の境界は [runtime-text-conventions.md](./runtime-text-conventions.md)。
 > **本ファイルは docs 執筆時の詳細リファレンス**（安定 ID・相互参照・構造化の細目まで含む正本）。スキル本文のインラインと内容が食い違わないよう、規約を更新したら双方を整合させる。
+> **日本語の文章の組み立て（結論の位置・箇条書きの使いどころ・確信度ラベル・使わない言い回し）は別の規約** [`references/japanese-writing.md`](../references/japanese-writing.md) が持つ（[#194](https://github.com/masanami/claude-flywheel/issues/194)）。本ファイルは「AI が構造を取り違えないための書式」（図・フェンス・ID・構造化）、あちらは「人間が冒頭で要点を掴むための文章」で、扱う層が違う。ID の扱いは両立する: 本ファイル §4 の安定 ID は振って参照に使い続け、人間向けの文書では初出で一言説明を添えるか名前に置き換える（ID だけで意味を運ばせない）。
 > **適用範囲**: claude-flywheel が生成する成果物（地図・ポジション・memory・内省レポート等）。run-cycle が委譲する独立 `claude -p` セッション（§3.9.2）が生成する成果物は**対象リポジトリの流儀に従う**ため本規約の射程外。エージェント自身の `memory/` への書き戻しは agent-memory スキル経由で本規約が効く。
 
 ## 1. 図は mermaid で描く（ASCII art を使わない）
