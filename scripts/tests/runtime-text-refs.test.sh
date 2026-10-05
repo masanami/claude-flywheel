@@ -147,6 +147,18 @@ case "$skills_hits" in
 esac
 
 echo ""
+echo "=== (B2) references/ に docs/ 参照が無い（行全体が HTML コメントの行を除く） ==="
+# プラグイン直下の references/ は複数スキルが共有する実行時テキスト（日本語出力の規約など）。
+# skills/ と同じくモデルへ配送される面なので、同じ除外規則で検査する。
+
+refs_hits="$(scan comment-exempt references)"
+case "$refs_hits" in
+  SCAN-ERROR) fail "references/ の走査が実行エラーを起こしていない" "grep が exit 2 を返した" ;;
+  "") pass "references/ に docs/ 参照が無い（行全体が HTML コメントの行を除く）" ;;
+  *) fail "references/ に docs/ 参照が無い（行全体が HTML コメントの行を除く）" "$(printf '%s' "$refs_hits" | tr '\n' '|')" ;;
+esac
+
+echo ""
 echo "=== (C) templates/ に docs/ 参照が無い（HTML コメント内も違反） ==="
 # scaffold 先に docs/ は存在しないため、コメントに書いても利用先の人間が辿れない。
 
@@ -188,10 +200,13 @@ echo "=== (E) 走査対象が空でない（0 件の「違反なし」を pass �
 
 n_skills="$(find skills -name '*.md' -type f | grep -c .)"
 n_tpl="$(find templates -name '*.md' -type f | grep -c .)"
+n_refs_md="$(find references -name '*.md' -type f 2>/dev/null | grep -c .)"
 assert_eq "(E) skills/ に Markdown が 1 件以上ある" "true" \
   "$(if [ "$n_skills" -ge 1 ]; then echo true; else echo false; fi)"
 assert_eq "(E) templates/ に Markdown が 1 件以上ある" "true" \
   "$(if [ "$n_tpl" -ge 1 ]; then echo true; else echo false; fi)"
+assert_eq "(E) references/ に Markdown が 1 件以上ある" "true" \
+  "$(if [ "$n_refs_md" -ge 1 ]; then echo true; else echo false; fi)"
 
 echo ""
 echo "=== (F) 規約の正本が在り、判定軸と境界が読み取れる ==="
@@ -273,16 +288,16 @@ assert_eq "(G-1) 実在しない参照 2 件を検出する" "2" "$(unresolved_r
 assert_eq "(G-1) 実在する参照を誤検出しない" "0" "$(unresolved_refs "$TMP/refs/ok.md" | grep -c .)"
 
 # (G-2) 走査対象が空でない（抽出 0 件の「違反なし」を pass にしない）。
-n_refs="$(plugin_refs skills templates | grep -c .)"
+n_refs="$(plugin_refs skills templates references | grep -c .)"
 assert_eq "(G-2) 実行時テキストから参照を 1 件以上抽出できた" "true" \
   "$(if [ "$n_refs" -ge 1 ]; then echo true; else echo false; fi)"
 
 # (G-3) 本体の検査。
-broken_refs="$(unresolved_refs skills templates)"
+broken_refs="$(unresolved_refs skills templates references)"
 if [ -z "$broken_refs" ]; then
-  pass "(G-3) skills/ templates/ の参照 ${n_refs} 件がすべて実在する"
+  pass "(G-3) skills/ templates/ references/ の参照 ${n_refs} 件がすべて実在する"
 else
-  fail "(G-3) skills/ templates/ の参照 ${n_refs} 件がすべて実在する" "$(printf '%s' "$broken_refs" | tr '\n' '|')"
+  fail "(G-3) skills/ templates/ references/ の参照 ${n_refs} 件がすべて実在する" "$(printf '%s' "$broken_refs" | tr '\n' '|')"
 fi
 
 echo ""

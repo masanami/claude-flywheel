@@ -16,6 +16,7 @@ effort: high
 
 - 運用中で `memory/<domain>/` に `experience`（`outcome` 付き）が蓄積されている。
 - experience に追加するフィールドの規約は agent-memory スキル（`experience` 型）。
+- 内省レポート・改修提案・upstream Issue 案の日本語は `${CLAUDE_PLUGIN_ROOT}/references/japanese-writing.md`（日本語出力の規約）に従う（承認を求める提案は「推奨 → 選択肢 → 判断材料」の順に書く）。
 
 ## 入力（任意）
 
