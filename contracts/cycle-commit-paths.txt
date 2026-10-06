@@ -17,7 +17,10 @@
 #   - scripts/tests/noop-check.test.sh   … commit_path 出力の一致（データ駆動）と分類テスト
 #   - skills/adhoc/SKILL.md              … 「読み取りだけ（書かない）」の列挙。[commit] 全件が
 #                                          載っていることを scripts/tests/adhoc-skill.test.sh (D)
-#                                          が固定する（run-cycle が同じ周で書き換えるため）
+#                                          が固定する（run-cycle が同じ周で書き換えるため）。
+#                                          例外は受け箱 `handoff` だけで、adhoc は**新規作成だけ**
+#                                          可（既存ファイルは読み取りだけ）。(D) は「新規作成だけ」の
+#                                          行に載るのが `handoff` ちょうど 1 つであることも固定する
 #
 # **実体が無いエントリを書いてよい**。`challenge-archive.md` は初回アーカイブまで存在せず、
 # `briefs` / `.claude/skills` も使い始めるまで無い。cycle-commit.sh は git が解決できない
@@ -40,6 +43,11 @@ positions
 CLAUDE.md
 briefs
 .claude/skills
+# 引き継ぎ事項の受け箱（Issue #191）。1 書き手 1 ファイル（run-cycle は `handoff/<サイクル名>.md`、
+# adhoc は `handoff/<adhoc の id>.md`）で、既存ファイルは書き換えず新規作成だけ。処理した
+# run-cycle が手順0 でファイル単位に削除する（削除もサイクルコミットに入る）。初回の書き込みまで
+# 実体が無い（遅延生成＝`challenge-archive.md` と同じ）。
+handoff
 
 [exclude]
 # 優先度方針は「サイクルコミットに混ぜず専用の独立コミット」と規定されている（run-cycle 手順6）。

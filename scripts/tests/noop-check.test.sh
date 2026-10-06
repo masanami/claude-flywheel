@@ -282,6 +282,21 @@ check "ローカル skill の target（.claude/skills/ 配下の新規）は sta
 assert_absent_out ".claude/skills/ を out-of-scope-dirty と誤分類しない" 1 "reason=out-of-scope-dirty" \
   -- --workspace "$WS" --cycle "$CYCLE"
 
+# 受け箱 handoff/（Issue #191）は [commit] 側＝state-dirty。run-cycle 手順6 が no-op 判定より
+# 前に書くのは、このファイルを判定に乗せて「引き継ぎ事項を書いた周」を保留させないため。
+reset_ws; add_cycle "$CYCLE" 2026-08-21 1
+mkdir -p "$WS/handoff"
+printf '# 受け箱: %s\n\n- [記憶の草案] テスト\n' "$CYCLE" > "$WS/handoff/$CYCLE.md"
+check "受け箱（handoff/ 配下の新規）は state-dirty" 1 "reason=state-dirty"
+assert_absent_out "handoff/ を out-of-scope-dirty と誤分類しない" 1 "reason=out-of-scope-dirty" \
+  -- --workspace "$WS" --cycle "$CYCLE"
+check "許可パスに handoff が含まれる" 1 "commit_path=handoff"
+# 手順0 で仕分けて削除した周も state-dirty（削除がサイクルコミットに入る）
+git -C "$WS" add -- handoff >/dev/null 2>&1
+git -C "$WS" commit -qm 'handoff' -- handoff >/dev/null 2>&1
+rm -rf "$WS/handoff"
+check "受け箱のファイルを削除した周は state-dirty" 1 "reason=state-dirty"
+
 # 前置一致が `.claude` 丸ごとへ広がっていないこと（settings.json は権限定義であり、
 # サイクルコミットが自動で取り込んでよいものではない＝従来どおり範囲外で人間へ知らせる）
 reset_ws; add_cycle "$CYCLE" 2026-08-21 1
