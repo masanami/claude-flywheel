@@ -58,6 +58,8 @@ has "(A) github-issue 以外はソースが提供する範囲で読む" "$step2"
 has "(A) 無効になった本文由来の内容を根拠にしない" "$step2" \
   '**本文由来の内容（説明欄・完了条件）がコメント等の後の決定で無効になっていたら、それをタスク案・完了条件の根拠にしない**'
 
+has "(A) 食い違いと採った側は journal の ⑤ に残す（備考には書かない）" "$step2" \
+  '食い違いと採った側をサイクルの journal の「⑤ 判断と根拠」に 1〜2 行で残す（台帳の備考には書かない。'
 read_line="$(printf '%s\n' "$step2" | grep -nF '【取り込み元の最新を読む】' | head -1 | cut -d: -f1)"
 plan_line="$(printf '%s\n' "$step2" | grep -nF '目標 → タスクに分解し、タスク案を' | head -1 | cut -d: -f1)"
 if [ -n "$read_line" ] && [ -n "$plan_line" ] && [ "$read_line" -lt "$plan_line" ]; then
