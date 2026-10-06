@@ -15,7 +15,8 @@
 #   2. **書き込み範囲の完全性（語彙駆動）**: run-cycle がコミットするパス集合の正本
 #      contracts/cycle-commit-paths.txt の [commit] に載るパスは、**全件**がスキルの
 #      「読み取りだけ」側に列挙されている。正本へパスを足したのにスキルが追従しなければ
-#      ここで落ちる（2 つのリストを手で同期させない）。
+#      ここで落ちる（2 つのリストを手で同期させない）。例外は受け箱 `handoff` だけで、
+#      無条件の表に「新規作成だけ」として載る（既存ファイルは読み取りだけ。Issue #191）。
 #   3. **代替手段が用意されている**: 「書くな」だけの行を作らない。代替手段の表の各行に
 #      行き先（書かず〜／取得しない〜）が書かれていること。禁止だけでは守られない。
 #   4. **停止条件の明文化**: 未終了 adhoc_start の扱い 3 点が在る。
@@ -163,6 +164,54 @@ EOF
     *) pass "(D) 検出器の自己検査（偽陽性が出ない）" ;;
   esac
 fi
+
+# 例外は受け箱 handoff だけ（Issue #191）: adhoc が無条件に書いてよい表のうち、[commit] の
+# パスに当たる行は「新規作成だけ」の行で、その対象は handoff ちょうど 1 つ。既存ファイルは
+# 「読み取りだけ」側に残る（上の全件検査が handoff も要求する）。journal・memory 等が
+# 「新規作成だけ」の名目で無条件の表へ漏れたら落ちる。
+uncond_rows() {
+  awk '
+    /\*\*無条件に書き込んでよいのは/ {f=1; next}
+    f && $0 !~ /^\|/ && NF==0 {next}
+    f && $0 !~ /^\|/ {f=0}
+    f && $0 ~ /^\|/ {
+      if ($0 ~ /^\| *---/) next
+      if ($0 ~ /^\| *対象 *\|/) next
+      print $0
+    }
+  ' "$1"
+}
+# 無条件の表のうち、1 列目に [commit] のパスを含む行の、そのパスを 1 行 1 件で返す。
+uncond_commit_targets() {
+  first="$(uncond_rows "$1" | awk -F'|' '{print $2}')"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$first" in *"\`$p"*) printf '%s\n' "$p" ;; esac
+  done <<EOF
+$commit_paths
+EOF
+}
+n_urows="$(uncond_rows "$SKILL" | grep -c .)"
+n_urows="$(printf '%s' "$n_urows" | tr -d ' ')"
+assert_eq "(D) 無条件に書いてよい表から本文行を 1 行以上抽出できた" "true" \
+  "$(if [ "$n_urows" -ge 1 ]; then echo true; else echo false; fi)"
+assert_eq "(D) 無条件の表に載る [commit] のパスは handoff ちょうど 1 つ" "handoff" \
+  "$(uncond_commit_targets "$SKILL")"
+handoff_row="$(uncond_rows "$SKILL" | grep -F '`handoff/')"
+if printf '%s' "$handoff_row" | grep -qF '**新規作成だけ**'; then
+  pass "(D) 受け箱の行は「新規作成だけ」に限っている"
+else
+  fail "(D) 受け箱の行は「新規作成だけ」に限っている" "行: ${handoff_row}"
+fi
+# 検出器の自己検査: journal/ の行を無条件の表へ足した変異は、対象が 2 つになって検出される。
+tmpd="$(mktemp -d "${TMPDIR:-/tmp}/adhoc-skill-test.XXXXXX")"
+awk '{print} /^\| `handoff\/<手順2 で発番した id>.md`/ {print "| `journal/<id>.md` | 変異 |"}' "$SKILL" > "$tmpd/mutant.md"
+if [ "$(uncond_commit_targets "$tmpd/mutant.md" | grep -c .)" -eq 2 ]; then
+  pass "(D) 検出器の自己検査（無条件の表への漏れを検出する）"
+else
+  fail "(D) 検出器の自己検査（無条件の表への漏れを検出する）" "変異版の抽出が 2 件にならない"
+fi
+rm -rf "$tmpd"
 
 echo ""
 echo "=== (E) 代替手段が用意されている（禁止だけの行を作らない） ==="

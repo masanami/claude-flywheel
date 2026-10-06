@@ -253,6 +253,30 @@ assert_exit "実体ができた周のコミットも成功する" 0
 assert_committed "実体ができた briefs/ はコミット対象になる" "$ws" "briefs/delegation-brief.md"
 assert_committed "実体ができた .claude/skills/ はコミット対象になる" "$ws" ".claude/skills/SKILL.md"
 
+# 受け箱 handoff/（Issue #191）: 新規作成も、仕分け後の削除（最後の 1 件を消して
+# ディレクトリごと無くなる場合を含む）もサイクルコミットに入る。
+ws="$(new_ws handoff)" || setup_fail "$(setup_reason)"
+mkdir -p "$ws/handoff"
+printf '# 受け箱: adhoc-20261007-1000-x\n\n- [記憶の草案] テスト\n' > "$ws/handoff/adhoc-20261007-1000-x.md"
+git -C "$ws" add -- handoff >/dev/null 2>&1 && git -C "$ws" commit -qm 'adhoc handoff' -- handoff >/dev/null 2>&1 \
+  || setup_fail "handoff の初期コミット"
+rm -f "$ws/handoff/adhoc-20261007-1000-x.md"; rmdir "$ws/handoff"
+write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1
+run commit --workspace "$ws" --cycle 2026-08-27-cycle
+assert_exit "受け箱を空にした周のコミットは成功する" 0
+assert_committed "受け箱のファイルの削除がコミットに入る" "$ws" "handoff/adhoc-20261007-1000-x.md"
+if git -C "$ws" cat-file -e "HEAD:handoff/adhoc-20261007-1000-x.md" 2>/dev/null; then
+  fail "削除後の HEAD に受け箱のファイルが残っていない" "残っている"
+else
+  pass "削除後の HEAD に受け箱のファイルが残っていない"
+fi
+mkdir -p "$ws/handoff"
+printf '# 受け箱: 2026-08-28-cycle\n\n- [フォローアップ候補] テスト\n' > "$ws/handoff/2026-08-28-cycle.md"
+write_cycle "$ws" 2026-08-28-cycle 2026-08-28 1
+run commit --workspace "$ws" --cycle 2026-08-28-cycle
+assert_exit "受け箱へ書いた周のコミットは成功する" 0
+assert_committed "受け箱の新規ファイル（未追跡）がコミットに入る" "$ws" "handoff/2026-08-28-cycle.md"
+
 # 正本が読めない/空なら fail-closed（推測でパスを組み立てない）
 ws="$(new_ws canon-broken)" || setup_fail "$(setup_reason)"
 write_cycle "$ws" 2026-08-27-cycle 2026-08-27 1

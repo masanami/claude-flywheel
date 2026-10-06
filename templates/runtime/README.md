@@ -1,4 +1,4 @@
-<!-- flywheel-template: runtime/README.md@0.28.0 -->
+<!-- flywheel-template: runtime/README.md@0.31.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
@@ -24,7 +24,7 @@ flowchart LR
 ## セットアップ（段階）
 
 1. **手動検証**: まず `/run-cycle`（または `/run-cycle --dry-run`）を手動実行し、1 周の挙動を確認する。
-2. **運用**: 人間が各エージェントワークスペースで対話セッションを開き、`/claude-flywheel:run-cycle` を実行する。**1 周を終えたらセッションを閉じ、次の周は新しいセッションで始める**（引き継ぎは台帳・journal・memory が担う。規約はワークスペースの `CLAUDE.md`「1 サイクル = 1 セッション」）。承認ゲートに達するとサイクルは終了せず一時停止し、対話で集合単位の承認をそろえてから同じ周で前進する（中断を指示した分は台帳へ駐機され、次の周の一時停止点で改めて承認を求める）。
+2. **運用**: 人間が各エージェントワークスペースで対話セッションを開き、`/claude-flywheel:run-cycle` を実行する。**1 周を終えたらセッションを閉じ、次の周は新しいセッションで始める**（引き継ぎは台帳・journal・memory と受け箱 `handoff/` が担う。規約はワークスペースの `CLAUDE.md`「1 サイクル = 1 セッション」）。承認ゲートに達するとサイクルは終了せず一時停止し、対話で集合単位の承認をそろえてから同じ周で前進する（中断を指示した分は台帳へ駐機され、次の周の一時停止点で改めて承認を求める）。
    - `.flywheel/cadence.json` は運用設定（`execution_mode`・サイクル全体の予算上限 `cycle_budget_usd`・reflect のしきい値 `reflect.every_n_cycles`）を置く。キーの意味・既定値・不在時の扱いの正本は `run-cycle` スキル。
    - `.flywheel/cadence.json` の `execution_mode`（既定 `native`）で起動導線が変わる:
 
