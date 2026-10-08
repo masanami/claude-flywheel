@@ -1,4 +1,4 @@
-<!-- flywheel-template: runtime/README.md@0.31.0 -->
+<!-- flywheel-template: runtime/README.md@0.32.0 -->
 
 # runtime — 自律実行ランタイム【成果物 (b)】
 
@@ -50,7 +50,7 @@ flowchart LR
      ```
 
      container モードの雛形（`Dockerfile`・`compose.yml`）は `flywheel-init` が `templates/container/` から `container/` へ scaffold する。前提条件・設計根拠の**正本は [`container/compose.yml`](../container/compose.yml)・[`container/Dockerfile`](../container/Dockerfile) のコメント**（下記「container モードの前提条件」も参照）。
-3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（run-cycle が journal の周回数で `.flywheel/cadence.json` の `reflect.every_n_cycles` に達した周にサイクルレポートで実行を推奨するので、人間がそれを見て起動する。任意の時点での手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
+3. **自己改善（内省）を低頻度で**: `reflect` を run-cycle より**まばらに**起動する（run-cycle が journal の周回数で `.flywheel/cadence.json` の `reflect.every_n_cycles` に達した周は、サイクルレポート末尾の案内を `/claude-flywheel:reflect` に置き換えるので、人間がそれに従って新しいセッションで起動する。run-cycle は周の初めにも reflect の滞留〔最後の reflect の後の周数がしきい値以上、または未処理の再発 bad がある〕を判定し、滞留していれば一時停止して「reflect を先に回す」か「見送って周を続ける」かを聞く。任意の時点での手動起動も可）。run-cycle が残した good/bad の記録を集計し、skill/ブリーフ/ポジション/recall の改修を提案する（手順は `reflect` スキルに自己完結）。毎周は回さない。
 4. **承認ゲートは常に維持**（本番に影響する不可逆な操作＝既定ブランチ〔`main`〕への昇格マージ／本番影響／削除／履歴破壊は人間承認。作業ブランチへの push・PR 作成・統合ブランチ／親Issueブランチ（本番非反映）へのマージは本番影響が無く可逆で自律可）。承認ゲートではサイクルを終了せず一時停止し、対話で集合単位の承認をそろえてから同じ周で前進する（そろわないまま進めるのは人間の指示による例外だけ）。ハーネス改修の適用も人間承認。
 
 ## container モードの前提条件
